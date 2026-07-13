@@ -1,5 +1,105 @@
 # @checkstack/catalog-frontend
 
+## 0.20.0
+
+### Minor Changes
+
+- a74fa01: Slim the "Edit System" dialog and move a system's living data onto its detail
+  page. The dialog was a `max-w-lg` modal mixing a deferred-save identity form
+  with five self-persisting panels. It now carries only the fields the Save
+  button persists - name, description, and custom fields - with a hint linking to
+  the system page for everything else. Nothing was lost; each surface moved or
+  already existed elsewhere:
+
+  - The detail page's sidebar sections read IDENTICALLY for every visitor (the
+    compact read-only views). Managers additionally get a small pencil per
+    section that opens a focused, single-purpose dialog: **Manage contacts**,
+    **Manage links**, **Team access**, and **Manage dependencies** (the
+    plugin-injected `SystemEditorSlot`; the slot doc reflects the new mount
+    point - `@checkstack/catalog-common` patch). One small modal per concern,
+    no permanently expanded forms on the page.
+  - **Environment membership** stays managed from the Systems-table row chips and
+    the Environments tab; the redundant per-system environments picker in the
+    dialog is removed.
+
+  The pencils are gated on manage capability and respect GitOps: a
+  GitOps-managed system shows the lock banner and hides the contacts/links
+  pencils (team-access grants are not GitOps-managed and stay editable). Also
+  fixes `SystemLinksEditor` gating its editability on the GLOBAL manage rule
+  only - team-scoped system managers got a read-only editor.
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/auth-frontend@0.13.4
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/gitops-frontend@0.7.5
+  - @checkstack/notification-frontend@0.9.3
+  - @checkstack/tips-frontend@0.5.1
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/common@0.22.0
+  - @checkstack/notification-common@1.7.1
+
 ## 0.19.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/cache-memory-backend",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

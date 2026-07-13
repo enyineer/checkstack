@@ -1,5 +1,56 @@
 # @checkstack/auth-frontend
 
+## 0.13.4
+
+### Patch Changes
+
+- a74fa01: Opaque card surfaces and a heading opt-out for dialog-hosted editors:
+
+  - `TeamAccessEditor`'s compact container now carries its own `bg-card`
+    background. It was a bordered box with no background - fine inside the old
+    opaque dialog, but transparent when mounted on a page with a decorative
+    backdrop (the detail pages' grid bled through the content). Card-like
+    containers must always declare their own opaque background.
+  - `LinksEditor` gains an optional `hideTitle` prop so hosts whose own title
+    already names the surface (e.g. a "Manage links" dialog) can suppress the
+    built-in heading; the description still renders. Default behavior is
+    unchanged.
+
+- a74fa01: Fix the catalog manage page render storm: with many visible systems, every
+  parent render (typing in the filter, any query refresh, opening a dialog)
+  re-rendered every row's slot fillers - rows x fillers x auth/query hook trees
+
+  - profiling as a GC-dominated main thread.
+
+  - `ExtensionSlot` now renders each extension through a memoized component
+    that bails out on SHALLOW slot-context equality (`slotContextEquals`,
+    regression-tested): inline context objects keep working, but an unchanged
+    row no longer re-runs its fillers. Call sites must keep context VALUES
+    referentially stable - primitives are free, memoize arrays/objects (the
+    catalog already memoizes `visibleSystemIds`).
+  - `useCanAccessType`/`useSurfaceAccess` (`useTypeSurface`) now resolve the
+    global rule and the authenticated gate from ONE `useAccessRules` call
+    instead of two, halving the session/rules query observers each gated
+    control allocates - noticeable when the gate is mounted once per row.
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/common@0.22.0
+  - @checkstack/incident-common@1.10.3
+  - @checkstack/maintenance-common@1.10.3
+
 ## 0.13.3
 
 ### Patch Changes

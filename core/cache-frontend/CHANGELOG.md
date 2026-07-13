@@ -1,5 +1,21 @@
 # @checkstack/cache-frontend
 
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/cache-common@0.5.11
+  - @checkstack/common@0.22.0
+  - @checkstack/infrastructure-common@0.3.21
+
 ## 0.6.4
 
 ### Patch Changes

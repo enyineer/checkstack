@@ -1,5 +1,160 @@
 # @checkstack/healthcheck-backend
 
+## 1.21.0
+
+### Minor Changes
+
+- a74fa01: Relocate health-check assignment management from the catalog-entered,
+  system-centric Assignment IDE into the check editor itself, so a check's
+  settings AND its assignments (with their per-system settings) are managed in
+  one place. Users think in terms of "Health Checks", not the catalog - the
+  old flow was discovered through a catalog system row and inverted that mental
+  model.
+
+  - **Check editor Assignment section** (edit mode): lists every assigned
+    system as a tree group with the per-assignment panels (General, Thresholds,
+    Retention, Execution with satellites + environment fan-out, Notifications)
+    plus an "Assign to system..." picker that only offers systems the caller
+    can manage. The `AssignmentIDENodeSlot`/`AssignmentIDEPanelSlot` extension
+    points keep their names and context shape - extension node ids are
+    namespaced per system internally so config-keyed ids (e.g. the anomaly
+    panels) no longer collide across systems.
+  - **New procedure `getConfigurationAssignments`** (config → systems, the
+    inverse of `getSystemAssociations`), handler-authorized fail-closed: global
+    configuration read or a team grant on the configuration sees every row;
+    otherwise rows filter to systems the caller may read.
+  - **`getConfiguration` relaxed** (handler-authorized): a reader of an
+    ASSIGNED system may load the (redacted) configuration - the same exposure
+    `getSystemConfigurations` already allowed - so system managers can open the
+    editor. Unauthorized callers still get the same `undefined` as a missing id.
+  - **RLAC**: the edit and config routes now declare
+    `manageCapability.parentType: catalog.system`, so a pure system manager
+    reaches the editor for its Assignment section; the config side renders
+    read-only for them (Save disabled, strategies/collectors/access-control
+    gated per-node) while their systems' assignment panels stay writable.
+    GitOps-locked systems lock exactly their own assignment nodes.
+  - **Catalog wayfinding**: the per-system row button is now a
+    "Manage health checks" link opening the Health Checks list pre-filtered to
+    that system (`?system=<id>`); the filtered list loads via the
+    system-read-gated `getSystemConfigurations`, so it also works for system
+    managers without healthcheck grants.
+
+  BREAKING CHANGES: the standalone system-centric assignment page is removed -
+  the `healthcheck` plugin's `assignments` route (`/assignments/:systemId`) no
+  longer exists and `healthcheckRoutes.routes.assignments` is gone from
+  `@checkstack/healthcheck-common`. Deep links to the old page now 404; use the
+  check editor's Assignment section (or the filtered Health Checks list)
+  instead.
+
+- 4568dcc: Expose health check environment resolution to cross-plugin callers via a new
+  `resolveEnqueueEnvironments({ configId, systemId })` procedure. It returns the
+  effective environment ids a one-off run should enqueue for (or `[null]` for an
+  env-less system) - the same fan-out the `run_now` automation and the recurring
+  scheduler use. Gated by any healthcheck read capability (`typeScoped` read),
+  consistent with the other utility reads.
+
+  This lets a cross-plugin health trigger enqueue exactly the environment slices
+  the run executor accepts. Previously such a caller could only enqueue an env-less
+  run (`environmentId: null`), which the executor drops as stale for a system that
+  has effective environments - so the trigger was a silent no-op for env-assigned
+  systems. The log-stream fast-path health trigger is the first consumer (covered
+  by the existing log streams changeset).
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d9f2771]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ai-backend@0.11.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/satellite-backend@0.9.0
+  - @checkstack/signal-common@0.3.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/catalog-backend@1.9.0
+  - @checkstack/automation-backend@0.11.4
+  - @checkstack/incident-backend@1.13.2
+  - @checkstack/sdk@0.130.1
+  - @checkstack/ai-common@0.6.6
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/command-backend@0.2.25
+  - @checkstack/common@0.22.0
+  - @checkstack/gitops-backend@0.5.25
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/incident-common@1.10.3
+  - @checkstack/maintenance-common@1.10.3
+  - @checkstack/notification-common@1.7.1
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/script-packages-backend@0.4.4
+  - @checkstack/secrets-backend@0.3.7
+  - @checkstack/secrets-common@0.3.2
+  - @checkstack/status-page-backend@0.6.2
+  - @checkstack/status-page-common@0.6.3
+
 ## 1.20.1
 
 ### Patch Changes

@@ -1,5 +1,208 @@
 # @checkstack/satellite
 
+## 0.7.0
+
+### Minor Changes
+
+- 4568dcc: Satellite telemetry forwarding, agent side + the logstream core handler.
+
+  `@checkstack/satellite` gains the local telemetry receivers and the metric
+  scraper, each behind its capability env flag and forwarding into the ONE
+  credit-window telemetry client (nothing touches the health-result path):
+
+  - HTTP receivers on one port (`CHECKSTACK_SATELLITE_RECEIVER_PORT`, default 4318) when `CHECKSTACK_SATELLITE_LOG_RECEIVERS=1`: OTLP logs `/v1/logs`,
+    native logs `/ingest`, OTLP metrics `/v1/metrics`, native metrics
+    `/ingest/metrics`. The agent parses with the shared parsers, requires a
+    `ckls_`/`ckms_`-SHAPED token (401 otherwise) and answers 202 after buffering;
+    it does not (cannot) verify the token - the core handler does, so a
+    core-rejected token is a documented "202-then-drop" surfaced as a counted
+    drop.
+  - A TCP/TLS syslog listener when `CHECKSTACK_SATELLITE_SYSLOG=1`
+    (`CHECKSTACK_SATELLITE_SYSLOG_PORT` + `_TLS_CERT`/`_TLS_KEY`/`_HOST`), reusing
+    the shared RFC 6587 framer + RFC 5424 parser and forwarding lines grouped by
+    the token each message carried.
+  - A metric-scrape scheduler when `CHECKSTACK_SATELLITE_SCRAPE=1`: consumes the
+    `metric-scrape` capability config the core pushes (the targets bound to this
+    satellite), reconciles one interval timer per target, and runs an SSRF-guarded
+    scrape executor (same `resolveAndValidateHost` egress guard, timeout, size cap,
+    and `capScrapeSeries` shaping as the core reconciler), forwarding datapoints
+    and per-target status. Concurrent scrapes are capped (default 4); a transport
+    failure is reported as `lastError` (never a metric).
+
+  `@checkstack/logstream-backend` registers the "logstream" satellite capability
+  handler against `satelliteCapabilityExtensionPoint`: it verifies each forwarded
+  group's `ckls_` token with the existing ingest authenticator (revocation
+  intact), re-clamps timestamps against the core clock, re-applies the stream's
+  severity `valueMap`, and feeds the SAME ingest pipeline the HTTP endpoints use.
+  Ack semantics mirror HTTP - a token rejection is terminal (dropped + counted);
+  a whole-batch saturation that wrote nothing is retryable (safe, nothing was
+  buffered); any partial accept is terminal so a resend never double-writes.
+
+  `@checkstack/logstream-common` gains the shared `satellite-relay` wire contract
+  (`SatelliteLogLine`/`SatelliteLogBatch` + `toWireLogLine`) used by both the
+  agent receivers and the core handler.
+
+- 4568dcc: Add the satellite telemetry protocol + capability foundation (log/metric
+  forwarding and satellite-side scraping build on this). All additions are
+  additive and version-skew safe - every new field is optional and old peers
+  ignore unknown message types and fields, so mixed-version fleets keep working.
+  The existing health-result path is untouched.
+
+  - `@checkstack/satellite-common`: new generic telemetry envelopes on the WS
+    protocol - `telemetry_batch` / `capability_status` (satellite -> core) and
+    `telemetry_ack` / `capability_config` (core -> satellite). `authenticate` and
+    `heartbeat` gain an optional `capabilities` list. New flow-control constants
+    (max in-flight, batch item/byte caps, per-connection dedupe window and
+    bytes/min budget, ack timeout, pump interval).
+  - `@checkstack/satellite-backend`: a `satellite.capability` extension point so
+    domain plugins contribute a handler per `kind` (ingest a batch, build the
+    pushed config, handle a status update) without satellite-backend depending on
+    any domain plugin. The WS handler routes telemetry by kind, dedupes resent
+    batchIds per connection, enforces a per-connection byte budget (over-budget =
+    retryable ack, never a disconnect), acks every batch, and pushes
+    `capability_config` on connect and on `notifyCapabilityConfigChanged`
+    (cross-pod via a broadcast domain event). Advertised capabilities are
+    persisted on a new `satellites.capabilities` column and surfaced on the read
+    model.
+  - `@checkstack/satellite` (agent): a `TelemetryClient` that buffers per-kind
+    (bounded, drop-oldest, counted) and forwards over a credit window (at most N
+    unacked batches, chunked to the item/byte caps, monotonic per-connection
+    batchId, resend-until-ack, drop-and-count on a terminal ack). Capabilities are
+    advertised from env flags; an agent capability registry routes pushed
+    `capability_config` to a consumer and sources `capability_status` back.
+  - `@checkstack/ingest-utils`: `IngestBuffer` gains an opt-in `dropOldest` mode
+    (evict oldest to admit new items, report how many were dropped) and a
+    `drainChunk` for bounded FIFO draining. The default reject-new behavior the
+    backend ingest endpoints rely on is unchanged.
+
+  BREAKING CHANGE: none. The platform is in beta; this is purely additive.
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- 4568dcc: Harden parsing and dispatch flagged by CodeQL (5 high-severity alerts):
+
+  - Ingest-token extraction (`ckls_`/`ckms_`/generic source tokens) matched the
+    `Authorization` header with `^Bearer\s+(.+)$`, whose `\s+` and `.+` overlap on
+    whitespace and backtrack polynomially on crafted input (ReDoS). It now matches
+    only the `Bearer ` scheme prefix and slices the remainder - linear time, same
+    behavior.
+  - The Prometheus text parser's `# TYPE`/`# HELP` line regex had the same
+    overlapping-quantifier shape (`\s*(.*)$`); it now matches through the metric
+    name and slices the rest.
+  - The satellite client resolved a pending capability-secret callback from a map
+    keyed by the untrusted `requestId` and invoked it directly, which reads as an
+    unvalidated dynamic dispatch. The pending entry is now an object with a
+    statically-named `settle` method, so the invocation is never a callee derived
+    purely from external input.
+
+- 4568dcc: Attribute satellite in-transit telemetry drops PER STREAM instead of a single
+  connection-level count. Previously a satellite reported one aggregate
+  `droppedSinceLast` per batch, and each core handler charged that full count to
+  every stream the batch touched - so a multi-stream batch over-counted the loss
+  on every stream, and a drop that belonged to one stream was smeared across the
+  others.
+
+  - Wire: `telemetry_batch.droppedSinceLast` (a single number) is replaced by
+    `droppedByGroup` - a map of per-group drop counts, keyed by an opaque domain
+    group string the capability handler interprets (the stream token for the
+    forward paths, the scrape target id for `metric-scrape`). The whole satellite
+    telemetry feature is unreleased, so this is a clean replacement, not a
+    breaking change to any shipped agent.
+  - Agent (`@checkstack/satellite`): the telemetry client buckets buffered items
+    by a caller-supplied `groupKeyOf`, so drop-oldest eviction is naturally
+    per-group; the loss rides the next batch's `droppedByGroup`. A terminal ack's
+    `rejected` is no longer folded back into the agent's drop counter - that is a
+    core-side outcome the core attributes itself, and folding it double-counted
+    the loss and (for a bad token) misattributed it to unrelated streams.
+  - `@checkstack/ingest-utils`: `IngestBuffer` (drop-oldest mode) now reports
+    `droppedByKey` alongside the aggregate `dropped`, so a caller can attribute
+    each eviction to the key it belonged to.
+  - Core handlers (logstream forward, metricstream forward + scrape) resolve each
+    `droppedByGroup` key to its stream - reusing the same token-verdict / target
+    -binding lookups the payload uses - and record the loss against that stream
+    alone. A key that no longer resolves to a stream (unknown/revoked token,
+    unbound target) is left unattributed rather than charged elsewhere.
+
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [d00e099]
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/ingest-utils@0.1.0
+  - @checkstack/logstream-common@0.1.0
+  - @checkstack/metricstream-common@0.1.0
+  - @checkstack/otlp-wire@0.1.0
+  - @checkstack/satellite-common@0.10.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/common@0.22.0
+  - @checkstack/script-packages-backend@0.4.4
+  - @checkstack/secrets-common@0.3.2
+
 ## 0.6.6
 
 ### Patch Changes

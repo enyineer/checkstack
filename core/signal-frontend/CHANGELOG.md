@@ -1,5 +1,12 @@
 # @checkstack/signal-frontend
 
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+  - @checkstack/signal-common@0.3.0
+
 ## 0.3.5
 
 ### Patch Changes

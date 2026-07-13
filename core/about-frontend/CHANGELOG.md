@@ -1,5 +1,20 @@
 # @checkstack/about-frontend
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/about-common@0.3.7
+  - @checkstack/common@0.22.0
+
 ## 0.5.4
 
 ### Patch Changes

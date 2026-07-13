@@ -1,5 +1,14 @@
 # @checkstack/automation-common
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+  - @checkstack/signal-common@0.3.0
+  - @checkstack/common@0.22.0
+  - @checkstack/template-engine@0.4.11
+
 ## 0.10.0
 
 ### Minor Changes

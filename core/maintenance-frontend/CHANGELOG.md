@@ -1,5 +1,58 @@
 # @checkstack/maintenance-frontend
 
+## 0.16.0
+
+### Minor Changes
+
+- a74fa01: Slim the "Edit Incident" and "Edit Maintenance" dialogs and move each entity's
+  living, self-persisting data onto its detail page. Both dialogs were crammed
+  `max-w-4xl` modals that mixed a deferred-save form with self-persisting panels.
+  They now carry only the fields the Save button persists - for incidents: title,
+  description, severity, affected systems, health override, and notification
+  suppression; for maintenances: title, description, schedule, affected systems,
+  and notification suppression - plus the create-only team ownership picker. The
+  dialogs drop to `max-w-2xl` and, when editing, show a hint linking to the
+  entity's detail page for everything else. Nothing was lost; each surface moved
+  or already existed elsewhere:
+
+  - **Status updates** are no longer duplicated in the dialog. The detail page
+    already rendered the same fully-editable `IncidentUpdatesSection` /
+    `MaintenanceUpdatesSection` (each internally manage-gated), so the dialog's
+    copy was a pure duplication and is removed.
+  - **Hotlinks** now render as an editable `LinksEditor` section on the detail
+    page for anyone who can manage the entity (the existing read-only twin stays
+    for viewers who cannot). It self-persists via the add/update/remove
+    mutations, refetching the entity on success.
+  - **Team access** ("who can change this") is now managed on the detail page via
+    `TeamAccessEditor` (managers only) instead of in the dialog. The read-only
+    "managed by" indicator from the details slot is unchanged.
+
+  The detail-page manage sections are gated on the same per-resource manage
+  verdict the status-updates section already used (`accessApi.useResourceAccess`
+  on the entity), so non-managers keep read-only surfaces and never see broken or
+  disabled editors.
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/auth-frontend@0.13.4
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/dashboard-frontend@0.10.9
+  - @checkstack/notification-frontend@0.9.3
+  - @checkstack/tips-frontend@0.5.1
+  - @checkstack/common@0.22.0
+  - @checkstack/maintenance-common@1.10.3
+  - @checkstack/notification-common@1.7.1
+  - @checkstack/signal-frontend@0.3.6
+
 ## 0.15.2
 
 ### Patch Changes

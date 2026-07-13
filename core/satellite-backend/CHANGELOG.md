@@ -1,5 +1,163 @@
 # @checkstack/satellite-backend
 
+## 0.9.0
+
+### Minor Changes
+
+- 4568dcc: Add satellite telemetry for metric streams: forward push telemetry through
+  satellites and scrape Prometheus targets FROM a satellite instead of core.
+
+  metricstream-backend now contributes two handlers to satellite-backend's
+  capability extension point (dependency inversion - the domain plugin
+  contributes; satellite-backend never imports metricstream):
+
+  - **kind `metricstream`**: a satellite receiver forwards push telemetry it
+    accepted for one or more streams (payload is an array of `{ streamToken,
+datapoints }` groups). Authorized end to end by each stream's `ckms_` source
+    token (verified on core exactly like the HTTP push path); a bad/revoked token
+    drops that group non-retryably. Forwarded datapoints go through the SAME
+    ingest sink the HTTP push + scrape paths use (no duplicated fold logic).
+  - **kind `metric-scrape`**: a scrape target can be BOUND to a satellite
+    (`metric_scrape_targets.satellite_id`). `buildCapabilityConfig` tells each
+    satellite which targets to scrape (`{ targets: [{ id, name, url,
+intervalSeconds, timeoutMs, maxSeries, hasBearer }] }`). Forwarded scrape
+    batches (`[{ targetId, datapoints }]`) are authorized by the target BINDING:
+    core accepts an entry only when the target belongs to the sending satellite,
+    rejecting mismatched/unknown targets. `handleCapabilityStatus`
+    (`[{ targetId, lastScrapeAt, lastError, consecutiveFailures? }]`) mirrors
+    per-target scrape health and fires the `scrape_failing` event on the threshold
+    crossing, reusing the core reconciler's one-event-per-episode semantics.
+
+  BEARER SECRETS: the bearer NEVER rides the config push. The config only flags
+  `hasBearer`; the agent fetches the token just-in-time via a
+  `capability_secret_request`, which the core handler's `resolveSecret` answers -
+  binding-authorized (resolved ONLY when the target is bound to the requesting
+  satellite) and returned over the authenticated channel, never persisted or
+  logged. This reuses the health-check JIT secret pattern.
+
+  The core Prometheus scrape reconciler EXCLUDES satellite-bound targets from its
+  scheduling (they are scraped on the satellite) and cancels a target's core job
+  when it rebinds core -> satellite; a rebind back reschedules it. Scrape-target
+  CRUD notifies BOTH the old and new satellite so each converges its scrape set.
+
+  Two new forward-only migrations: `metric_scrape_targets.satellite_id` (+ index),
+  and `metric_stream_activity.dropped_in_transit_count` - a new counter of
+  telemetry a SATELLITE dropped from its bounded buffer during a disconnect /
+  slow-consumer episode (reported per stream via each batch's `droppedByGroup`,
+  keyed by scrape target id for the scrape path and stream token for the forward
+  path), surfaced on the `StreamActivity` / overview read model (distinct from
+  cardinality-cap and buffer-full drops).
+
+  metricstream-common gains: an optional `satelliteId` on the scrape-target DTOs
+  (create/update/read); the shared satellite capability wire schemas
+  (`MetricScrapeConfigSchema`, `MetricScrapeBatchSchema`, `MetricScrapeStatusSchema`,
+  `MetricstreamForwardBatchSchema`, `WireDatapoint` + `wireDatapointToNormalized`)
+  so the agent and frontend validate the same payloads; and the pure
+  `parseOtlpMetricsJson` (moved from metricstream-backend so the satellite agent's
+  `/v1/metrics` receiver can import it - backend now re-exports it).
+
+  `@checkstack/satellite-backend` (minor, additive): the `handleTelemetryBatch`
+  capability-handler ctx now carries the envelope's optional per-group
+  `droppedByGroup`, and the WS handler forwards it, so a domain handler can
+  attribute in-transit drops to the exact stream that lost data.
+
+  SECURITY: authorize the caller-supplied `satelliteId` when creating/updating a
+  scrape target. Previously the only gate was the stream `manage` grant, so a
+  team-scoped stream manager could bind their target to another team's satellite +
+  an internal URL in that satellite's zone, turning core into a cross-zone SSRF
+  pivot. Binding a non-null satellite now requires (over a caller-scoped RPC) that
+  the satellite EXISTS, the CALLER can READ it (`satellite.read`, else FORBIDDEN),
+  and it advertises the `scrape` capability (else BAD_REQUEST) - applied on both
+  create and update (rebind). A null binding (scrape from core) is unaffected.
+
+- 4568dcc: Add the satellite telemetry protocol + capability foundation (log/metric
+  forwarding and satellite-side scraping build on this). All additions are
+  additive and version-skew safe - every new field is optional and old peers
+  ignore unknown message types and fields, so mixed-version fleets keep working.
+  The existing health-result path is untouched.
+
+  - `@checkstack/satellite-common`: new generic telemetry envelopes on the WS
+    protocol - `telemetry_batch` / `capability_status` (satellite -> core) and
+    `telemetry_ack` / `capability_config` (core -> satellite). `authenticate` and
+    `heartbeat` gain an optional `capabilities` list. New flow-control constants
+    (max in-flight, batch item/byte caps, per-connection dedupe window and
+    bytes/min budget, ack timeout, pump interval).
+  - `@checkstack/satellite-backend`: a `satellite.capability` extension point so
+    domain plugins contribute a handler per `kind` (ingest a batch, build the
+    pushed config, handle a status update) without satellite-backend depending on
+    any domain plugin. The WS handler routes telemetry by kind, dedupes resent
+    batchIds per connection, enforces a per-connection byte budget (over-budget =
+    retryable ack, never a disconnect), acks every batch, and pushes
+    `capability_config` on connect and on `notifyCapabilityConfigChanged`
+    (cross-pod via a broadcast domain event). Advertised capabilities are
+    persisted on a new `satellites.capabilities` column and surfaced on the read
+    model.
+  - `@checkstack/satellite` (agent): a `TelemetryClient` that buffers per-kind
+    (bounded, drop-oldest, counted) and forwards over a credit window (at most N
+    unacked batches, chunked to the item/byte caps, monotonic per-connection
+    batchId, resend-until-ack, drop-and-count on a terminal ack). Capabilities are
+    advertised from env flags; an agent capability registry routes pushed
+    `capability_config` to a consumer and sources `capability_status` back.
+  - `@checkstack/ingest-utils`: `IngestBuffer` gains an opt-in `dropOldest` mode
+    (evict oldest to admit new items, report how many were dropped) and a
+    `drainChunk` for bounded FIFO draining. The default reject-new behavior the
+    backend ingest endpoints rely on is unchanged.
+
+  BREAKING CHANGE: none. The platform is in beta; this is purely additive.
+
+### Patch Changes
+
+- 4568dcc: Attribute satellite in-transit telemetry drops PER STREAM instead of a single
+  connection-level count. Previously a satellite reported one aggregate
+  `droppedSinceLast` per batch, and each core handler charged that full count to
+  every stream the batch touched - so a multi-stream batch over-counted the loss
+  on every stream, and a drop that belonged to one stream was smeared across the
+  others.
+
+  - Wire: `telemetry_batch.droppedSinceLast` (a single number) is replaced by
+    `droppedByGroup` - a map of per-group drop counts, keyed by an opaque domain
+    group string the capability handler interprets (the stream token for the
+    forward paths, the scrape target id for `metric-scrape`). The whole satellite
+    telemetry feature is unreleased, so this is a clean replacement, not a
+    breaking change to any shipped agent.
+  - Agent (`@checkstack/satellite`): the telemetry client buckets buffered items
+    by a caller-supplied `groupKeyOf`, so drop-oldest eviction is naturally
+    per-group; the loss rides the next batch's `droppedByGroup`. A terminal ack's
+    `rejected` is no longer folded back into the agent's drop counter - that is a
+    core-side outcome the core attributes itself, and folding it double-counted
+    the loss and (for a bad token) misattributed it to unrelated streams.
+  - `@checkstack/ingest-utils`: `IngestBuffer` (drop-oldest mode) now reports
+    `droppedByKey` alongside the aggregate `dropped`, so a caller can attribute
+    each eviction to the key it belonged to.
+  - Core handlers (logstream forward, metricstream forward + scrape) resolve each
+    `droppedByGroup` key to its stream - reusing the same token-verdict / target
+    -binding lookups the payload uses - and record the loss against that stream
+    alone. A key that no longer resolves to a stream (unknown/revoked token,
+    unbound target) is left unattributed rather than charged elsewhere.
+
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [d00e099]
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/healthcheck-backend@1.21.0
+  - @checkstack/signal-common@0.3.0
+  - @checkstack/satellite-common@0.10.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/automation-backend@0.11.4
+  - @checkstack/automation-common@0.10.1
+  - @checkstack/command-backend@0.2.25
+  - @checkstack/common@0.22.0
+  - @checkstack/gitops-backend@0.5.25
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/script-packages-backend@0.4.4
+  - @checkstack/script-packages-common@0.4.1
+  - @checkstack/secrets-backend@0.3.7
+  - @checkstack/secrets-common@0.3.2
+
 ## 0.8.6
 
 ### Patch Changes
