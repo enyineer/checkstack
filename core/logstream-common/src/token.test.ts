@@ -58,6 +58,22 @@ describe("extractIngestToken", () => {
     expect(extractIngestToken({})).toBeNull();
     expect(extractIngestToken({ authorization: "" })).toBeNull();
   });
+
+  it("tolerates multiple spaces / tabs after the scheme", () => {
+    expect(
+      extractIngestToken({ authorization: "Bearer    ckls_spaced" }),
+    ).toBe("ckls_spaced");
+    expect(
+      extractIngestToken({ authorization: "Bearer\t ckls_tabbed" }),
+    ).toBe("ckls_tabbed");
+  });
+
+  it("returns null (and does not hang) on adversarial whitespace", () => {
+    // Regression guard for the prior `\s+(.+)` polynomial-backtracking regex:
+    // a long whitespace run followed by a non-token must resolve promptly.
+    const hostile = `Bearer ${" ".repeat(50_000)}!`;
+    expect(extractIngestToken({ authorization: hostile })).toBeNull();
+  });
 });
 
 describe("browser-safety guard", () => {

@@ -114,9 +114,13 @@ export class SatelliteClient {
   // failure comes back on the envelope's `error` field, and a timeout resolves
   // an `error` too, so the caller (the scrape scheduler) always gets a verdict
   // object and decides whether to skip.
+  // The value is an OBJECT with a literal `settle` method (not a bare function)
+  // so the response handler invokes a statically-named method - never a callee
+  // resolved purely from the untrusted `requestId` lookup, which reads as an
+  // unvalidated dynamic call (CodeQL js/unvalidated-dynamic-method-call).
   private readonly pendingCapabilitySecrets = new Map<
     string,
-    (result: { payload?: unknown; error?: string }) => void
+    { settle: (result: { payload?: unknown; error?: string }) => void }
   >();
 
   constructor(config: SatelliteClientConfig) {
@@ -268,9 +272,11 @@ export class SatelliteClient {
           error: `Capability secret request timed out (kind ${input.kind})`,
         });
       }, timeoutMs);
-      this.pendingCapabilitySecrets.set(requestId, (result) => {
-        clearTimeout(timer);
-        resolve(result);
+      this.pendingCapabilitySecrets.set(requestId, {
+        settle: (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
       });
       this.sendMessage({
         type: "capability_secret_request",
@@ -495,9 +501,9 @@ export class SatelliteClient {
       case "capability_secret_response": {
         // Settle the pending request with a verdict object (never throws): the
         // handler may report success (`payload`) or failure (`error`).
-        const settle = this.pendingCapabilitySecrets.get(msg.requestId);
+        const pending = this.pendingCapabilitySecrets.get(msg.requestId);
         this.pendingCapabilitySecrets.delete(msg.requestId);
-        settle?.({ payload: msg.payload, error: msg.error });
+        pending?.settle({ payload: msg.payload, error: msg.error });
         break;
       }
 

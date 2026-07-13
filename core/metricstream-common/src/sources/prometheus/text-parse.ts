@@ -90,12 +90,14 @@ export function parsePrometheusText({
 
 /** Parse a `# TYPE <name> <type>` line (HELP and other comments are ignored). */
 function applyMetadata(line: string, types: Map<string, PromMetricType>): void {
-  // `#` then optional ws then keyword.
-  const match = /^#\s+(TYPE|HELP)\s+(\S+)\s*(.*)$/.exec(line);
+  // Match only through the metric name (no trailing `\s*(.*)` capture, whose
+  // overlapping quantifiers backtrack polynomially on crafted trailing
+  // whitespace - CodeQL js/polynomial-redos), then slice the remainder.
+  const match = /^#\s+(TYPE|HELP)\s+(\S+)/.exec(line);
   if (!match) return;
-  const [, keyword, name, rest] = match;
+  const [matched, keyword, name] = match;
   if (keyword !== "TYPE") return;
-  const declared = rest.trim().toLowerCase();
+  const declared = line.slice(matched.length).trim().toLowerCase();
   if (
     declared === "counter" ||
     declared === "gauge" ||
