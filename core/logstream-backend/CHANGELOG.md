@@ -1,5 +1,54 @@
 # @checkstack/logstream-backend
 
+## 0.2.0
+
+### Minor Changes
+
+- 099045f: Make the pattern-metric VariableIndex picker self-explanatory:
+
+  - Each variable option now shows its TEMPLATE CONTEXT (one token each side,
+    `…`-elided), e.g. `Variable 0 (… after <*> retries) - samples: 3`. This
+    disambiguates which `<*>` a variable is when the template also contains
+    embedded wildcards (`db-<*>`) - those keep their static text during masking,
+    their values are never captured, and they are NOT variables. The
+    `variableIndex` field description now explains this too.
+  - A position with no numeric buckets in the summary window now reads
+    `no samples in the last 24h` (using the backend-reported
+    `summaryWindowSeconds`, not a hardcoded claim) instead of the misleading
+    `no recent samples (not numeric)` - an empty window says nothing about
+    whether the values are numeric.
+  - Contract: `PatternVariableSample` gains `context`, and
+    `listPatternVariables` returns `summaryWindowSeconds`.
+  - Docs: the logstream developer guide now documents the standalone-vs-embedded
+    wildcard rule (docs index regenerated).
+
+### Patch Changes
+
+- 6540703: Fix the log-stream pattern-metric collector's VariableIndex picker, which
+  stayed at "No options available" even after a pattern with `<*>` variables was
+  selected. Two defects combined:
+
+  - The `variableIndex` config field did not declare
+    `x-depends-on: ["patternId"]`, so the editor fetched the variable options
+    exactly once at mount (before a pattern was chosen) and never re-fetched.
+    The schema now declares the dependency, and the picker reloads whenever the
+    sibling pattern selection changes.
+  - `DynamicOptionsField` assumed resolver-backed fields hold string values.
+    `variableIndex` is the first `number`/`integer` field with an
+    `x-options-resolver`, and picking an option would have stored the string
+    `"0"` (rejected by the backend's `z.number().int()`), while a stored numeric
+    `0` never matched its option and rendered as unselected. The field now
+    receives the schema value type from `FormField` and coerces in both
+    directions: picked options emit real numbers, and stored numbers are
+    stringified for option matching.
+
+  Regression tests cover the number/string round-trip, the sibling-driven
+  refetch, and the schema annotation.
+
+- Updated dependencies [099045f]
+  - @checkstack/logstream-common@0.2.0
+  - @checkstack/satellite-backend@0.9.1
+
 ## 0.1.0
 
 ### Minor Changes

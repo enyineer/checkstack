@@ -1,5 +1,12 @@
 # @checkstack/script-packages-frontend
 
+## 0.4.15
+
+### Patch Changes
+
+- Updated dependencies [6540703]
+  - @checkstack/ui@1.28.1
+
 ## 0.4.14
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @checkstack/metricstream-frontend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [6540703]
+  - @checkstack/ui@1.28.1
+  - @checkstack/auth-frontend@0.13.5
+  - @checkstack/healthcheck-frontend@0.36.1
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @checkstack/notification-backend
 
+## 1.8.3
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.11.5
+
 ## 1.8.2
 
 ### Patch Changes

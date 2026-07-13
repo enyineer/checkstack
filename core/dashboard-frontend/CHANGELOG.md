@@ -1,5 +1,16 @@
 # @checkstack/dashboard-frontend
 
+## 0.10.10
+
+### Patch Changes
+
+- Updated dependencies [6540703]
+  - @checkstack/ui@1.28.1
+  - @checkstack/catalog-frontend@0.20.1
+  - @checkstack/command-frontend@0.5.12
+  - @checkstack/queue-frontend@0.7.6
+  - @checkstack/tips-frontend@0.5.2
+
 ## 0.10.9
 
 ### Patch Changes

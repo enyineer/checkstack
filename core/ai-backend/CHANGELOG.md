@@ -1,5 +1,31 @@
 # @checkstack/ai-backend
 
+## 0.11.1
+
+### Patch Changes
+
+- 6540703: Regenerate the docs index for the config-schemas guide update: dynamic
+  dropdowns now document `configNumber` fields with `x-options-resolver`
+  (numeric value coercion) and the requirement to declare same-form sibling
+  reads in `x-depends-on`.
+- 099045f: Make the pattern-metric VariableIndex picker self-explanatory:
+
+  - Each variable option now shows its TEMPLATE CONTEXT (one token each side,
+    `…`-elided), e.g. `Variable 0 (… after <*> retries) - samples: 3`. This
+    disambiguates which `<*>` a variable is when the template also contains
+    embedded wildcards (`db-<*>`) - those keep their static text during masking,
+    their values are never captured, and they are NOT variables. The
+    `variableIndex` field description now explains this too.
+  - A position with no numeric buckets in the summary window now reads
+    `no samples in the last 24h` (using the backend-reported
+    `summaryWindowSeconds`, not a hardcoded claim) instead of the misleading
+    `no recent samples (not numeric)` - an empty window says nothing about
+    whether the values are numeric.
+  - Contract: `PatternVariableSample` gains `context`, and
+    `listPatternVariables` returns `summaryWindowSeconds`.
+  - Docs: the logstream developer guide now documents the standalone-vs-embedded
+    wildcard rule (docs index regenerated).
+
 ## 0.11.0
 
 ### Minor Changes

@@ -1,5 +1,29 @@
 # @checkstack/frontend
 
+## 0.15.1
+
+### Patch Changes
+
+- fa873e3: Refresh `bun.lock` to the newest versions permitted by the existing semver
+  ranges (Renovate lock-file maintenance). No `package.json` range changed, so
+  this only affects the resolutions baked into the production image.
+
+  Updated dependencies:
+
+  - `@module-federation/vite` 1.16.14 -> 1.16.15
+  - `@ungap/structured-clone` 1.3.2 -> 1.3.3
+  - `ignore` 7.0.5 -> 7.0.6
+
+- Updated dependencies [6540703]
+  - @checkstack/ui@1.28.1
+  - @checkstack/about-frontend@0.5.6
+  - @checkstack/announcement-frontend@0.9.4
+  - @checkstack/auth-frontend@0.13.5
+  - @checkstack/catalog-frontend@0.20.1
+  - @checkstack/command-frontend@0.5.12
+  - @checkstack/dependency-frontend@0.8.6
+  - @checkstack/status-page-frontend@0.7.4
+
 ## 0.15.0
 
 ### Minor Changes

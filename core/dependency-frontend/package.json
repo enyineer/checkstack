@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dependency-frontend",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [
