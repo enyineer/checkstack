@@ -10,10 +10,10 @@ this only affects the resolutions baked into the production image.
 Updated dependencies:
 
 - `@adobe/css-tools` 4.4.4 -> 4.5.0
-- `@ai-sdk/gateway` 3.0.122 -> 3.0.143
-- `@ai-sdk/openai-compatible` 2.0.48 -> 2.0.58
-- `@ai-sdk/provider` 3.0.10 -> 3.0.13
-- `@ai-sdk/provider-utils` 4.0.27 -> 4.0.37
+- `@ai-sdk/gateway` 3.0.122 -> 3.0.146
+- `@ai-sdk/openai-compatible` 2.0.48 -> 2.0.59
+- `@ai-sdk/provider` 3.0.10 -> 3.0.14
+- `@ai-sdk/provider-utils` 4.0.27 -> 4.0.38
 - `@astrojs/language-server` 2.16.7 -> 2.16.11
 - `@astrojs/markdown-remark` 7.2.0 -> 7.2.1
 - `@astrojs/mdx` 5.0.4 -> 5.0.6
@@ -95,7 +95,7 @@ Updated dependencies:
 - `@msgpackr-extract/msgpackr-extract-win32-x64` 3.0.3 -> 3.0.4
 - `@napi-rs/wasm-runtime` 1.1.4 -> 1.1.6
 - `@nodable/entities` 2.1.1 -> 2.2.0
-- `@opentelemetry/semantic-conventions` 1.40.0 -> 1.42.0
+- `@opentelemetry/semantic-conventions` 1.40.0 -> 1.43.0
 - `@orpc/client` 1.14.4 -> 1.14.7
 - `@orpc/contract` 1.14.4 -> 1.14.7
 - `@orpc/interop` 1.14.4 -> 1.14.7
@@ -261,7 +261,7 @@ Updated dependencies:
 - `@xyflow/react` 12.11.0 -> 12.11.2
 - `@xyflow/system` 0.0.77 -> 0.0.79
 - `acorn` 8.16.0 -> 8.17.0
-- `ai` 6.0.194 -> 6.0.219
+- `ai` 6.0.194 -> 6.0.222
 - `ajv` 8.18.0 -> 8.20.0
 - `astro-expressive-code` 0.41.7 -> 0.42.0
 - `autoprefixer` 10.5.0 -> 10.5.2
@@ -363,6 +363,7 @@ Updated dependencies:
 - `tsx` 4.21.0 -> 4.23.0
 - `type-fest` 5.5.0 -> 5.8.0
 - `typescript-eslint` 8.59.3 -> 8.63.0
+- `ultrahtml` 1.6.0 -> 1.7.0
 - `uuid` 14.0.0 -> 14.0.1
 - `vite` 8.0.16 -> 8.1.4
 - `volar-service-css` 0.0.70 -> 0.0.71
