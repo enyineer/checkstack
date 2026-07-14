@@ -26,17 +26,15 @@ import {
 import {
   healthResultNumber,
   healthResultSchema,
+  computeWindowBounds,
+  MIN_WINDOW_SECONDS,
 } from "@checkstack/healthcheck-common";
 import {
   pluginMetadata,
   LOGSTREAM_PATTERN_OPTIONS_RESOLVER,
 } from "@checkstack/logstream-common";
 import type { LogStreamHealthClient } from "./strategy";
-import {
-  computeWindowBounds,
-  buildPatternOccurrence,
-  MIN_WINDOW_SECONDS,
-} from "./window";
+import { buildPatternOccurrence } from "./window";
 
 export const PATTERN_OCCURRENCE_COLLECTOR_ID = "pattern-occurrence";
 

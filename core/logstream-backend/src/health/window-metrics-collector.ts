@@ -27,15 +27,12 @@ import {
 import {
   healthResultNumber,
   healthResultSchema,
+  computeWindowBounds,
+  MIN_WINDOW_SECONDS,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "@checkstack/logstream-common";
 import type { LogStreamHealthClient } from "./strategy";
-import {
-  computeWindowBounds,
-  buildWindowMetrics,
-  MIN_WINDOW_SECONDS,
-  type WindowMetricsResult,
-} from "./window";
+import { buildWindowMetrics, type WindowMetricsResult } from "./window";
 
 export const WINDOW_METRICS_COLLECTOR_ID = "window-metrics";
 

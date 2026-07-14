@@ -7,6 +7,8 @@ export * from "./zod-health-result";
 export * from "./strategy-category";
 export * from "./slots";
 export * from "./run-trace-ids";
+export * from "./run-queue";
+export * from "./health-window";
 export * from "./environment-slices";
 
 // --- DTOs for API Responses ---

@@ -34,6 +34,8 @@ import {
 import {
   healthResultNumber,
   healthResultSchema,
+  computeWindowBounds,
+  MIN_WINDOW_SECONDS,
 } from "@checkstack/healthcheck-common";
 import {
   pluginMetadata,
@@ -46,11 +48,7 @@ import {
   type MetricWindowCollectorConfig,
 } from "@checkstack/metricstream-common";
 import type { MetricStreamHealthClient } from "./strategy";
-import {
-  computeWindowBounds,
-  buildMetricWindowResult,
-  MIN_WINDOW_SECONDS,
-} from "./window";
+import { buildMetricWindowResult } from "./window";
 import { METRIC_WINDOW_COLLECTOR_ID } from "./constants";
 
 // ============================================================================

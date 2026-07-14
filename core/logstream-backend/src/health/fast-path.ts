@@ -25,16 +25,19 @@
 import type { Logger } from "@checkstack/backend-api";
 import type { RpcClient } from "@checkstack/backend-api";
 import type { CachedScope } from "@checkstack/cache-utils";
-import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import {
+  HealthCheckApi,
+  fastPathJobId,
+  FAST_PATH_DEBOUNCE_MS,
+  type HealthCheckJobPayload,
+} from "@checkstack/healthcheck-common";
 import {
   SEVERITY_BAND_RANK,
   type SeverityBand,
 } from "@checkstack/logstream-common";
 import {
-  fastPathJobId,
-  FAST_PATH_DEBOUNCE_MS,
   LOGSTREAM_QUALIFIED_STRATEGY_ID,
-  type LogStreamRunJobPayload,
+  LOGSTREAM_FAST_PATH_PREFIX,
 } from "./constants";
 import type { IngestFlushInfo } from "./setup";
 
@@ -57,7 +60,7 @@ export type ResolveStreamAssignments = (
 
 /** Enqueue one one-off run (abstracts the shared queue for testing). */
 export type EnqueueRun = (args: {
-  payload: LogStreamRunJobPayload;
+  payload: HealthCheckJobPayload;
   jobId: string;
 }) => Promise<void>;
 
@@ -109,6 +112,16 @@ class AttemptedBuckets {
     return true;
   }
 
+  /**
+   * Roll back a {@link mark} for `bucket` (only if still the current bucket), so
+   * a FAILED enqueue does not leave the slice marked-attempted for the rest of
+   * the bucket - otherwise a Redis blip would silently disable the fast-path for
+   * that slice until the next bucket, exactly when re-evaluation matters most.
+   */
+  unmark(key: string, bucket: number): void {
+    if (this.seen.get(key) === bucket) this.seen.delete(key);
+  }
+
   /** Drop entries from buckets older than the previous one; hard-cap the size. */
   private prune(bucket: number): void {
     for (const [key, seenBucket] of this.seen) {
@@ -152,7 +165,11 @@ export function createFastPath({
 
     // Mark every not-yet-attempted slice SYNCHRONOUSLY (no await between marks)
     // so two concurrent fan-outs for the same stream+bucket cannot both enqueue.
-    const toEnqueue: { payload: LogStreamRunJobPayload; jobId: string }[] = [];
+    const toEnqueue: {
+      payload: HealthCheckJobPayload;
+      jobId: string;
+      key: string;
+    }[] = [];
     for (const assignment of assignments) {
       for (const environmentId of assignment.environmentIds) {
         const key = `${assignment.configId}:${assignment.systemId}:${environmentId ?? "_"}`;
@@ -164,17 +181,31 @@ export function createFastPath({
             environmentId,
           },
           jobId: fastPathJobId({
+            prefix: LOGSTREAM_FAST_PATH_PREFIX,
             configId: assignment.configId,
             systemId: assignment.systemId,
             environmentId,
             nowMs,
           }),
+          key,
         });
       }
     }
     if (toEnqueue.length === 0) return;
 
-    await Promise.all(toEnqueue.map((run) => enqueueRun(run)));
+    // Enqueue each; on failure UNMARK that slice so a later flush in the same
+    // bucket retries it (BullMQ's jobId dedupe makes a retry free when the first
+    // add actually landed). The optimistic sync mark still guards concurrency.
+    await Promise.all(
+      toEnqueue.map(async ({ payload, jobId, key }) => {
+        try {
+          await enqueueRun({ payload, jobId });
+        } catch (error) {
+          attempted.unmark(key, bucket);
+          throw error;
+        }
+      }),
+    );
     logger.debug(
       `logstream fast-path: enqueued ${toEnqueue.length} evaluation(s) for stream ${streamId}`,
     );

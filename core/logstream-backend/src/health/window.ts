@@ -1,77 +1,16 @@
 /**
- * Pure window math + metric assembly for the log-stream health collectors.
- *
- * The health EVALUATION is a cheap periodic read of pre-aggregated minute
- * buckets - never a per-line computation. These functions are IO-free so the
- * bucket-boundary and complete-minute semantics can be unit-tested without a
- * database (the DB reads live in `./reader`).
+ * Metric assembly for the log-stream health collectors. The complete-minute
+ * window math + seconds-since-last helper are shared across the observability
+ * plugins and live in `@checkstack/healthcheck-common` (`health-window.ts`);
+ * this file keeps only the log-specific result shapes + `build*` assembly. Pure
+ * / IO-free (the DB reads live in `./reader`).
  */
 
 import type {
   StreamSeverityTotals,
   PatternVariableWindow,
 } from "@checkstack/logstream-common";
-import { floorToMinute } from "../storage";
-
-/** Absolute floor on a health window: one whole minute. */
-export const MIN_WINDOW_SECONDS = 60;
-
-/** A resolved evaluation window over minute buckets. */
-export interface WindowBounds {
-  /** Inclusive start of the window (minute-aligned). */
-  from: Date;
-  /**
-   * Exclusive end of the COMPLETE-minute window: the start of the minute
-   * containing `now`, i.e. the boundary AFTER the last COMPLETE minute. Used as
-   * the rate DENOMINATOR boundary (`windowMinutes` whole minutes) and for any
-   * semantics where a partial minute would mislead.
-   */
-  to: Date;
-  /**
-   * Exclusive end for the COUNT reads: the end of the in-progress minute
-   * (`to + 1 minute`). Reading `[from, readTo)` additively includes the current
-   * partial minute bucket so a burst seconds into the minute is visible to a
-   * fast-path evaluation that same second - without waiting for the minute to
-   * complete. Bucket counts are monotonic within a minute, so including partial
-   * data can only make error assertions fire EARLIER, never report a false low.
-   * (Rates divide by `windowMinutes`, so during the partial minute a rate may
-   * momentarily read slightly high - i.e. undercount the true elapsed
-   * denominator - which likewise only surfaces a problem sooner.)
-   */
-  readTo: Date;
-  /** Whole COMPLETE minutes spanned by `[from, to)` (>= 1). */
-  windowMinutes: number;
-}
-
-/**
- * Resolve the evaluation window. `windowSeconds` defaults to the check's
- * interval, is floored to a whole number of minutes, and is clamped to at least
- * one minute. The complete-minute window ends at the last COMPLETE minute
- * (`to`); the COUNT reads additionally include the in-progress minute (`readTo`)
- * so a just-arrived burst is visible immediately (see {@link WindowBounds}).
- */
-export function computeWindowBounds({
-  now,
-  windowSeconds,
-  intervalSeconds,
-}: {
-  now: Date;
-  windowSeconds: number | undefined;
-  intervalSeconds: number;
-}): WindowBounds {
-  const requested = windowSeconds ?? intervalSeconds;
-  const safeRequested =
-    Number.isFinite(requested) && requested > 0
-      ? requested
-      : MIN_WINDOW_SECONDS;
-  const effectiveSeconds = Math.max(MIN_WINDOW_SECONDS, safeRequested);
-  // Floor to whole minutes (complete-minute denominator).
-  const windowMinutes = Math.max(1, Math.floor(effectiveSeconds / 60));
-  const to = floorToMinute(now);
-  const from = new Date(to.getTime() - windowMinutes * 60_000);
-  const readTo = new Date(to.getTime() + 60_000);
-  return { from, to, readTo, windowMinutes };
-}
+import { computeSecondsSinceLast } from "@checkstack/healthcheck-common";
 
 /** The window-metrics collector's per-run result (all numeric, assertable). */
 export interface WindowMetricsResult {
@@ -93,24 +32,6 @@ export interface WindowMetricsResult {
   newPatternCount: number;
   /** Distinct Drain templates with any occurrence in the window. */
   distinctPatternCount: number;
-}
-
-/**
- * Whole seconds between `now` and the more recent of `lastReceivedAt` /
- * `streamCreatedAt`. Never-received streams fall back to age-since-creation.
- * Clamped at 0 so a slightly-future `lastReceivedAt` (clock skew) reads as 0.
- */
-export function computeSecondsSinceLastLog({
-  now,
-  lastReceivedAt,
-  streamCreatedAt,
-}: {
-  now: Date;
-  lastReceivedAt: Date | null;
-  streamCreatedAt: Date;
-}): number {
-  const reference = lastReceivedAt ?? streamCreatedAt;
-  return Math.max(0, Math.floor((now.getTime() - reference.getTime()) / 1000));
 }
 
 /**
@@ -152,9 +73,9 @@ export function buildWindowMetrics({
     infoCount: severity.info,
     debugCount: severity.debug,
     errorRatePerMinute: round2(errorPlusFatal / minutes),
-    secondsSinceLastLog: computeSecondsSinceLastLog({
+    secondsSinceLastLog: computeSecondsSinceLast({
       now,
-      lastReceivedAt,
+      lastAt: lastReceivedAt,
       streamCreatedAt,
     }),
     newPatternCount,

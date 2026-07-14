@@ -18,7 +18,12 @@
  * (pending: move `parseOtlpMetricsJson` to `metricstream-common`).
  */
 
-import { BodyTooLargeError, readCappedBody } from "@checkstack/ingest-utils";
+import {
+  BodyTooLargeError,
+  chunkTelemetryBatchItems,
+  estimateTelemetryItemBytes,
+  readCappedBody,
+} from "@checkstack/ingest-utils";
 import {
   decodeExportMetricsServiceRequest,
   extractIngestToken,
@@ -49,11 +54,17 @@ interface Logger {
   debug: (msg: string) => void;
 }
 
+/** Flat ~48-byte proportional budget per datapoint (avoids O(payload) stringify). */
+const WIRE_DATAPOINT_BYTES = 48;
+
 /** Approximate the serialized bytes of one forwarded metric item. */
 export function estimateMetricItemBytes(item: unknown): number {
   const typed = item as SatelliteMetricBatchItem;
-  // ~48 bytes/datapoint proportional budget; avoids O(payload) JSON.stringify.
-  return typed.streamToken.length + 16 + typed.datapoints.length * 48;
+  return estimateTelemetryItemBytes({
+    streamToken: typed.streamToken,
+    records: typed.datapoints,
+    perRecordBytes: () => WIRE_DATAPOINT_BYTES,
+  });
 }
 
 /** Chunk datapoints into wire items of at most {@link MAX_DATAPOINTS_PER_ITEM}. */
@@ -64,16 +75,15 @@ export function buildMetricBatchItems({
   streamToken: string;
   datapoints: NormalizedDatapoint[];
 }): SatelliteMetricBatchItem[] {
-  const items: SatelliteMetricBatchItem[] = [];
-  for (let i = 0; i < datapoints.length; i += MAX_DATAPOINTS_PER_ITEM) {
-    items.push({
-      streamToken,
-      datapoints: datapoints
-        .slice(i, i + MAX_DATAPOINTS_PER_ITEM)
-        .map((d) => toWireDatapoint(d)),
-    });
-  }
-  return items;
+  return chunkTelemetryBatchItems({
+    streamToken,
+    records: datapoints,
+    maxPerItem: MAX_DATAPOINTS_PER_ITEM,
+    toItem: ({ streamToken: token, records }) => ({
+      streamToken: token,
+      datapoints: records.map((d) => toWireDatapoint(d)),
+    }),
+  });
 }
 
 function json(status: number, body: unknown): Response {

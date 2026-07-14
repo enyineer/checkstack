@@ -16,4 +16,5 @@ export * from "./http/body";
 export * from "./rate-limit/rate-limit";
 export * from "./buffer/ingest-buffer";
 export * from "./flush/flush-loop";
+export * from "./telemetry/batch-items";
 export * from "@checkstack/otlp-wire";

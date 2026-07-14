@@ -30,7 +30,10 @@ import {
   type ResolveReferencedPatternIds,
 } from "./pattern-references";
 import { registerMaintenanceJobs } from "./maintenance";
-import { HEALTH_CHECK_QUEUE, type LogStreamRunJobPayload } from "./constants";
+import {
+  HEALTH_CHECK_QUEUE,
+  type HealthCheckJobPayload,
+} from "@checkstack/healthcheck-common";
 
 /**
  * Post-commit summary the ingest flush hands to the health fast-path. When
@@ -172,7 +175,7 @@ export function registerHealthIntegration({
     rpcClient,
     cache,
   });
-  const healthQueue = queueManager.getQueue<LogStreamRunJobPayload>(
+  const healthQueue = queueManager.getQueue<HealthCheckJobPayload>(
     HEALTH_CHECK_QUEUE,
   );
   const enqueueRun: EnqueueRun = async ({ payload, jobId }) => {
