@@ -32,6 +32,12 @@ import {
   type TelemetrySpanKind,
   type TelemetrySpanStatusCode,
 } from "@checkstack/telemetry-common";
+// Hard caps against a hostile export (a single span with millions of items).
+import {
+  MAX_ATTRIBUTES_PER_SPAN,
+  MAX_EVENTS_PER_SPAN,
+  MAX_LINKS_PER_SPAN,
+} from "./caps";
 
 /** OTel `Span.SpanKind` enum value -> our normalized kind. Unspecified -> internal. */
 const SPAN_KIND_BY_NUMBER: Record<number, TelemetrySpanKind> = {
@@ -49,11 +55,6 @@ const STATUS_CODE_BY_NUMBER: Record<number, TelemetrySpanStatusCode> = {
   1: "ok",
   2: "error",
 };
-
-/** Hard caps against a hostile export (a single span with millions of items). */
-const MAX_ATTRIBUTES_PER_SPAN = 256;
-const MAX_EVENTS_PER_SPAN = 128;
-const MAX_LINKS_PER_SPAN = 128;
 
 const NANOS_PER_MS = 1_000_000n;
 

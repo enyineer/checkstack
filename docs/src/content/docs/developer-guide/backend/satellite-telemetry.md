@@ -3,9 +3,10 @@ title: Satellite telemetry
 description: The satellite capability extension point, its protocol envelopes, credit-window backpressure, just-in-time secrets, and binding-based authorization.
 ---
 
-Satellites relay telemetry for the network zone they run in: they receive logs
-and metrics through local receivers and forward them, and they scrape Prometheus
-targets the core cannot reach and forward the datapoints. All of this rides the
+Satellites relay telemetry for the network zone they run in: they receive logs,
+metrics and traces through local receivers and forward them, and they scrape
+Prometheus targets the core cannot reach and forward the datapoints. All of this
+rides the
 satellite's single authenticated WebSocket to the core, alongside health-check
 dispatch. This page is the developer reference for how that channel is built:
 the extension point domain plugins contribute to, the generic protocol envelopes,
@@ -28,8 +29,11 @@ The agent obeys the same rule. The pure parsers a receiver needs (OTLP logs and
 metrics decode, Prometheus text parse, syslog framing, native JSON) were
 relocated out of any `*-backend` into leaf packages the agent may import:
 
-- `@checkstack/logstream-common` and `@checkstack/metricstream-common` carry the
-  per-domain parsers and normalization.
+- `@checkstack/logstream-common`, `@checkstack/metricstream-common` and
+  `@checkstack/tracestream-common` carry the per-domain parsers and
+  normalization. The tracestream leaf also holds the satellite trace wire
+  contract (`SatelliteTraceBatchSchema`, `toWireSpan` / `fromWireSpan`) and the
+  span-timestamp clamp, so both the agent and the core handler share one shape.
 - `@checkstack/otlp-wire` is a new zero-node-builtin leaf holding the shared OTLP
   wire decode, so both domains and the agent depend on one implementation without
   pulling in a backend.
@@ -146,6 +150,29 @@ re-advertises on `heartbeat` so a config change converges without a reconnect) a
 a `capabilities: string[]`. Both fields are optional for version-skew safety: an
 older agent omits them and the core treats it as no advertised capabilities.
 
+## Local receiver routes
+
+Each forwarding domain advertises its own receiver capability and serves its
+routes on the one shared receiver HTTP server (`CHECKSTACK_SATELLITE_RECEIVER_PORT`,
+default 4318). A shipper posts to the agent exactly as it would to the core push
+endpoints, presenting the same per-stream source token; the agent tags the batch
+with the token and forwards it under the telemetry `kind`.
+
+| Signal | Capability flag | Routes | Token | Kind |
+| --- | --- | --- | --- | --- |
+| Logs | `CHECKSTACK_SATELLITE_LOG_RECEIVERS` | `/v1/logs` (OTLP), `/ingest` (native) | `ckls_` | `logstream` |
+| Metrics | `CHECKSTACK_SATELLITE_LOG_RECEIVERS` | `/v1/metrics` (OTLP), `/ingest/metrics` (native) | `ckms_` | `metricstream` |
+| Traces | `CHECKSTACK_SATELLITE_TRACE_RECEIVERS` | `/v1/traces` (OTLP), `/ingest/traces` (native) | `cktr_` | `tracestream` |
+
+Trace receivers are a per-signal opt-in with their own flag rather than
+piggybacking on the log receiver, mirroring the per-signal token and endpoint
+decision. Both OTLP trace decoders (protobuf and JSON) live in the common leaf,
+so the trace receiver answers OTLP JSON directly - there is no 415 fallback like
+the metric receiver's (whose OTLP-JSON decoder still lives in its backend). The
+agent never verifies a source token (it has no token database); it requires only
+a correctly shaped token and answers success once the batch is buffered, and the
+core verifies the token and re-clamps the spans (see below).
+
 ## Credit window and backpressure
 
 Forwarding is paced so a burst inside a zone cannot overrun the core or the
@@ -206,10 +233,14 @@ the satellite to mint authority of its own:
 
 - **Receiver forwarding is authorized by the stream token.** The shipper hands
   the satellite the same per-stream source token it would send to the HTTP push
-  endpoint (`ckls_` for logs, `ckms_` for metrics). The satellite forwards it
-  unchanged, and the domain handler verifies it exactly as the direct HTTP push
-  does, honoring revocation. The satellite is a relay on the same authorization
-  path, not a new trust boundary.
+  endpoint (`ckls_` for logs, `ckms_` for metrics, `cktr_` for traces). The
+  satellite forwards it unchanged, and the domain handler verifies it exactly as
+  the direct HTTP push does, honoring revocation. The satellite is a relay on the
+  same authorization path, not a new trust boundary. Because the satellite's clock
+  is untrusted, the core re-clamps every forwarded event against its OWN receive
+  time before storage (log timestamps via the logstream clamp, span start/end via
+  the trace ingest pipeline's `clampSpanTimes`), so a skewed agent clock can never
+  move a stream's timeline.
 - **Scraping is authorized by the target binding.** The handler's
   `handleTelemetryBatch` (and `resolveSecret`) accept a datapoint or a secret
   only for a target whose bound `satelliteId` matches the sending satellite, so a

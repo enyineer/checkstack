@@ -19,6 +19,7 @@ import type { TelemetryEnqueuer } from "./enqueuer";
 import type { AgentCapabilityRegistry } from "../capability-config-registry";
 import { createLogReceiverHandlers } from "./log-receiver";
 import { createMetricReceiverHandlers } from "./metric-receiver";
+import { createTraceReceiverHandlers } from "./trace-receiver";
 import {
   readReceiverEnvConfig,
   startTelemetryHttpServer,
@@ -73,18 +74,29 @@ export function startTelemetryReceivers({
   let scrapeScheduler: MetricScrapeScheduler | null = null;
   let pullScheduler: TelemetryPullScheduler | null = null;
 
+  // Log/metric AND trace receivers share ONE HTTP server/port; each capability
+  // contributes its own routes and the server starts when EITHER is advertised.
+  const routes: Record<string, ReceiverRoute> = {};
   if (capabilities.includes("log-receivers")) {
     const logs = createLogReceiverHandlers({ enqueue: telemetryClient, logger });
     const metrics = createMetricReceiverHandlers({
       enqueue: telemetryClient,
       logger,
     });
-    const routes: Record<string, ReceiverRoute> = {
-      "/v1/logs": logs.otlpLogs,
-      "/ingest": logs.nativeLogs,
-      "/v1/metrics": metrics.otlpMetrics,
-      "/ingest/metrics": metrics.nativeMetrics,
-    };
+    routes["/v1/logs"] = logs.otlpLogs;
+    routes["/ingest"] = logs.nativeLogs;
+    routes["/v1/metrics"] = metrics.otlpMetrics;
+    routes["/ingest/metrics"] = metrics.nativeMetrics;
+  }
+  if (capabilities.includes("trace-receivers")) {
+    const traces = createTraceReceiverHandlers({
+      enqueue: telemetryClient,
+      logger,
+    });
+    routes["/v1/traces"] = traces.otlpTraces;
+    routes["/ingest/traces"] = traces.nativeTraces;
+  }
+  if (Object.keys(routes).length > 0) {
     httpServer = startTelemetryHttpServer({
       config: readReceiverEnvConfig(env),
       routes,

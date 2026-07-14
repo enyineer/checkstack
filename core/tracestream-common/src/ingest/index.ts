@@ -8,3 +8,4 @@
 export * from "./clamp";
 export * from "./otlp";
 export * from "./native";
+export * from "./satellite-relay";

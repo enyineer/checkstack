@@ -15,6 +15,13 @@
       "when": 1784058081516,
       "tag": "0001_fine_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784071060304,
+      "tag": "0002_gifted_living_lightning",
+      "breakpoints": true
     }
   ]
 }

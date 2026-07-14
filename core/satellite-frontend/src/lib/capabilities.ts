@@ -40,6 +40,12 @@ export const KNOWN_SATELLITE_CAPABILITIES: readonly CapabilityMeta[] = [
       "Runs local OTLP and native HTTP log receivers, so shippers in this zone send to the satellite instead of the core.",
   },
   {
+    id: "trace-receivers",
+    label: "Trace receivers",
+    description:
+      "Runs local OTLP and native HTTP trace receivers, so span exporters in this zone send to the satellite instead of the core.",
+  },
+  {
     id: "syslog",
     label: "Syslog",
     description:

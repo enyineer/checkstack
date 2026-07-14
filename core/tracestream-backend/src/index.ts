@@ -8,10 +8,12 @@ import {
   pluginMetadata,
 } from "@checkstack/tracestream-common";
 import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
+import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
 import * as schema from "./schema";
 import { createStorage } from "./storage";
 import { createImportantEventRecorder } from "./events/recorder";
 import { registerMaintenance } from "./health/maintenance";
+import { registerHealthIntegration } from "./health/setup";
 import { registerIngest } from "./ingest/setup";
 import { registerApi } from "./api/setup";
 import { createTracestreamTelemetrySink } from "./telemetry-sink";
@@ -50,6 +52,8 @@ export default createBackendPlugin({
         eventBus: coreServices.eventBus,
         instanceRuntime: coreServices.instanceRuntime,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
+        healthCheckRegistry: coreServices.healthCheckRegistry,
+        collectorRegistry: coreServices.collectorRegistry,
       },
       init: async ({
         database,
@@ -63,6 +67,8 @@ export default createBackendPlugin({
         eventBus,
         instanceRuntime,
         resourceResolverRegistry,
+        healthCheckRegistry,
+        collectorRegistry,
       }) => {
         // The runtime injects the plugin's schema-scoped db typed as
         // `SafeDatabase<Record<string, unknown>>`; narrow it to this plugin's
@@ -76,6 +82,18 @@ export default createBackendPlugin({
           logger,
         });
 
+        // Health integration (strategy + collectors + fast-path) BEFORE ingest,
+        // so the pipeline receives the fast-path hook to invoke post-commit.
+        const health = registerHealthIntegration({
+          storage,
+          queueManager,
+          cacheManager,
+          logger,
+          healthCheckRegistry,
+          collectorRegistry,
+          rpcClient,
+        });
+
         const ingest = registerIngest({
           db,
           storage,
@@ -87,9 +105,18 @@ export default createBackendPlugin({
           eventBus,
           instanceRuntime,
           logger,
+          onIngestFlush: health.onIngestFlush,
         });
         // Final flush + timer teardown on deregister/shutdown (stop is idempotent).
         env.registerCleanup(ingest.stop);
+
+        // Contribute the "tracestream" satellite telemetry handler so spans a
+        // satellite forwards over the WS channel reach the same auth + pipeline
+        // as the HTTP endpoints. satellite-backend owns the contract; we supply
+        // the implementation (dependency inversion - see dependencies.md).
+        env
+          .getExtensionPoint(satelliteCapabilityExtensionPoint)
+          .registerCapability(ingest.satelliteCapabilityHandler, pluginMetadata);
 
         telemetrySink.registerSink(
           createTracestreamTelemetrySink({

@@ -40,6 +40,9 @@
     },
     {
       "path": "../telemetry-common"
+    },
+    {
+      "path": "../tracestream-common"
     }
   ]
 }

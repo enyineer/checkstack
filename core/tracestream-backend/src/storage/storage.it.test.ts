@@ -310,6 +310,89 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     expect(bucket.p95Ms!).toBeLessThanOrEqual(100);
   });
 
+  it("queryWindowLatency merges digests ACROSS buckets for one window p95", async () => {
+    const streamId = "p95-window";
+    const now = new Date();
+    const minuteA = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const minuteB = new Date(minuteA.getTime() + 60_000);
+    // Split 1..100ms across TWO minute buckets: 1..50 in A, 51..100 in B. Each
+    // bucket's OWN p95 is ~48 / ~98; the correct WINDOW p95 (over all 100
+    // samples) is ~95 - which averaging per-bucket p95s (~73) would never give.
+    await storage.opBuckets.foldSpans({
+      folds: [
+        { streamId, serviceName: "svc", spanName: "op", bucketStart: minuteA, durationsMs: Array.from({ length: 50 }, (_, i) => i + 1), errorCount: 2 },
+        { streamId, serviceName: "svc", spanName: "op", bucketStart: minuteB, durationsMs: Array.from({ length: 50 }, (_, i) => i + 51), errorCount: 3 },
+      ],
+    });
+    const window = await storage.opBuckets.queryWindowLatency({
+      streamId,
+      serviceName: "svc",
+      spanName: "op",
+      from: minuteA,
+      to: new Date(minuteB.getTime() + 60_000),
+      grain: "minute",
+    });
+    expect(window.spanCount).toBe(100);
+    expect(window.errorCount).toBe(5);
+    expect(window.durMinMs).toBe(1);
+    expect(window.durMaxMs).toBe(100);
+    expect(window.p95Ms).not.toBeNull();
+    expect(window.p95Ms!).toBeGreaterThanOrEqual(90);
+    expect(window.p95Ms!).toBeLessThanOrEqual(100);
+  });
+
+  it("queryWindowLatency returns all-zero for an empty window", async () => {
+    const streamId = "p95-window-empty";
+    const now = new Date();
+    const minute = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const window = await storage.opBuckets.queryWindowLatency({
+      streamId,
+      serviceName: "absent",
+      from: minute,
+      to: new Date(minute.getTime() + 60_000),
+      grain: "minute",
+    });
+    expect(window.spanCount).toBe(0);
+    expect(window.errorCount).toBe(0);
+    expect(window.p95Ms).toBeNull();
+  });
+
+  it("sumWindowCounts sums span + error counts across buckets in SQL", async () => {
+    const streamId = "sum-window";
+    const now = new Date();
+    const minuteA = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const minuteB = new Date(minuteA.getTime() + 60_000);
+    await storage.opBuckets.foldSpans({
+      folds: [
+        { streamId, serviceName: "svc", spanName: "op", bucketStart: minuteA, durationsMs: [1, 2, 3], errorCount: 1 },
+        { streamId, serviceName: "svc", spanName: "op", bucketStart: minuteB, durationsMs: [4, 5], errorCount: 2 },
+        // A DIFFERENT service in the same minute also folds into the window total.
+        { streamId, serviceName: "other", spanName: "op", bucketStart: minuteB, durationsMs: [6], errorCount: 1 },
+      ],
+    });
+    const totals = await storage.opBuckets.sumWindowCounts({
+      streamId,
+      from: minuteA,
+      to: new Date(minuteB.getTime() + 60_000),
+      grain: "minute",
+    });
+    expect(totals.spanCount).toBe(6); // 3 + 2 + 1
+    expect(totals.errorSpanCount).toBe(4); // 1 + 2 + 1
+  });
+
+  it("sumWindowCounts returns zeros for an empty window", async () => {
+    const streamId = "sum-window-empty";
+    const now = new Date();
+    const minute = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const totals = await storage.opBuckets.sumWindowCounts({
+      streamId,
+      from: minute,
+      to: new Date(minute.getTime() + 60_000),
+      grain: "minute",
+    });
+    expect(totals).toEqual({ spanCount: 0, errorSpanCount: 0 });
+  });
+
   it("returns null p95 for a legacy bucket row with no digest, merged with real ones", async () => {
     const streamId = "p95-mixed";
     const now = new Date();
@@ -406,6 +489,34 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     expect(new Set(seen).size).toBe(5); // every row exactly once, none skipped
   });
 
+  it("lastEventAt returns the newest event ts of a type, filtered + isolated per stream", async () => {
+    // lastEventAt is the CLUSTER-WIDE error-spike dedupe read - assert its
+    // ordering (newest), type filter, stream isolation, and null-when-none.
+    const streamA = "last-event-a";
+    const streamB = "last-event-b";
+    const older = new Date("2026-07-14T10:00:00.000Z");
+    const newer = new Date("2026-07-14T10:05:00.000Z");
+    await storage.importantEvents.insert({ streamId: streamA, ts: older, type: "error_spike", title: "old" });
+    await storage.importantEvents.insert({ streamId: streamA, ts: newer, type: "error_spike", title: "new" });
+    // A different type on the SAME stream must not be returned.
+    await storage.importantEvents.insert({ streamId: streamA, ts: new Date("2026-07-14T11:00:00.000Z"), type: "silence", title: "silence" });
+    // A spike on ANOTHER stream must not leak across the isolation boundary.
+    await storage.importantEvents.insert({ streamId: streamB, ts: new Date("2026-07-14T12:00:00.000Z"), type: "error_spike", title: "other" });
+
+    expect(
+      await storage.importantEvents.lastEventAt({ streamId: streamA, type: "error_spike" }),
+    ).toEqual(newer);
+    expect(
+      await storage.importantEvents.lastEventAt({ streamId: streamB, type: "error_spike" }),
+    ).toEqual(new Date("2026-07-14T12:00:00.000Z"));
+    expect(
+      await storage.importantEvents.lastEventAt({ streamId: streamA, type: "rate_limited" }),
+    ).toBeNull();
+    expect(
+      await storage.importantEvents.lastEventAt({ streamId: "no-such-stream", type: "error_spike" }),
+    ).toBeNull();
+  });
+
   it("counts retained traces per UTC hour regardless of the session time zone", async () => {
     const streamId = "tz-hours";
     // Shift the session to a half-hour-offset zone: date_trunc('hour', ...) would
@@ -459,6 +570,36 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     expect(await storage.serviceOps.listServices({ streamId })).toHaveLength(0);
     expect(await storage.activity.read({ streamId })).toBeNull();
     expect((await storage.importantEvents.list({ streamId, limit: 10 })).events).toHaveLength(0);
+  });
+
+  it("accumulates satellite in-transit drops per stream, isolated across streams", async () => {
+    const streamA = "in-transit-a";
+    const streamB = "in-transit-b";
+
+    // Upsert-increment: two writes to the same stream accumulate.
+    await storage.activity.addInTransitDrops({ streamId: streamA, dropped: 3 });
+    await storage.activity.addInTransitDrops({ streamId: streamA, dropped: 4 });
+    // A different stream is charged independently.
+    await storage.activity.addInTransitDrops({ streamId: streamB, dropped: 10 });
+    // Non-positive counts are no-ops (no accidental row / decrement).
+    await storage.activity.addInTransitDrops({ streamId: streamA, dropped: 0 });
+    await storage.activity.addInTransitDrops({ streamId: streamA, dropped: -5 });
+
+    const a = await storage.activity.read({ streamId: streamA });
+    const b = await storage.activity.read({ streamId: streamB });
+    expect(a?.droppedInTransitCount).toBe(7);
+    expect(b?.droppedInTransitCount).toBe(10);
+    // The drop counter upserts its own row without advancing receive activity.
+    expect(a?.lastReceivedAt).toBeNull();
+    expect(a?.approxSpansPerMinute).toBe(0);
+
+    // A later `touch` advances receive activity but leaves the drop total intact.
+    const now = new Date();
+    await storage.activity.touch({ streamId: streamA, receivedAt: now, rateEstimate: 12 });
+    const after = await storage.activity.read({ streamId: streamA });
+    expect(after?.droppedInTransitCount).toBe(7);
+    expect(after?.approxSpansPerMinute).toBe(12);
+    expect(after?.lastReceivedAt?.getTime()).toBe(now.getTime());
   });
 
   it("records important events through the recorder (store + signal)", async () => {

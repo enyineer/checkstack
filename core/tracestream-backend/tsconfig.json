@@ -29,10 +29,16 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../healthcheck-common"
+    },
+    {
       "path": "../ingest-utils"
     },
     {
       "path": "../queue-api"
+    },
+    {
+      "path": "../satellite-backend"
     },
     {
       "path": "../signal-common"

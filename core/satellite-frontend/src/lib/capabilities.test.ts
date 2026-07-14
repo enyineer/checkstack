@@ -26,6 +26,18 @@ describe("toCapabilityBadges", () => {
     expect(badges.map((b) => b.id)).toEqual(["telemetry", "scrape", "syslog"]);
   });
 
+  it("renders trace-receivers as a known labelled badge", () => {
+    const [badge] = toCapabilityBadges(["trace-receivers"]);
+    expect(badge).toEqual({
+      id: "trace-receivers",
+      label: "Trace receivers",
+      description: KNOWN_SATELLITE_CAPABILITIES.find(
+        (c) => c.id === "trace-receivers",
+      )!.description,
+      known: true,
+    });
+  });
+
   it("renders an unknown id as its own badge with a null description", () => {
     const badges = toCapabilityBadges(["mystery"]);
     expect(badges).toEqual([

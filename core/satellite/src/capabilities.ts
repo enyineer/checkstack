@@ -17,6 +17,8 @@ export const SATELLITE_CAPABILITY_FLAGS = {
   "telemetry-pull": "CHECKSTACK_SATELLITE_TELEMETRY_PULL",
   /** Local HTTP OTLP/native log + metric receivers. */
   "log-receivers": "CHECKSTACK_SATELLITE_LOG_RECEIVERS",
+  /** Local HTTP OTLP/native trace receivers. */
+  "trace-receivers": "CHECKSTACK_SATELLITE_TRACE_RECEIVERS",
   /** Local syslog listener. */
   syslog: "CHECKSTACK_SATELLITE_SYSLOG",
 } as const;

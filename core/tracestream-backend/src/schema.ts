@@ -262,6 +262,15 @@ export const traceStreamActivity = pgTable("trace_stream_activity", {
   droppedTracesCount: bigint("dropped_traces_count", { mode: "number" })
     .notNull()
     .default(0),
+  // Spans a SATELLITE dropped from its bounded in-transit buffer during a
+  // disconnect / slow-consumer episode, attributed to this stream via each
+  // forwarded batch's per-group `droppedByGroup`. A distinct failure mode from
+  // the pipeline's rate-limit / buffer-full drops (`droppedSpansCount`) - this is
+  // telemetry that never reached core at all. Cumulative. Mirrors logstream's
+  // `dropped_in_transit_count`.
+  droppedInTransitCount: bigint("dropped_in_transit_count", { mode: "number" })
+    .notNull()
+    .default(0),
 });
 
 /** Viewer-timeline events (silence, rate-limited, span/service/operation-cap). */

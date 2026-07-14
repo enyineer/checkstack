@@ -14,6 +14,9 @@
     },
     {
       "path": "../test-utils-frontend"
+    },
+    {
+      "path": "../tracestream-common"
     }
   ]
 }

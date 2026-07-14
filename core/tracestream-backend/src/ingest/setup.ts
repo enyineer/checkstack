@@ -31,12 +31,15 @@ import { pluginMetadata } from "@checkstack/tracestream-common";
 import type * as schema from "../schema";
 import type { Storage } from "../storage";
 import type { ImportantEventRecorder } from "../events/recorder";
+import type { OnIngestFlush } from "../health/setup";
 import { tokenKit } from "../token-crypto";
 import { lookupTokenByHash } from "./token-lookup";
 import { createStreamConfigResolver, type StreamConfigResolver } from "./stream-config";
 import { createIngestPipeline, type IngestPipeline } from "./pipeline";
 import { createOtlpTracesHandler } from "./endpoints/otlp";
 import { createNativeTracesHandler } from "./endpoints/native";
+import type { SatelliteCapabilityHandler } from "@checkstack/satellite-backend";
+import { createTracestreamSatelliteCapabilityHandler } from "../satellite/handler";
 
 export interface RegisterIngestDeps {
   db: SafeDatabase<typeof schema>;
@@ -49,6 +52,8 @@ export interface RegisterIngestDeps {
   eventBus: EventBus;
   instanceRuntime: InstanceRuntime;
   logger: Logger;
+  /** Post-commit health fast-path hook, threaded into the pipeline. */
+  onIngestFlush?: OnIngestFlush;
 }
 
 /** Handle wired into `env.registerCleanup` (final flush + timer teardown). */
@@ -67,6 +72,12 @@ export interface IngestHandle {
   configResolver: StreamConfigResolver;
   /** Source-token authenticator (cktr_), for any future forwarded-ingest path. */
   auth: IngestAuthenticator;
+  /**
+   * The "tracestream" satellite capability handler (spans forwarded through a
+   * satellite re-enter the SAME auth + pipeline as direct pushes). Registered
+   * against the satellite capability extension point in `index.ts`.
+   */
+  satelliteCapabilityHandler: SatelliteCapabilityHandler;
 }
 
 /**
@@ -83,7 +94,8 @@ export interface IngestHandle {
  * ingest state (HTTP push only) that a broadcast would need to evict.
  */
 export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
-  const { db, storage, recorder, rpc, cacheManager, signalService, logger } = deps;
+  const { db, storage, recorder, rpc, cacheManager, signalService, logger, onIngestFlush } =
+    deps;
 
   const cache = createIngestTokenCache({
     cacheManager,
@@ -102,6 +114,7 @@ export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
     recorder,
     signalService,
     logger,
+    ...(onIngestFlush ? { onIngestFlush } : {}),
   });
   pipeline.start();
 
@@ -114,11 +127,20 @@ export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
     "/ingest",
   );
 
+  const satelliteCapabilityHandler = createTracestreamSatelliteCapabilityHandler({
+    auth,
+    configResolver,
+    pipeline,
+    activity: storage.activity,
+    logger,
+  });
+
   let stopped = false;
   return {
     pipeline,
     configResolver,
     auth,
+    satelliteCapabilityHandler,
     async stop() {
       if (stopped) return;
       stopped = true;

@@ -53,6 +53,51 @@ Head sampling drops exactly the traces an operator cares about, so tracestream d
 
 The contract (`@checkstack/tracestream-common`) mirrors the reviewed stream RLAC modes. The notable reads: `searchTraces` (keyset-paginated summary search by service, operation, status, duration and time), `getTrace` (summary + spans for the waterfall), `getOpBuckets` (per-operation RED buckets with digest-backed `p95Ms`), `listServices` / `listOperations`, `getStreamOverview`, and the cross-stream `findTraceById`, which post-filters matches by the caller's stream grants - it powers every "View trace" jump the correlation phase adds.
 
+## Health integration
+
+tracestream registers a reader-only OBSERVABILITY health strategy
+(`tracestream`): it probes nothing and reads only the pre-aggregated
+tables, so a check can never load the raw span store. Two collectors:
+
+- `trace-window` - windowed span/trace totals, error counts,
+  `errorRatePerMinute` and `secondsSinceLastSpan` (absence detection),
+  from the op-bucket minute tier and trace summaries.
+- `operation-latency` (repeatable) - per service (and optionally per
+  operation) `p95Ms`, `avgMs`, `maxMs`, span/error counts and error rate
+  over the window. The p95 merges every minute bucket's t-digest state
+  into ONE digest before computing the percentile - a window p95 is not
+  an average of per-bucket p95s.
+
+The check editor's stream/service/operation dropdowns resolve through
+shared resolver-name constants in `@checkstack/tracestream-common`
+(`health-resolvers.ts`), filled by tracestream-frontend.
+
+Two mechanisms react faster than the schedule:
+
+- A **fast-path**: when a flush persists error spans, a debounced,
+  deterministic job id enqueues the affected checks on the shared
+  health-checks queue ahead of their interval (mirrors logstream's
+  fast-path; the debounce is pod-local bookkeeping, the job id dedupes
+  cluster-wide).
+- An **error-spike important event** (`error_spike`): post-commit, a
+  trailing-average threshold over the op-bucket error counts records at
+  most one spike per stream per 10 minutes (deduped through the shared
+  events table, so N pods agree).
+
+## Satellite forwarding
+
+Satellites with `CHECKSTACK_SATELLITE_TRACE_RECEIVERS=1` expose local
+`/v1/traces` (OTLP protobuf + JSON) and `/ingest/traces` (native)
+receivers on the shared receiver port. Spans are parsed with the SAME
+browser-safe parsers the core uses, serialized over the
+`tracestream`-kind telemetry channel (`satellite-relay.ts` wire schema,
+ISO dates + decimal-string nanos), and re-enter the core through the
+satellite capability handler: the forwarded `cktr_` token is verified by
+the same authenticator as direct pushes, times are re-clamped against
+the CORE clock, and spans feed the identical ingest pipeline (policy,
+caps, buckets). See
+[satellite telemetry](/checkstack/developer-guide/backend/satellite-telemetry/).
+
 ## Correlation
 
 The trace detail view hosts `TraceCorrelationsSlot`

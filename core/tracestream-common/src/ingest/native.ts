@@ -22,9 +22,11 @@ import {
 } from "@checkstack/telemetry-common";
 import type { DecodedTraces } from "./otlp";
 
-const MAX_ATTRIBUTES_PER_SPAN = 256;
-const MAX_EVENTS_PER_SPAN = 128;
-const MAX_LINKS_PER_SPAN = 128;
+import {
+  MAX_ATTRIBUTES_PER_SPAN,
+  MAX_EVENTS_PER_SPAN,
+  MAX_LINKS_PER_SPAN,
+} from "./caps";
 
 /**
  * Parse a native-JSON traces body (already `JSON.parse`d) into normalized spans.

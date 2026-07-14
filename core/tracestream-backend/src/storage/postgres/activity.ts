@@ -35,6 +35,19 @@ export function createActivityStore({ runner }: { runner: Runner }): ActivitySto
         });
     },
 
+    async addInTransitDrops({ streamId, dropped }) {
+      if (!Number.isFinite(dropped) || dropped <= 0) return;
+      await runner
+        .insert(traceStreamActivity)
+        .values({ streamId, droppedInTransitCount: dropped })
+        .onConflictDoUpdate({
+          target: [traceStreamActivity.streamId],
+          set: {
+            droppedInTransitCount: sql`${traceStreamActivity.droppedInTransitCount} + excluded.dropped_in_transit_count`,
+          },
+        });
+    },
+
     async read({ streamId }) {
       const [row] = await runner
         .select()
@@ -48,6 +61,7 @@ export function createActivityStore({ runner }: { runner: Runner }): ActivitySto
         approxSpansPerMinute: Number(row.approxSpansPerMinute),
         droppedSpansCount: Number(row.droppedSpansCount),
         droppedTracesCount: Number(row.droppedTracesCount),
+        droppedInTransitCount: Number(row.droppedInTransitCount),
       } satisfies TraceStreamActivity;
     },
 
