@@ -18,34 +18,25 @@ import {
 } from "@checkstack/ui";
 import {
   LogstreamApi,
-  SEVERITY_BANDS,
   type EventCursor,
   type LogEvent,
 } from "@checkstack/logstream-common";
 import { Search, X } from "lucide-react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import {
+  effectiveExploreRange,
   hasActiveFilters,
   mergeOlderEvents,
   toggleBand,
   toSearchInput,
   type ExploreFilters,
 } from "../../lib/explore-filters";
-import {
-  severityBandIcon,
-  severityBandLabel,
-  severityBandToTone,
-} from "../../lib/severity-tone";
 import { LogEventRow } from "../LogEventRow";
+import { SeverityBandPills } from "../SeverityBandPills";
 import { PatternOccurrencesChart } from "../PatternOccurrencesChart";
 import { PatternBuilderDialog } from "../PatternBuilderDialog";
 
 const PAGE_LIMIT = 100;
-
-function defaultRange(): DateRange {
-  const endDate = new Date();
-  return { startDate: new Date(endDate.getTime() - 24 * 60 * 60 * 1000), endDate };
-}
 
 export interface ExploreTabProps {
   streamId: string;
@@ -94,7 +85,32 @@ export function ExploreTab({
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   const debouncedText = useDebouncedValue(filters.text, 300);
-  const effectiveFilters: ExploreFilters = { ...filters, text: debouncedText };
+
+  // Minute-quantized fallback window, memoized so the range keeps a stable
+  // object identity across unrelated re-renders (typing, expanding a row):
+  // the memoized occurrences chart bails out on shallow prop equality, and
+  // the query keys don't churn (see `defaultExploreRange`). The quantized
+  // "now" only changes once a minute, which rolls the window forward.
+  const fallbackNow = Math.ceil(Date.now() / 60_000) * 60_000;
+  const rangeValue: DateRange = useMemo(
+    () =>
+      effectiveExploreRange({
+        from: filters.from,
+        to: filters.to,
+        now: fallbackNow,
+      }),
+    [filters.from, filters.to, fallbackNow],
+  );
+
+  // The search is ALWAYS bounded by the effective window (explicit pick or
+  // the last-24h fallback) - never fetch a pattern's/filter's full history,
+  // and keep the list consistent with the occurrences chart above it.
+  const effectiveFilters: ExploreFilters = {
+    ...filters,
+    text: debouncedText,
+    from: rangeValue.startDate,
+    to: rangeValue.endDate,
+  };
 
   const searchInput = toSearchInput({
     streamId,
@@ -122,7 +138,9 @@ export function ExploreTab({
     [patterns],
   );
 
-  // Reset accumulated older pages whenever the query facets change.
+  // Reset accumulated older pages whenever the USER-driven facets change.
+  // Deliberately keyed on `filters.from/to` (the explicit pick), not on the
+  // rolling fallback window - otherwise pagination would reset every minute.
   const facetKey = JSON.stringify({
     text: debouncedText.trim(),
     severityBands: filters.severityBands,
@@ -170,10 +188,6 @@ export function ExploreTab({
     }
   };
 
-  const rangeValue: DateRange =
-    filters.from && filters.to
-      ? { startDate: filters.from, endDate: filters.to }
-      : defaultRange();
   const timeFiltered = filters.from !== null || filters.to !== null;
 
   const filterToPattern = (patternId: string) =>
@@ -230,41 +244,15 @@ export function ExploreTab({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap items-center gap-1">
-          {SEVERITY_BANDS.map((band) => {
-            const active = filters.severityBands.includes(band);
-            const Icon = severityBandIcon(band);
-            const tone = severityBandToTone(band);
-            return (
-              <button
-                key={band}
-                type="button"
-                aria-pressed={active}
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    severityBands: toggleBand(f.severityBands, band),
-                  }))
-                }
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium transition-colors",
-                  active
-                    ? tone === "error"
-                      ? "border-destructive/40 bg-destructive/10 text-destructive"
-                      : tone === "warn"
-                        ? "border-warning/40 bg-warning/10 text-warning"
-                        : tone === "info"
-                          ? "border-info/40 bg-info/10 text-info"
-                          : "border-border bg-secondary text-secondary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:bg-surface-inset",
-                )}
-              >
-                <Icon className="size-3" aria-hidden />
-                {severityBandLabel(band)}
-              </button>
-            );
-          })}
-          </div>
+          <SeverityBandPills
+            value={filters.severityBands}
+            onToggle={(band) =>
+              setFilters((f) => ({
+                ...f,
+                severityBands: toggleBand(f.severityBands, band),
+              }))
+            }
+          />
 
           <Select
             value={filters.patternId ?? "all"}

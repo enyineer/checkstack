@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import type { LogEvent } from "@checkstack/logstream-common";
 import {
   cursorFromEvent,
+  defaultExploreRange,
+  effectiveExploreRange,
   EMPTY_EXPLORE_FILTERS,
   hasActiveFilters,
   mergeOlderEvents,
@@ -126,5 +128,70 @@ describe("mergeOlderEvents", () => {
   it("returns the current list unchanged when the older page is empty", () => {
     const current = [event("3", 300)];
     expect(mergeOlderEvents({ current, incoming: [] })).toEqual(current);
+  });
+});
+
+describe("defaultExploreRange", () => {
+  it("quantizes the end up to the next minute boundary", () => {
+    // 12:34:17.500 -> 12:35:00.000
+    const now = Date.UTC(2026, 0, 1, 12, 34, 17, 500);
+    const { endDate } = defaultExploreRange({ now });
+    expect(endDate.getTime()).toBe(Date.UTC(2026, 0, 1, 12, 35, 0, 0));
+  });
+
+  it("keeps an exact minute boundary as-is", () => {
+    const now = Date.UTC(2026, 0, 1, 12, 35, 0, 0);
+    const { endDate } = defaultExploreRange({ now });
+    expect(endDate.getTime()).toBe(now);
+  });
+
+  it("spans exactly 24 hours", () => {
+    const { startDate, endDate } = defaultExploreRange({
+      now: Date.UTC(2026, 0, 1, 12, 34, 17),
+    });
+    expect(endDate.getTime() - startDate.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("is value-stable across calls within the same minute (stable query key)", () => {
+    const a = defaultExploreRange({ now: Date.UTC(2026, 0, 1, 12, 34, 1) });
+    const b = defaultExploreRange({ now: Date.UTC(2026, 0, 1, 12, 34, 59, 999) });
+    expect(a.startDate.getTime()).toBe(b.startDate.getTime());
+    expect(a.endDate.getTime()).toBe(b.endDate.getTime());
+  });
+
+  it("rolls forward once the minute passes", () => {
+    const a = defaultExploreRange({ now: Date.UTC(2026, 0, 1, 12, 34, 59) });
+    const b = defaultExploreRange({ now: Date.UTC(2026, 0, 1, 12, 35, 1) });
+    expect(b.endDate.getTime()).toBe(a.endDate.getTime() + 60_000);
+  });
+});
+
+describe("effectiveExploreRange", () => {
+  const now = Date.UTC(2026, 0, 1, 12, 34, 17);
+
+  it("uses the explicit pick when both bounds are set", () => {
+    const from = new Date(Date.UTC(2025, 11, 30));
+    const to = new Date(Date.UTC(2025, 11, 31));
+    expect(effectiveExploreRange({ from, to, now })).toEqual({
+      startDate: from,
+      endDate: to,
+    });
+  });
+
+  it("falls back to the quantized default window when no pick is set", () => {
+    const range = effectiveExploreRange({ from: null, to: null, now });
+    expect(range).toEqual(defaultExploreRange({ now }));
+    // The events search is bounded by this window, so a pattern filter can
+    // never fetch its full unbounded history.
+    expect(range.endDate.getTime() - range.startDate.getTime()).toBe(
+      24 * 60 * 60 * 1000,
+    );
+  });
+
+  it("falls back when only one bound is set", () => {
+    const from = new Date(Date.UTC(2025, 11, 30));
+    expect(effectiveExploreRange({ from, to: null, now })).toEqual(
+      defaultExploreRange({ now }),
+    );
   });
 });

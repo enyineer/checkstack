@@ -144,7 +144,9 @@ export function MetricQuickChart({ streamId }: MetricQuickChartProps) {
             secondary={maxSeries}
             ariaLabel={`${metricName} average and max over time`}
             formatY={(v) => formatNumber(v)}
-            height={200}
+            // Same 192px footprint as the `chart` Skeleton / EmptyState, so
+            // swapping between the three states never shifts the layout.
+            height={192}
           />
         ) : (
           <EmptyState
