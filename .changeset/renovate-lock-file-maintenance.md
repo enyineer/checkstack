@@ -22,5 +22,6 @@ Updated dependencies:
 - `fast-xml-parser` 5.9.3 -> 5.10.0
 - `is-unsafe` 1.0.1 -> 2.0.0
 - `ldapts` 8.1.8 -> 8.2.0
+- `postcss` 8.5.16 -> 8.5.17
 - `svgo` 4.0.1 -> 4.0.2
 - `xml-naming` 0.1.0 -> 0.3.0
