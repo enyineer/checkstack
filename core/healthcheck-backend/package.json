@@ -46,7 +46,6 @@
     "drizzle-orm": "^0.45.0",
     "hono": "^4.12.25",
     "jsonpath-plus": "^10.4.0",
-    "tdigest": "^0.1.2",
     "yaml": "^2.6.1",
     "zod": "^4.2.1"
   },
@@ -57,7 +56,6 @@
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
     "@types/pg": "^8.20.0",
-    "@types/tdigest": "^0.1.5",
     "bullmq": "^5.66.4",
     "date-fns": "^4.4.0",
     "drizzle-kit": "^0.31.10",

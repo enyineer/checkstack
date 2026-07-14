@@ -1,0 +1,20 @@
+{
+  "extends": "@checkstack/tsconfig/common.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../otlp-wire"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../telemetry-common"
+    }
+  ]
+}

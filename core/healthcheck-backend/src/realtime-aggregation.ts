@@ -3,13 +3,16 @@ import type {
   CollectorRegistry,
 } from "@checkstack/backend-api";
 import {
+  pushValuesIntoState,
+  percentileFromState,
+} from "@checkstack/backend-api";
+import {
   ASSERTIONS_AGG_KEY,
   AssertionOutcomeSchema,
   foldOutcomesIntoStats,
   readAssertionStats,
   type AssertionOutcome,
 } from "@checkstack/healthcheck-common";
-import { TDigest } from "tdigest";
 import * as schema from "./schema";
 import { healthCheckAggregates } from "./schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -28,46 +31,6 @@ export function getHourBucketStart(timestamp: Date): Date {
   const bucketStart = new Date(timestamp);
   bucketStart.setMinutes(0, 0, 0);
   return bucketStart;
-}
-
-/**
- * Serialize a t-digest to an array of numbers for storage.
- * Format: [centroid1_mean, centroid1_n, centroid2_mean, centroid2_n, ...]
- */
-export function serializeTDigest(digest: TDigest): number[] {
-  const centroids = digest.toArray();
-  const result: number[] = [];
-  for (const c of centroids) {
-    result.push(c.mean, c.n);
-  }
-  return result;
-}
-
-/**
- * Deserialize a t-digest from storage format.
- */
-export function deserializeTDigest(state: number[]): TDigest {
-  const digest = new TDigest();
-
-  if (state.length === 0) {
-    return digest;
-  }
-
-  // Reconstruct centroids from pairs of [mean, n]
-  const centroids: Array<{ mean: number; n: number }> = [];
-  for (let i = 0; i < state.length; i += 2) {
-    const mean = state[i];
-    const n = state[i + 1];
-    if (mean !== undefined && n !== undefined && n > 0) {
-      centroids.push({ mean, n });
-    }
-  }
-
-  if (centroids.length > 0) {
-    digest.push_centroid(centroids);
-  }
-
-  return digest;
 }
 
 interface IncrementHourlyAggregateParams {
@@ -177,15 +140,14 @@ export async function incrementHourlyAggregate(
             max = latencyMs;
           }
 
-          // Update t-digest for p95 calculation
-          const digest =
-            existing?.tdigestState && existing.tdigestState.length > 0
-              ? deserializeTDigest(existing.tdigestState)
-              : new TDigest();
-
-          digest.push(latencyMs);
-          const tdigestState = serializeTDigest(digest);
-          const p95 = Math.round(digest.percentile(0.95));
+          // Update t-digest for p95 calculation (shared backend-api helper).
+          const tdigestState = pushValuesIntoState({
+            state: existing?.tdigestState ?? null,
+            values: [latencyMs],
+          });
+          const p95 = Math.round(
+            percentileFromState({ state: tdigestState, q: 0.95 }) ?? latencyMs,
+          );
 
           return { latencySumIncr, min, max, tdigestState, p95 };
         })();

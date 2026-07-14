@@ -33,6 +33,7 @@ export * from "./chart-metadata";
 export * from "./transport-client";
 export * from "./collector-strategy";
 export * from "./collector-registry";
+export * from "./tdigest";
 export * from "./incremental-aggregation";
 export * from "./aggregated-result";
 export * from "./ws-registry";

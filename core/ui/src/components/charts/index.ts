@@ -24,6 +24,24 @@ export {
   RequestWaterfall,
   type RequestWaterfallProps,
 } from "./RequestWaterfall";
+export {
+  TraceWaterfall,
+  type TraceWaterfallProps,
+  type WaterfallSpan,
+  type WaterfallSpanStatus,
+} from "./TraceWaterfall";
+export {
+  buildTraceTree,
+  flattenVisibleRows,
+  serviceColorIndex,
+  collectParentSpanIds,
+  formatSpanDuration,
+  toMs,
+  SERVICE_PALETTE_SIZE,
+  type TraceTree,
+  type TraceTreeNode,
+  type WaterfallRow,
+} from "./TraceWaterfall.logic";
 export { UptimeRibbon, type UptimeRibbonProps } from "./UptimeRibbon";
 export {
   ChartTooltip,

@@ -1,0 +1,54 @@
+{
+  "name": "@checkstack/tracestream-frontend",
+  "version": "0.0.1",
+  "description": "Distributed tracing streams: OTLP trace ingestion, tail-based sampling, trace search and waterfalls",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.tsx",
+  "exports": {
+    ".": { "import": "./src/index.tsx" }
+  },
+  "files": ["dist"],
+  "checkstack": {
+    "type": "frontend",
+    "pluginId": "tracestream"
+  },
+  "scripts": {
+    "dev": "checkstack-dev",
+    "build": "vite build",
+    "pack": "checkstack-scripts plugin-pack",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test:e2e": "bunx playwright test"
+  },
+  "dependencies": {
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@checkstack/telemetry-frontend": "workspace:*",
+    "@checkstack/tracestream-common": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "@tanstack/react-query": "^5.100.14",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "lucide-react": "^0.469.0"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/dev-server": "workspace:*",
+    "@checkstack/frontend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/test-utils-frontend": "workspace:*",
+    "@module-federation/vite": "1.16.15",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@playwright/test": "^1.49.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.0.16"
+  }
+}

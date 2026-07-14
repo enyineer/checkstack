@@ -349,6 +349,15 @@
       "path": "./core/tips-frontend"
     },
     {
+      "path": "./core/tracestream-backend"
+    },
+    {
+      "path": "./core/tracestream-common"
+    },
+    {
+      "path": "./core/tracestream-frontend"
+    },
+    {
       "path": "./core/ui"
     },
     {
