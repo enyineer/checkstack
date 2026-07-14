@@ -3,6 +3,7 @@ import {
   coreServices,
   type SafeDatabase,
 } from "@checkstack/backend-api";
+import { eq, inArray } from "drizzle-orm";
 import {
   secretResolverRef,
   internalSecretsRef,
@@ -13,7 +14,9 @@ import {
   METRIC_SCRAPE_CAPABILITY_KIND,
 } from "@checkstack/metricstream-common";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
+import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
 import * as schema from "./schema";
+import { createMetricstreamTelemetrySink } from "./telemetry-sink";
 import { registerSatelliteCapabilities } from "./satellite/setup";
 import { createStorage } from "./storage";
 import { createImportantEventRecorder } from "./events/recorder";
@@ -68,6 +71,13 @@ export default createBackendPlugin({
       satelliteCapabilityExtensionPoint,
     );
 
+    // Telemetry SINK contribution (dependency inversion: metricstream OWNS the
+    // "metrics" signal and contributes its sink to the telemetry platform). The
+    // handle is captured here; the sink is registered in init() once the shared
+    // ingest sink + db exist (registration is buffered behind the point, so this
+    // is load-order safe - mirrors satelliteCapabilities above).
+    const telemetrySink = env.getExtensionPoint(telemetrySinkExtensionPoint);
+
     env.registerInit({
       schema,
       deps: {
@@ -78,6 +88,7 @@ export default createBackendPlugin({
         queueManager: coreServices.queueManager,
         rpcClient: coreServices.rpcClient,
         eventBus: coreServices.eventBus,
+        auth: coreServices.auth,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
         instanceRuntime: coreServices.instanceRuntime,
@@ -94,6 +105,7 @@ export default createBackendPlugin({
         queueManager,
         rpcClient,
         eventBus,
+        auth,
         healthCheckRegistry,
         collectorRegistry,
         instanceRuntime,
@@ -143,6 +155,60 @@ export default createBackendPlugin({
         });
         // Stop the scrape scheduler/consumer on deregister/shutdown.
         env.registerCleanup(sources.stop);
+
+        // Contribute the telemetry "metrics" sink: telemetry sources route their
+        // normalized points through the SAME shared ingest sink the push/scrape
+        // paths use (clamping, buffering, cardinality caps and folding all apply
+        // uniformly). Existence + display name resolve straight off the streams
+        // table (the push path relies on the source token instead; there is no
+        // shared "get stream by id" helper to reuse).
+        telemetrySink.registerSink(
+          createMetricstreamTelemetrySink({
+            resolveStream: async (streamId) => {
+              const [row] = await db
+                .select({
+                  id: schema.metricStreams.id,
+                  name: schema.metricStreams.name,
+                })
+                .from(schema.metricStreams)
+                .where(eq(schema.metricStreams.id, streamId))
+                .limit(1);
+              return row ?? null;
+            },
+            // Batched resolver for source LIST read paths: one set-based select
+            // over the bound ids, keyed by id (unknown ids map to null).
+            resolveStreams: async (streamIds) => {
+              const resolved: Record<
+                string,
+                { id: string; name: string } | null
+              > = {};
+              for (const id of streamIds) resolved[id] = null;
+              if (streamIds.length === 0) return resolved;
+              const rows = await db
+                .select({
+                  id: schema.metricStreams.id,
+                  name: schema.metricStreams.name,
+                })
+                .from(schema.metricStreams)
+                .where(inArray(schema.metricStreams.id, streamIds));
+              for (const row of rows) resolved[row.id] = row;
+              return resolved;
+            },
+            // List all streams (id + name) for the telemetry binding picker; the
+            // sink filters them to the caller's manageable subset.
+            listStreams: async () =>
+              db
+                .select({
+                  id: schema.metricStreams.id,
+                  name: schema.metricStreams.name,
+                })
+                .from(schema.metricStreams),
+            sink: ingest.sink,
+            auth,
+            logger,
+          }),
+          pluginMetadata,
+        );
 
         // Contribute the satellite capability handlers (forwarded telemetry +
         // satellite-side scraping). Feeds the SAME sink the push/scrape paths

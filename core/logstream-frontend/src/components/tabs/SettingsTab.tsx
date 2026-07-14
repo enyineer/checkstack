@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { LogstreamApi, type LogStream } from "@checkstack/logstream-common";
+import { StreamSourcesSection } from "@checkstack/telemetry-frontend";
 import { StreamSettingsForm } from "../StreamSettingsForm";
 import { SeverityRulesSection } from "../SeverityRulesSection";
 import { TokensSection } from "../TokensSection";
@@ -34,6 +35,7 @@ export function SettingsTab({ stream }: SettingsTabProps) {
         canManage={canManage}
         onMinted={setMintedSecret}
       />
+      <StreamSourcesSection signal="logs" streamId={stream.id} />
       <ShipLogsInstructions token={mintedSecret} />
       <DangerZoneSection stream={stream} />
     </div>

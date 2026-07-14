@@ -26,6 +26,12 @@
       "path": "../signal-common"
     },
     {
+      "path": "../telemetry-common"
+    },
+    {
+      "path": "../telemetry-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

@@ -14,10 +14,7 @@
  */
 
 import type { Logger } from "@checkstack/backend-api";
-import {
-  resolveAndValidateHost,
-  DEFAULT_EGRESS_DENY_CIDRS,
-} from "@checkstack/backend-api";
+import { createGuardedFetch } from "@checkstack/backend-api";
 import {
   SCRAPE_TARGET_URL_SCHEMES,
   capScrapeSeries,
@@ -122,25 +119,24 @@ export async function executePrometheusScrape({
   }
 
   // SSRF egress guard: resolve the host and reject any denied range (cloud
-  // metadata / link-local) BEFORE issuing the request, using the same
-  // foundation guard the HTTP healthcheck collector uses. Like that collector we
-  // then fetch the ORIGINAL url verbatim rather than pinning the connection to
-  // the resolved IP - pinning rewrites the URL host and breaks HTTP/2 origins
-  // (whose authority is the `:authority` pseudo-header, not the `Host` header).
+  // metadata / link-local) BEFORE issuing the request, using the shared
+  // guarded-fetch primitive (the same foundation guard the HTTP healthcheck
+  // collector uses). The guard re-validates the host on every redirect hop, so a
+  // 3xx pointing at an internal address cannot slip past the pre-flight check.
+  // Like the collector, it fetches the ORIGINAL url verbatim rather than pinning
+  // the connection to the resolved IP - pinning rewrites the URL host and breaks
+  // HTTP/2 origins (whose authority is the `:authority` pseudo-header, not the
+  // `Host` header).
   //
-  // Trade-off: because `fetch` re-resolves DNS itself, this pre-flight has a
-  // DNS-rebind TOCTOU window (a host could resolve to an allowed IP here and a
-  // denied one at connect time). It still blocks the common cases - a host that
-  // statically resolves to a denied range, and direct denied IP literals.
-  try {
-    await resolveAndValidateHost({
-      host: parsedUrl.hostname,
-      denyCidrs: DEFAULT_EGRESS_DENY_CIDRS,
-      ...(lookupFn === undefined ? {} : { lookupFn }),
-    });
-  } catch (error) {
-    throw new ScrapeError(`scrape target rejected: ${String(error)}`);
-  }
+  // Trade-off: because `fetch` re-resolves DNS itself, this has a DNS-rebind
+  // TOCTOU window (a host could resolve to an allowed IP here and a denied one at
+  // connect time). It still blocks the common cases - a host that statically
+  // resolves to a denied range, and direct denied IP literals.
+  const guardedFetch = createGuardedFetch({
+    logger,
+    fetchImpl,
+    ...(lookupFn === undefined ? {} : { lookupFn }),
+  });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), target.timeoutMs);
@@ -149,7 +145,7 @@ export async function executePrometheusScrape({
   try {
     const headers: Record<string, string> = { accept: "text/plain" };
     if (target.bearerToken) headers.authorization = `Bearer ${target.bearerToken}`;
-    response = await fetchImpl(target.url, { headers, signal: controller.signal });
+    response = await guardedFetch(target.url, { headers, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) {
       throw new ScrapeError(`scrape timed out after ${target.timeoutMs}ms`);

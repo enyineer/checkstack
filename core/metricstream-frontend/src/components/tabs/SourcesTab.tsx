@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { MetricstreamApi, type MetricStream } from "@checkstack/metricstream-common";
+import { StreamSourcesSection } from "@checkstack/telemetry-frontend";
 import { PushEndpointsCard } from "../PushEndpointsCard";
 import { TokensSection } from "../TokensSection";
 import { ScrapeTargetsSection } from "../ScrapeTargetsSection";
@@ -33,6 +34,7 @@ export function SourcesTab({ stream }: SourcesTabProps) {
         onMinted={setMintedSecret}
       />
       <ScrapeTargetsSection streamId={stream.id} canManage={canManage} />
+      <StreamSourcesSection signal="metrics" streamId={stream.id} />
     </div>
   );
 }

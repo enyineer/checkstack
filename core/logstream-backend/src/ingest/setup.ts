@@ -23,9 +23,13 @@ import {
 } from "../events/bus-hooks";
 import { createIngestAuthenticator, type IngestAuthenticator } from "./auth";
 import { lookupTokenByHash } from "./token-lookup";
-import { createStreamConfigResolver } from "./stream-config";
+import {
+  createStreamConfigResolver,
+  type StreamConfigResolver,
+} from "./stream-config";
 import {
   createIngestPipeline,
+  type IngestPipeline,
   type GetReferencedPatternIds,
 } from "./pipeline";
 import { type FlushExecutor } from "./flush-executor";
@@ -137,6 +141,17 @@ export interface IngestTeardown {
    * authenticator, config resolver, and pipeline.
    */
   satelliteCapabilityHandler: SatelliteCapabilityHandler;
+  /**
+   * The per-pod ingest pipeline. Exposed so the telemetry SINK contribution can
+   * feed the SAME admit->buffer->flush path the HTTP endpoints use.
+   */
+  pipeline: IngestPipeline;
+  /**
+   * The per-stream config resolver (caps + severity rules). Exposed so the
+   * telemetry sink normalizes each record against the identical stream config
+   * the push endpoints resolve.
+   */
+  configResolver: StreamConfigResolver;
 }
 
 /**
@@ -306,6 +321,8 @@ export function registerIngestEndpoints({
   let stopped = false;
   return {
     satelliteCapabilityHandler,
+    pipeline,
+    configResolver,
     async stop() {
       if (stopped) return;
       stopped = true;

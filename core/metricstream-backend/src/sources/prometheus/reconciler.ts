@@ -23,7 +23,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
-import type { QueueManager } from "@checkstack/queue-api";
+import { reconcileRecurringJobs, type QueueManager } from "@checkstack/queue-api";
 import type {
   InternalSecretsService,
   SecretResolverService,
@@ -118,13 +118,6 @@ export function createScrapeScheduler({
     return sourceRegistry.get(PROMETHEUS_SOURCE_QUALIFIED_ID);
   }
 
-  async function cancelTargetJobs(targetId: string): Promise<void> {
-    const jobIds = await queue.listRecurringJobs();
-    for (const jobId of jobIds) {
-      if (isJobForTarget(jobId, targetId)) await queue.cancelRecurring(jobId);
-    }
-  }
-
   async function reconcileScrapeTarget({
     targetId,
   }: {
@@ -141,30 +134,30 @@ export function createScrapeScheduler({
       .where(eq(metricScrapeTargets.id, targetId))
       .limit(1);
 
-    // A satellite-bound target is scheduled on that satellite, not core: cancel
-    // any core job (this also cancels the OLD job when a core target rebinds to
-    // a satellite). Same for disabled / deleted targets.
-    if (!target || !target.enabled || target.satelliteId) {
-      await cancelTargetJobs(targetId);
-      return;
-    }
-
-    const desiredJobId = scrapeJobId({
-      targetId,
-      intervalSeconds: target.intervalSeconds,
+    // A satellite-bound target is scheduled on that satellite, not core, so it
+    // desires no core job (the same empty-desired path also covers disabled /
+    // deleted targets). An enabled core target desires exactly one job at its
+    // current interval; the shared reconciler schedules it and cancels any
+    // stale-interval job for this target (including the OLD job when a core
+    // target rebinds to a satellite).
+    const desired =
+      target && target.enabled && !target.satelliteId
+        ? [
+            {
+              jobId: scrapeJobId({
+                targetId,
+                intervalSeconds: target.intervalSeconds,
+              }),
+              intervalSeconds: target.intervalSeconds,
+              data: { targetId } satisfies ScrapeJobPayload,
+            },
+          ]
+        : [];
+    await reconcileRecurringJobs({
+      queue,
+      desired,
+      ownsJobId: (jobId) => isJobForTarget(jobId, targetId),
     });
-    // Cancel any stale job for this target (a different interval) before/aside
-    // from scheduling the desired one.
-    const jobIds = await queue.listRecurringJobs();
-    for (const jobId of jobIds) {
-      if (isJobForTarget(jobId, targetId) && jobId !== desiredJobId) {
-        await queue.cancelRecurring(jobId);
-      }
-    }
-    await queue.scheduleRecurring(
-      { targetId },
-      { jobId: desiredJobId, intervalSeconds: target.intervalSeconds },
-    );
   }
 
   async function removeScrapeTarget({
@@ -172,7 +165,11 @@ export function createScrapeScheduler({
   }: {
     targetId: string;
   }): Promise<void> {
-    await cancelTargetJobs(targetId);
+    await reconcileRecurringJobs({
+      queue,
+      desired: [],
+      ownsJobId: (jobId) => isJobForTarget(jobId, targetId),
+    });
   }
 
   async function reconcileAll(): Promise<void> {
@@ -185,31 +182,24 @@ export function createScrapeScheduler({
       })
       .from(metricScrapeTargets);
 
-    const desired = new Map<string, number>(); // jobId -> intervalSeconds
-    for (const t of targets) {
-      // Satellite-bound targets are scheduled on their satellite, not core.
-      if (!t.enabled || t.satelliteId) continue;
-      desired.set(
-        scrapeJobId({ targetId: t.id, intervalSeconds: t.intervalSeconds }),
-        t.intervalSeconds,
-      );
-    }
+    // Satellite-bound targets are scheduled on their satellite, not core.
+    const desired = targets
+      .filter((t) => t.enabled && !t.satelliteId)
+      .map((t) => ({
+        jobId: scrapeJobId({ targetId: t.id, intervalSeconds: t.intervalSeconds }),
+        intervalSeconds: t.intervalSeconds,
+        data: { targetId: t.id } satisfies ScrapeJobPayload,
+      }));
 
-    const actual = new Set(await queue.listRecurringJobs());
-    // Schedule missing desired jobs (idempotent - updates in place if present).
-    for (const [jobId, intervalSeconds] of desired) {
-      const targetId = targetIdFromJobId(jobId);
-      if (!targetId) continue;
-      await queue.scheduleRecurring({ targetId }, { jobId, intervalSeconds });
-    }
-    // Cancel orphaned scrape jobs (a target now disabled/deleted, or an old interval).
-    for (const jobId of actual) {
-      if (jobId.startsWith(SCRAPE_JOB_PREFIX) && !desired.has(jobId)) {
-        await queue.cancelRecurring(jobId);
-      }
-    }
+    // This owner owns every `metricstream-scrape:` job; orphans (a target now
+    // disabled/deleted, or an old interval) are cancelled by the reconciler.
+    const { cancelled } = await reconcileRecurringJobs({
+      queue,
+      desired,
+      ownsJobId: (jobId) => jobId.startsWith(SCRAPE_JOB_PREFIX),
+    });
     logger.debug(
-      `metricstream: scrape reconcile - ${desired.size} desired, ${actual.size} actual`,
+      `metricstream: scrape reconcile - ${desired.length} desired, ${cancelled.length} cancelled`,
     );
   }
 
@@ -347,13 +337,4 @@ export function createScrapeScheduler({
       // tear down here beyond letting in-flight scrapes finish.
     },
   };
-}
-
-/** Recover the targetId from a `metricstream-scrape:<targetId>:<interval>` jobId. */
-function targetIdFromJobId(jobId: string): string | null {
-  if (!jobId.startsWith(SCRAPE_JOB_PREFIX)) return null;
-  const rest = jobId.slice(SCRAPE_JOB_PREFIX.length);
-  const lastColon = rest.lastIndexOf(":");
-  if (lastColon <= 0) return null;
-  return rest.slice(0, lastColon);
 }

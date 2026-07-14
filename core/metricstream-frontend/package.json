@@ -27,6 +27,8 @@
     "@checkstack/metricstream-common": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@checkstack/telemetry-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "lucide-react": "^1.17.0",
     "react": "19.2.7",

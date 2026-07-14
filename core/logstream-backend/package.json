@@ -40,6 +40,8 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/satellite-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-backend": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
     "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1"

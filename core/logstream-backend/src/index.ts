@@ -4,12 +4,15 @@ import {
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
+import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
 import {
   pluginMetadata,
   logstreamAccessRules,
 } from "@checkstack/logstream-common";
+import { eq, inArray } from "drizzle-orm";
 import * as schema from "./schema";
 import { createStorage } from "./storage";
+import { createLogstreamTelemetrySink } from "./telemetry-sink";
 import { createImportantEventRecorder } from "./events/recorder";
 import { createDrainEngine } from "./drain/engine";
 import { registerHealthIntegration } from "./health/setup";
@@ -46,6 +49,7 @@ export default createBackendPlugin({
         queueManager: coreServices.queueManager,
         rpcClient: coreServices.rpcClient,
         eventBus: coreServices.eventBus,
+        auth: coreServices.auth,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
         instanceRuntime: coreServices.instanceRuntime,
@@ -60,6 +64,7 @@ export default createBackendPlugin({
         queueManager,
         rpcClient,
         eventBus,
+        auth,
         healthCheckRegistry,
         collectorRegistry,
         instanceRuntime,
@@ -126,6 +131,61 @@ export default createBackendPlugin({
         env
           .getExtensionPoint(satelliteCapabilityExtensionPoint)
           .registerCapability(ingest.satelliteCapabilityHandler, pluginMetadata);
+
+        // Contribute the telemetry "logs" sink: telemetry sources route their
+        // normalized records through the SAME pipeline + stream config the push
+        // endpoints use, so banding, rate limits, buffering and sampling apply
+        // identically. Existence + display name resolve straight off the streams
+        // table (the push path relies on the source token instead; there is no
+        // shared "get stream by id" helper to reuse).
+        env.getExtensionPoint(telemetrySinkExtensionPoint).registerSink(
+          createLogstreamTelemetrySink({
+            resolveStream: async (streamId) => {
+              const [row] = await db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams)
+                .where(eq(schema.logStreams.id, streamId))
+                .limit(1);
+              return row ?? null;
+            },
+            // Batched resolver for source LIST read paths: one set-based select
+            // over the bound ids, keyed by id (unknown ids map to null).
+            resolveStreams: async (streamIds) => {
+              const resolved: Record<
+                string,
+                { id: string; name: string } | null
+              > = {};
+              for (const id of streamIds) resolved[id] = null;
+              if (streamIds.length === 0) return resolved;
+              const rows = await db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams)
+                .where(inArray(schema.logStreams.id, streamIds));
+              for (const row of rows) resolved[row.id] = row;
+              return resolved;
+            },
+            // List all streams (id + name) for the telemetry binding picker; the
+            // sink filters them to the caller's manageable subset.
+            listStreams: async () =>
+              db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams),
+            pipeline: ingest.pipeline,
+            configResolver: ingest.configResolver,
+            auth,
+            logger,
+          }),
+          pluginMetadata,
+        );
 
         registerApi({
           rpc,

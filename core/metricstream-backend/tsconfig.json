@@ -56,6 +56,12 @@
       "path": "../signal-common"
     },
     {
+      "path": "../telemetry-backend"
+    },
+    {
+      "path": "../telemetry-common"
+    },
+    {
       "path": "../test-utils-backend"
     }
   ]
