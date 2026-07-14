@@ -19,8 +19,30 @@ import {
   healthResultJSONPath,
   healthResultSchema,
 } from "@checkstack/healthcheck-common";
+import crypto from "node:crypto";
 import { pluginMetadata } from "./plugin-metadata";
 import type { HttpTransportClient } from "./transport-client";
+
+// ============================================================================
+// TRACE CONTEXT
+// ============================================================================
+
+/** The W3C `traceparent` header name, lowercased for case-insensitive checks. */
+const TRACEPARENT_HEADER = "traceparent";
+
+/**
+ * Generate a fresh W3C trace context for one probe. `traceId` is 16 random
+ * bytes (32 lowercase hex chars), `spanId` is 8 random bytes (16 lowercase hex
+ * chars), both from the CSPRNG (`crypto.randomBytes`) - never `Math.random`.
+ * The header is version `00`, sampled flag `01`.
+ *
+ * @returns the `traceId` and the ready-to-send `traceparent` header value.
+ */
+function buildTraceContext(): { traceId: string; traceparent: string } {
+  const traceId = crypto.randomBytes(16).toString("hex");
+  const spanId = crypto.randomBytes(8).toString("hex");
+  return { traceId, traceparent: `00-${traceId}-${spanId}-01` };
+}
 
 // ============================================================================
 // CONFIGURATION SCHEMA
@@ -60,6 +82,18 @@ const requestConfigSchema = z.object({
     .min(100)
     .default(30_000)
     .describe("Timeout in milliseconds"),
+  // Default-ON with opt-out: emit a fresh W3C `traceparent` header on every
+  // request so a traced backend can correlate the probe with its server-side
+  // spans. Unchecking it stops emission. Additive + defaulted: stored configs
+  // predating this field parse as `true`, which is the intended default-on
+  // rollout, so no schema-version bump / migration is required (the collector
+  // config stays v1; the migration-chain contract test proves the chain).
+  emitTraceparent: z
+    .boolean()
+    .default(true)
+    .describe(
+      "Emit a W3C traceparent header so a traced backend can correlate this probe with its server-side spans",
+    ),
 });
 
 /**
@@ -94,6 +128,15 @@ const requestResultSchema = healthResultSchema({
     "x-chart-label": "Status",
     "x-anomaly-enabled": false,
   }),
+  // Set only when this run actually emitted a `traceparent` header (i.e. the
+  // `emitTraceparent` config was on AND the user did not supply their own
+  // traceparent). Text-only, never an anomaly signal - it is an identifier, not
+  // a quantity. NOT ephemeral: historical "View trace" needs it persisted.
+  traceId: healthResultString({
+    "x-chart-type": "text",
+    "x-chart-label": "Trace ID",
+    "x-anomaly-enabled": false,
+  }).optional(),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
@@ -230,6 +273,22 @@ export class RequestCollector implements CollectorStrategy<
       headers[h.name] = h.value;
     }
 
+    // Emit a fresh W3C traceparent unless disabled, or unless the user already
+    // configured their own traceparent header (any casing) - theirs wins and is
+    // opaque to us, so we do NOT override it and do NOT record a traceId. This
+    // mirrors the strategy's "don't override an explicit user header" precedent
+    // (see mergeAuthHeader). The generated id is recorded on the result so a
+    // "View trace" surface can correlate this run with the server-side spans.
+    let emittedTraceId: string | undefined;
+    const userSuppliedTraceparent = Object.keys(headers).some(
+      (name) => name.toLowerCase() === TRACEPARENT_HEADER,
+    );
+    if (config.emitTraceparent && !userSuppliedTraceparent) {
+      const { traceId, traceparent } = buildTraceContext();
+      headers[TRACEPARENT_HEADER] = traceparent;
+      emittedTraceId = traceId;
+    }
+
     const response = await client.exec({
       url: config.url,
       method: config.method,
@@ -257,6 +316,8 @@ export class RequestCollector implements CollectorStrategy<
         body: response.body ?? "",
         bodyLength: response.body?.length ?? 0,
         success,
+        // Only present when this run actually emitted the header (same id).
+        ...(emittedTraceId === undefined ? {} : { traceId: emittedTraceId }),
       },
     };
   }
