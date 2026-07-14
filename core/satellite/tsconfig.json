@@ -37,6 +37,9 @@
     },
     {
       "path": "../secrets-common"
+    },
+    {
+      "path": "../telemetry-common"
     }
   ]
 }

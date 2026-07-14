@@ -35,6 +35,10 @@ import {
   METRIC_SCRAPE_CAPABILITY_KIND,
   type FetchSecretFn,
 } from "./scrape/scheduler";
+import {
+  TelemetryPullScheduler,
+  TELEMETRY_PULL_CAPABILITY_KIND,
+} from "./pull/scheduler";
 
 interface Logger {
   info: (msg: string) => void;
@@ -67,6 +71,7 @@ export function startTelemetryReceivers({
   let httpServer: TelemetryHttpServer | null = null;
   let syslog: SyslogListener | null = null;
   let scrapeScheduler: MetricScrapeScheduler | null = null;
+  let pullScheduler: TelemetryPullScheduler | null = null;
 
   if (capabilities.includes("log-receivers")) {
     const logs = createLogReceiverHandlers({ enqueue: telemetryClient, logger });
@@ -117,6 +122,20 @@ export function startTelemetryReceivers({
     });
   }
 
+  if (capabilities.includes("telemetry-pull")) {
+    pullScheduler = new TelemetryPullScheduler({
+      enqueue: telemetryClient,
+      emitStatus: (input) => capabilityRegistry.emitStatus(input),
+      fetchSecret,
+      logger,
+    });
+    const scheduler = pullScheduler;
+    capabilityRegistry.register({
+      kind: TELEMETRY_PULL_CAPABILITY_KIND,
+      onCapabilityConfig: ({ payload }) => scheduler.applyConfig(payload),
+    });
+  }
+
   let stopped = false;
   return {
     stop() {
@@ -125,6 +144,7 @@ export function startTelemetryReceivers({
       httpServer?.stop();
       syslog?.stop();
       scrapeScheduler?.stop();
+      pullScheduler?.stop();
     },
   };
 }

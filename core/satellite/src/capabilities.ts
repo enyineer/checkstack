@@ -13,6 +13,8 @@ export const SATELLITE_CAPABILITY_FLAGS = {
   telemetry: "CHECKSTACK_SATELLITE_TELEMETRY",
   /** Satellite-side metric scraping of bound targets. */
   scrape: "CHECKSTACK_SATELLITE_SCRAPE",
+  /** Satellite-side telemetry PULL execution of bound source instances. */
+  "telemetry-pull": "CHECKSTACK_SATELLITE_TELEMETRY_PULL",
   /** Local HTTP OTLP/native log + metric receivers. */
   "log-receivers": "CHECKSTACK_SATELLITE_LOG_RECEIVERS",
   /** Local syslog listener. */

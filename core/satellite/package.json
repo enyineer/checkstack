@@ -21,6 +21,7 @@
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {
