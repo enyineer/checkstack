@@ -19,6 +19,7 @@ export {
 export {
   withTestDb,
   isIntegrationEnabled,
+  isLoadTestEnabled,
   type TestDb,
   type WithTestDbOptions,
 } from "./with-test-db";

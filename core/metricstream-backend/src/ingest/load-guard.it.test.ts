@@ -21,9 +21,12 @@
  *   Plus a SCRAPE pass: one Prometheus scrape against an in-test fixture server,
  *   proving the pull executor's real fetch->parse->sink path.
  *
- * LANE: standard integration lane (`CHECKSTACK_IT=1 bun test it.test`, real
- * Postgres). Own throwaway schema + stream, so it never contends with other IT
- * files. Phase A window defaults to ~8s; override with `CHECKSTACK_IT_LOAD_MS`.
+ * LANE: the EXPLICIT load-testing lane only (`bun run test:load`, i.e.
+ * `CHECKSTACK_LOAD_TESTS=1` on top of `CHECKSTACK_IT=1`; real Postgres).
+ * Deliberately EXCLUDED from the normal `bun test` and CI lanes - it hammers
+ * the machine by design and exists to diagnose performance regressions. Own
+ * throwaway schema + stream, so it never contends with other IT files. Phase A
+ * window defaults to ~8s; override with `CHECKSTACK_IT_LOAD_MS`.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
@@ -32,7 +35,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   withTestDb,
-  isIntegrationEnabled,
+  isLoadTestEnabled,
   createMockLogger,
   createMockSignalService,
   type TestDb,
@@ -95,7 +98,7 @@ const RSS_GROWTH_MAX_BYTES = 300 * 1024 * 1024;
 const METRIC_NAMES = ["cpu_seconds", "mem_bytes", "http_requests", "queue_depth", "latency_ms"];
 const HOSTS = Array.from({ length: 20 }, (_, i) => `host-${i}`);
 
-describe.skipIf(!isIntegrationEnabled())(
+describe.skipIf(!isLoadTestEnabled())(
   "metricstream ingest load guard (integration)",
   () => {
     let test: TestDb<typeof schema>;

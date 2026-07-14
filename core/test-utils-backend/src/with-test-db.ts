@@ -59,6 +59,18 @@ export function isIntegrationEnabled(): boolean {
 }
 
 /**
+ * True only when the LOAD-testing lane is explicitly enabled
+ * (`CHECKSTACK_LOAD_TESTS=1` in addition to the integration lane). Load
+ * guards hammer the machine by design (sustained multi-thousand-rows/s
+ * ingest, event-loop pressure probes), so they must never run in the normal
+ * `bun test` / CI lanes - run them deliberately via `bun run test:load` when
+ * chasing a performance regression.
+ */
+export function isLoadTestEnabled(): boolean {
+  return isIntegrationEnabled() && Boolean(process.env.CHECKSTACK_LOAD_TESTS);
+}
+
+/**
  * Provision an isolated, migration-fresh test database. Throws if the
  * integration lane is not enabled, so a misconfigured suite fails loudly
  * instead of silently hitting a developer's working database.

@@ -65,7 +65,7 @@ The sampler's per-minute counters span the roughly 120 flushes in a minute, so i
 
 ### Responsiveness load guard
 
-`src/ingest/load-guard.it.test.ts` is an integration guard that hammers the real end-to-end ingest path (native handler, auth, parse/normalize, buffer, flush worker, storage) against real Postgres and asserts that high ingest volume does not degrade the rest of the application. It runs in the standard integration lane alongside every other `*.it.test.ts`, in its own throwaway schema, and takes about 15 seconds.
+`src/ingest/load-guard.it.test.ts` is an integration guard that hammers the real end-to-end ingest path (native handler, auth, parse/normalize, buffer, flush worker, storage) against real Postgres and asserts that high ingest volume does not degrade the rest of the application. It runs ONLY in the explicit load-testing lane (`bun run test:load`, which sets `CHECKSTACK_LOAD_TESTS=1` on top of `CHECKSTACK_IT=1`), in its own throwaway schema, and takes about 15 seconds. It is deliberately excluded from the normal `bun test` and CI lanes - it saturates the machine by design and exists to diagnose performance regressions on demand, not to gate every run.
 
 The guard has two deliberately separated phases:
 
@@ -80,9 +80,9 @@ Run it locally against the dev-compose Postgres:
 
 ```bash
 docker compose -f docker-compose-dev.yml up -d postgres redis
-CHECKSTACK_IT=1 bun test load-guard
+bun run test:load
 # quicker local pass with a shorter Phase A window:
-CHECKSTACK_IT_LOAD_MS=3000 CHECKSTACK_IT=1 bun test load-guard
+CHECKSTACK_IT_LOAD_MS=3000 bun run test:load
 ```
 
 ## State and scale

@@ -59,13 +59,16 @@
  *     total equals the accepted line count (no accepted data lost), and the
  *     stream activity row was updated.
  *
- * LANE: runs in the standard integration lane (`CHECKSTACK_IT=1 bun test
- * it.test`, real Postgres + Redis service containers - see
- * `.github/workflows/pr-checks.yml`), like every other `*.it.test.ts`. It uses
- * its OWN throwaway schema (via `withTestDb`) and its own stream id, so it never
- * contends with the other IT files' data. Phase A's measured window defaults to
- * ~10s; override with `CHECKSTACK_IT_LOAD_MS` for a quicker local pass, e.g.
- * `CHECKSTACK_IT_LOAD_MS=3000 CHECKSTACK_IT=1 bun test load-guard`.
+ * LANE: the EXPLICIT load-testing lane only (`bun run test:load` from the repo
+ * root, i.e. `CHECKSTACK_LOAD_TESTS=1` on top of `CHECKSTACK_IT=1`; real
+ * Postgres + Redis). Deliberately EXCLUDED from the normal `bun test` and CI
+ * lanes: it hammers the machine by design (sustained multi-thousand-lines/s
+ * ingest + event-loop probes) and exists to DIAGNOSE performance regressions,
+ * not to gate every run. It uses its OWN throwaway schema (via `withTestDb`)
+ * and its own stream id, so it never contends with the other IT files' data.
+ * Phase A's measured window defaults to ~10s; override with
+ * `CHECKSTACK_IT_LOAD_MS` for a quicker pass, e.g.
+ * `CHECKSTACK_IT_LOAD_MS=3000 bun run test:load`.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
@@ -73,7 +76,7 @@ import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import {
   withTestDb,
-  isIntegrationEnabled,
+  isLoadTestEnabled,
   createMockLogger,
   createMockSignalService,
   type TestDb,
@@ -158,7 +161,7 @@ const EVENT_LOOP_P95_MAX_BURST_MS = 120;
 const PROBE_P95_MAX_MS = 750; // healthy: a few ms; a starved pool -> seconds
 const RSS_GROWTH_MAX_BYTES = 300 * 1024 * 1024; // buffer byte-cap is the OOM guard
 
-describe.skipIf(!isIntegrationEnabled())(
+describe.skipIf(!isLoadTestEnabled())(
   "logstream ingest load guard (integration)",
   () => {
     let test: TestDb<typeof schema>;
