@@ -76,6 +76,10 @@ export function createLogstreamRouter({
       service.searchEvents(input),
     ),
 
+    findEventsByTraceId: os.findEventsByTraceId.handler(async ({ input }) =>
+      service.findEventsByTraceId(input),
+    ),
+
     getSeverityBuckets: os.getSeverityBuckets.handler(async ({ input }) =>
       service.getSeverityBuckets(input),
     ),

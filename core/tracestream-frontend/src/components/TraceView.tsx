@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { ExtensionSlot, usePluginClient } from "@checkstack/frontend-api";
 import {
   BackLink,
   EmptyState,
@@ -19,7 +19,10 @@ import {
   useIsMobile,
 } from "@checkstack/ui";
 import { CircleAlert, MousePointerClick } from "lucide-react";
-import { TracestreamApi } from "@checkstack/tracestream-common";
+import {
+  TracestreamApi,
+  TraceCorrelationsSlot,
+} from "@checkstack/tracestream-common";
 import { toWaterfallSpans } from "../lib/waterfall-adapter";
 import { SpanDetailPanel } from "./SpanDetailPanel";
 
@@ -54,6 +57,32 @@ export function TraceView({ streamId, traceId, onBack }: TraceViewProps) {
   const effectiveSelected =
     selectedSpanId ?? data?.spans[0]?.spanId ?? null;
   const selectedSpan = data?.spans.find((s) => s.spanId === effectiveSelected);
+
+  // Correlation context for cross-signal fillers (e.g. logstream's correlated
+  // log events). Keyed on the trace-window EPOCH values, not the Date instances:
+  // TanStack structural sharing does not preserve Date identity across refetches
+  // (live-ingest signals invalidate this query), so keying on the Date objects
+  // would mint a new context every refetch and re-render every filler despite an
+  // unchanged window. Keying on the epoch ms (and rebuilding the Dates inside)
+  // returns the previous context object when the window is unchanged, so the
+  // memoized ExtensionSlot bails out. `lastSpanAt` is non-null on every summary,
+  // so it is the trace's window end directly.
+  const startMs = data?.summary.startTs.getTime();
+  const endMs = data?.summary.lastSpanAt.getTime();
+  const rootServiceName = data?.summary.rootServiceName ?? null;
+  const correlationContext = useMemo(
+    () =>
+      startMs !== undefined && endMs !== undefined
+        ? {
+            streamId,
+            traceId,
+            startTs: new Date(startMs),
+            endTs: new Date(endMs),
+            rootServiceName: rootServiceName ?? "",
+          }
+        : null,
+    [streamId, traceId, startMs, endMs, rootServiceName],
+  );
 
   return (
     <div className="space-y-4">
@@ -141,6 +170,13 @@ export function TraceView({ streamId, traceId, onBack }: TraceViewProps) {
                 </SheetBody>
               </SheetContent>
             </Sheet>
+          )}
+
+          {correlationContext && (
+            <ExtensionSlot
+              slot={TraceCorrelationsSlot}
+              context={correlationContext}
+            />
           )}
         </>
       )}

@@ -4,6 +4,7 @@ import { LogstreamApi, type LogStream } from "@checkstack/logstream-common";
 import { StreamSourcesSection } from "@checkstack/telemetry-frontend";
 import { StreamSettingsForm } from "../StreamSettingsForm";
 import { SeverityRulesSection } from "../SeverityRulesSection";
+import { TraceExtractionSection } from "../TraceExtractionSection";
 import { TokensSection } from "../TokensSection";
 import { ShipLogsInstructions } from "../ShipLogsInstructions";
 import { DangerZoneSection } from "../DangerZoneSection";
@@ -30,6 +31,7 @@ export function SettingsTab({ stream }: SettingsTabProps) {
     <div className="space-y-6">
       <StreamSettingsForm stream={stream} canManage={canManage} />
       <SeverityRulesSection stream={stream} canManage={canManage} />
+      <TraceExtractionSection stream={stream} canManage={canManage} />
       <TokensSection
         streamId={stream.id}
         canManage={canManage}

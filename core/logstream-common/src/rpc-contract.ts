@@ -12,6 +12,8 @@ import {
   RevokeTokenSchema,
   SearchEventsSchema,
   SearchEventsResultSchema,
+  FindEventsByTraceIdSchema,
+  FindEventsByTraceIdResultSchema,
   GetBucketsSchema,
   SeverityBucketsResultSchema,
   PatternBucketsResultSchema,
@@ -167,6 +169,21 @@ export const logstreamContract = {
   })
     .input(SearchEventsSchema)
     .output(SearchEventsResultSchema),
+
+  /**
+   * Cross-stream "which logs belong to this trace" lookup (no stream id in
+   * the input): returns per-stream match groups, post-filtered to the
+   * caller's readable streams via `listKey` (each match's `id` IS the stream
+   * id). Powers the trace-view correlations panel.
+   */
+  findEventsByTraceId: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "matches" },
+  })
+    .input(FindEventsByTraceIdSchema)
+    .output(FindEventsByTraceIdResultSchema),
 
   getSeverityBuckets: proc({
     operationType: "query",

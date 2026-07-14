@@ -244,6 +244,94 @@ describe("prepareFlush - severityRules.patternOverrides", () => {
   });
 });
 
+describe("prepareFlush - traceExtraction", () => {
+  it("populates a native line's traceId from a stream config rule when the line carries no id", async () => {
+    const drain = mockDrain();
+    const sampler = new RawSampler(() => 1);
+    // An ingested native line WITHOUT reserved trace keys, carrying the id in an
+    // attribute and in the body. This mirrors a plain JSON source that never
+    // emits W3C ids - the flush seam fills them from the stream's rules.
+    const attrLine: IngestedLine = {
+      ...line("info", "request done trace=beefBEEF status=200"),
+      attributes: { ctx: { trace_id: "4BF9-2B32" } },
+    };
+    const plan = await prepareFlush({
+      streamId: "s1",
+      lines: [attrLine],
+      drain,
+      sampler,
+      config: {
+        ...DEFAULT_LOG_STREAM_CONFIG,
+        traceExtraction: {
+          traceId: { attributePaths: ["ctx.trace_id"] },
+          spanId: { bodyRegex: "trace=(\\w+)" },
+        },
+      },
+      now: new Date(100 * 60_000),
+      flushIntervalMs: 500,
+    });
+
+    expect(plan.eventRows).toHaveLength(1);
+    // Attribute path resolved + normalized (dash-stripped, lowercased).
+    expect(plan.eventRows[0]!.traceId).toBe("4bf92b32");
+    // Independent spanId rule extracted from the body, normalized.
+    expect(plan.eventRows[0]!.spanId).toBe("beefbeef");
+  });
+
+  it("normalizes a carried id and never overwrites it with a rule (OTLP / reserved keys win)", async () => {
+    const drain = mockDrain();
+    const sampler = new RawSampler(() => 1);
+    const nativeLine: IngestedLine = {
+      ...line("info", "trace=frombody"),
+      // A dashed/uppercase carried id: it is normalized at the flush seam (so it
+      // matches the stored W3C id) but is NOT replaced by the rule.
+      traceId: "4BF9-2B32",
+      attributes: { ctx: { trace_id: "from-attr" } },
+    };
+    const plan = await prepareFlush({
+      streamId: "s1",
+      lines: [nativeLine],
+      drain,
+      sampler,
+      config: {
+        ...DEFAULT_LOG_STREAM_CONFIG,
+        traceExtraction: {
+          traceId: { attributePaths: ["ctx.trace_id"], bodyRegex: "trace=(\\w+)" },
+        },
+      },
+      now: new Date(100 * 60_000),
+      flushIntervalMs: 500,
+    });
+    expect(plan.eventRows[0]!.traceId).toBe("4bf92b32");
+  });
+
+  it("treats a carried empty-string traceId as absent and fills it from the rule", async () => {
+    const drain = mockDrain();
+    const sampler = new RawSampler(() => 1);
+    // A native source that set traceId to "" (the confirmed empty-string bug):
+    // it must NOT persist as '' (unqueryable in the partial index) and must let
+    // extraction fill it.
+    const nativeLine: IngestedLine = {
+      ...line("info", "no id in body"),
+      traceId: "",
+      attributes: { ctx: { trace_id: "FILLED-FROM-ATTR" } },
+    };
+    const plan = await prepareFlush({
+      streamId: "s1",
+      lines: [nativeLine],
+      drain,
+      sampler,
+      config: {
+        ...DEFAULT_LOG_STREAM_CONFIG,
+        traceExtraction: { traceId: { attributePaths: ["ctx.trace_id"] } },
+      },
+      now: new Date(100 * 60_000),
+      flushIntervalMs: 500,
+    });
+    expect(plan.eventRows[0]!.traceId).toBe("filledfromattr");
+  });
+});
+
 describe("prepareFlush - variable folding", () => {
   it("folds only numeric wildcard values into per-(pattern,varIndex,minute) deltas", async () => {
     // wildcardValues: index 0 is numeric, index 1 is a non-numeric word.

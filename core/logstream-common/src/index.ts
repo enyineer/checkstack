@@ -14,6 +14,9 @@ export * from "./plugin-metadata";
 // Severity banding helpers
 export * from "./severity";
 
+// Backtracking-safety analysis for user-authored ingest regexes
+export * from "./regex-safety";
+
 // Source token helpers
 export * from "./token";
 
@@ -22,6 +25,9 @@ export * from "./schemas";
 
 // Realtime signals
 export * from "./signals";
+
+// Frontend slots (fillable by other plugins)
+export * from "./slots";
 
 // Health-check dropdown resolver names (shared by backend annotations + frontend)
 export * from "./health-resolvers";

@@ -53,6 +53,17 @@ Head sampling drops exactly the traces an operator cares about, so tracestream d
 
 The contract (`@checkstack/tracestream-common`) mirrors the reviewed stream RLAC modes. The notable reads: `searchTraces` (keyset-paginated summary search by service, operation, status, duration and time), `getTrace` (summary + spans for the waterfall), `getOpBuckets` (per-operation RED buckets with digest-backed `p95Ms`), `listServices` / `listOperations`, `getStreamOverview`, and the cross-stream `findTraceById`, which post-filters matches by the caller's stream grants - it powers every "View trace" jump the correlation phase adds.
 
+## Correlation
+
+The trace detail view hosts `TraceCorrelationsSlot`
+(`@checkstack/tracestream-common`) so other signals can surface records
+correlated with the open trace (logstream fills it with the trace's log
+events), while tracestream-frontend fills logstream's `LogEventDetailSlot`
+and healthcheck's `RunDetailExtrasSlot` with "View trace" jumps resolved
+through `findTraceById`. See
+[trace correlation](/checkstack/developer-guide/backend/trace-correlation/)
+for the full picture including the HTTP probe's traceparent emission.
+
 ## Telemetry sink
 
 tracestream registers the `traces` sink with the telemetry platform: normalized spans emitted by a telemetry source enter the exact same ingest pipeline (policy, caps, buckets) as the push endpoints, and bind-time authorization is answered by the stream's own access rules. With the sink in place, `traces` bindings are accepted in the sources UI and the trace stream's Settings tab embeds the platform's sources section.

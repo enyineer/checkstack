@@ -20,6 +20,12 @@
       "path": "../frontend-api"
     },
     {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../logstream-common"
+    },
+    {
       "path": "../telemetry-common"
     },
     {

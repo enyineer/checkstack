@@ -12,6 +12,11 @@ import {
   type SeverityBand,
 } from "../severity";
 
+// Trace-id / span-id extraction lives in its own module for readability but is
+// a normalization concern; re-exported here so it reaches the package root
+// (`@checkstack/logstream-common`) via the existing `./ingest/normalize` export.
+export * from "./trace-extraction";
+
 export interface ResolvedSeverity {
   severityNumber: number;
   band: SeverityBand;

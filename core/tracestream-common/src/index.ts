@@ -23,6 +23,9 @@ export * from "./ingest";
 // Realtime signals
 export * from "./signals";
 
+// Frontend slots (fillable by other plugins)
+export * from "./slots";
+
 // RPC contract + client definition
 export {
   tracestreamContract,

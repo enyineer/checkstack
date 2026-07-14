@@ -1,6 +1,7 @@
 import { StatusBadge, CopyableValue, Button, cn, formatDateTime } from "@checkstack/ui";
 import { ChevronRight, Tag, Wand2 } from "lucide-react";
-import type { LogEvent } from "@checkstack/logstream-common";
+import { ExtensionSlot } from "@checkstack/frontend-api";
+import { LogEventDetailSlot, type LogEvent } from "@checkstack/logstream-common";
 import {
   severityBandIcon,
   severityBandLabel,
@@ -156,6 +157,12 @@ export function LogEventRow({
               </pre>
             </div>
           )}
+
+          {/* Per-event fillers (e.g. tracestream's "View trace" jump). This
+              mounts only inside the SINGLE expanded row, not per virtualized
+              row, so the per-row slot cost rule does not apply here. `event`
+              comes straight from the query cache (referentially stable). */}
+          <ExtensionSlot slot={LogEventDetailSlot} context={{ event }} />
         </div>
       )}
     </div>

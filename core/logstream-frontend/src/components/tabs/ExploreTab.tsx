@@ -21,7 +21,7 @@ import {
   type EventCursor,
   type LogEvent,
 } from "@checkstack/logstream-common";
-import { Search, X } from "lucide-react";
+import { Search, Waypoints, X } from "lucide-react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import {
   effectiveExploreRange,
@@ -42,6 +42,9 @@ export interface ExploreTabProps {
   streamId: string;
   /** Initial deep-link filters (from the overview/patterns tabs). */
   initialPatternId?: string | null;
+  /** Exact trace-id to pre-fill (from a `?traceId=` deep link, e.g. the trace
+   * view's correlated-logs panel). */
+  initialTraceId?: string | null;
   initialFrom?: Date | null;
   initialTo?: Date | null;
 }
@@ -55,6 +58,7 @@ export interface ExploreTabProps {
 export function ExploreTab({
   streamId,
   initialPatternId,
+  initialTraceId,
   initialFrom,
   initialTo,
 }: ExploreTabProps) {
@@ -74,6 +78,7 @@ export function ExploreTab({
     text: "",
     severityBands: [],
     patternId: initialPatternId ?? null,
+    traceId: initialTraceId ?? "",
     from: initialFrom ?? null,
     to: initialTo ?? null,
   }));
@@ -85,6 +90,7 @@ export function ExploreTab({
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   const debouncedText = useDebouncedValue(filters.text, 300);
+  const debouncedTraceId = useDebouncedValue(filters.traceId, 300);
 
   // Minute-quantized fallback window, memoized so the range keeps a stable
   // object identity across unrelated re-renders (typing, expanding a row):
@@ -108,6 +114,7 @@ export function ExploreTab({
   const effectiveFilters: ExploreFilters = {
     ...filters,
     text: debouncedText,
+    traceId: debouncedTraceId,
     from: rangeValue.startDate,
     to: rangeValue.endDate,
   };
@@ -143,6 +150,7 @@ export function ExploreTab({
   // rolling fallback window - otherwise pagination would reset every minute.
   const facetKey = JSON.stringify({
     text: debouncedText.trim(),
+    traceId: debouncedTraceId.trim(),
     severityBands: filters.severityBands,
     patternId: filters.patternId,
     from: filters.from?.toISOString() ?? null,
@@ -276,6 +284,19 @@ export function ExploreTab({
             </SelectContent>
           </Select>
 
+          <div className="relative w-full min-w-0 sm:w-64">
+            <Waypoints className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={filters.traceId}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, traceId: e.target.value }))
+              }
+              placeholder="Trace id..."
+              className="pl-8 font-mono text-xs"
+              aria-label="Filter by trace id"
+            />
+          </div>
+
           {(hasActiveFilters(filters) || timeFiltered) && (
             <Button
               variant="ghost"
@@ -285,6 +306,7 @@ export function ExploreTab({
                   text: "",
                   severityBands: [],
                   patternId: null,
+                  traceId: "",
                   from: null,
                   to: null,
                 })

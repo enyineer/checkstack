@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { extractErrorMessage } from "@checkstack/common";
 import { SEVERITY_BANDS } from "./severity";
+import { assessRegexSafety } from "./regex-safety";
 
 /**
  * Upper bound (characters) on a raw log line / pattern template carried in a
@@ -77,6 +79,87 @@ export const SeverityRulesSchema = z.object({
 export type SeverityRules = z.infer<typeof SeverityRulesSchema>;
 
 // =============================================================================
+// TRACE EXTRACTION (per-stream correlation rules for non-OTLP sources)
+// =============================================================================
+
+export const MAX_TRACE_EXTRACTION_PATHS = 8;
+/**
+ * A body regex only ever runs against this many leading characters of the
+ * line body, so a pathological user-authored pattern cannot stall the ingest
+ * worker on a huge line.
+ */
+export const TRACE_EXTRACTION_BODY_SLICE = 4096;
+/** Extracted ids longer than this are discarded (W3C ids are 32/16 hex). */
+export const MAX_EXTRACTED_TRACE_ID_LENGTH = 64;
+
+/** One field's extraction rule: attribute paths tried in order, then a body
+ * regex whose FIRST capture group is the id. */
+export const TraceExtractionFieldRuleSchema = z.object({
+  /** Dot-notation paths into the line's ATTRIBUTES (e.g. `"ctx.trace_id"`),
+   * tried in order; the first string hit wins. */
+  attributePaths: z
+    .array(z.string().min(1).max(256))
+    .max(MAX_TRACE_EXTRACTION_PATHS)
+    .optional(),
+  /** Regex applied to the (sliced) line BODY; capture group 1 is the id.
+   * Must compile, contain at least one capture group, and pass the
+   * backtracking-safety analysis (it runs inside the shared ingest flush
+   * path, so super-linear patterns are rejected - see `regex-safety.ts`). */
+  bodyRegex: z
+    .string()
+    .min(1)
+    .max(512)
+    .superRefine((pattern, ctx) => {
+      let compiled: RegExp;
+      try {
+        compiled = new RegExp(pattern);
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `bodyRegex does not compile: ${extractErrorMessage(error)}`,
+        });
+        return;
+      }
+      // `RegExp.prototype.source` round-trip keeps this a pure check; a rule
+      // without a capture group can never yield an id.
+      if (new RegExp(`${compiled.source}|`).exec("")!.length < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "bodyRegex must contain at least one capture group.",
+        });
+        return;
+      }
+      const safety = assessRegexSafety({ source: compiled.source });
+      if (!safety.safe) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `bodyRegex is not backtracking-safe: ${safety.reason}`,
+        });
+      }
+    })
+    .optional(),
+});
+export type TraceExtractionFieldRule = z.infer<
+  typeof TraceExtractionFieldRuleSchema
+>;
+
+/**
+ * Per-stream trace-correlation extraction for sources that don't emit W3C ids
+ * natively (plain-text native lines, syslog, arbitrary JSON shapes). Applied
+ * at the ingest FLUSH seam (the single point every ingest path converges on),
+ * to the raw lines selected for storage, and ONLY when the line does not
+ * already carry an id - OTLP ids and the native reserved keys
+ * (`traceId`/`trace_id`/...) always win. Extracted ids are trimmed,
+ * dash-stripped and lowercased; ids longer than
+ * {@link MAX_EXTRACTED_TRACE_ID_LENGTH} chars are discarded.
+ */
+export const TraceExtractionRulesSchema = z.object({
+  traceId: TraceExtractionFieldRuleSchema.optional(),
+  spanId: TraceExtractionFieldRuleSchema.optional(),
+});
+export type TraceExtractionRules = z.infer<typeof TraceExtractionRulesSchema>;
+
+// =============================================================================
 // STREAM CONFIG (tiered storage: retention, sampling, ingest caps)
 // =============================================================================
 
@@ -112,6 +195,11 @@ export const LogStreamConfigSchema = z.object({
    * Omitted by default; stored in the same `config` jsonb (no column change).
    */
   severityRules: SeverityRulesSchema.optional(),
+  /**
+   * Optional per-stream trace-id extraction rules for non-OTLP sources.
+   * Omitted by default; stored in the same `config` jsonb (no column change).
+   */
+  traceExtraction: TraceExtractionRulesSchema.optional(),
 });
 export type LogStreamConfig = z.infer<typeof LogStreamConfigSchema>;
 
@@ -258,6 +346,8 @@ export const SearchEventsSchema = z.object({
   /** Restrict to these severity bands (omitted/empty = all). */
   severityBands: z.array(SeverityBandSchema).optional(),
   patternId: z.string().optional(),
+  /** Exact match on the event's `traceId`. */
+  traceId: z.string().min(1).max(128).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   cursor: EventCursorSchema.optional(),
@@ -271,6 +361,47 @@ export const SearchEventsResultSchema = z.object({
   nextCursor: EventCursorSchema.nullable(),
 });
 export type SearchEventsResult = z.infer<typeof SearchEventsResultSchema>;
+
+/** Max stream groups a `findEventsByTraceId` response may carry. Bounds the
+ * ranking scan and the payload when a degenerate extraction rule stamped a
+ * constant "trace id" onto rows of many streams. */
+export const MAX_TRACE_CORRELATION_STREAMS = 50;
+
+/**
+ * Cross-stream lookup of the log events correlated with one trace. Mirrors
+ * tracestream's `findTraceById`: the result is grouped per stream and the
+ * handler post-filters `matches` by the caller's per-stream read grants
+ * (`listKey`), so the input carries no stream id. The time window is
+ * REQUIRED (pass the trace's span window, padded) so the scan is always
+ * ts-bounded - a degenerate id shared by millions of rows must not turn one
+ * cheap RPC into a full ranking scan.
+ */
+export const FindEventsByTraceIdSchema = z.object({
+  traceId: z.string().min(1).max(128),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  /** Max events returned PER matched stream, newest first. */
+  limitPerStream: z.number().int().min(1).max(200).default(50),
+});
+export type FindEventsByTraceId = z.infer<typeof FindEventsByTraceIdSchema>;
+
+export const FindEventsByTraceIdMatchSchema = z.object({
+  /** Stream id - the field the listKey RLAC filter keys on. */
+  id: z.string(),
+  streamName: z.string(),
+  /** Newest-first events of this stream carrying the trace id. */
+  events: z.array(LogEventSchema),
+});
+export type FindEventsByTraceIdMatch = z.infer<
+  typeof FindEventsByTraceIdMatchSchema
+>;
+
+export const FindEventsByTraceIdResultSchema = z.object({
+  matches: z.array(FindEventsByTraceIdMatchSchema),
+});
+export type FindEventsByTraceIdResult = z.infer<
+  typeof FindEventsByTraceIdResultSchema
+>;
 
 // =============================================================================
 // PATTERNS (Drain templates)

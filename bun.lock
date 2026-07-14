@@ -1420,6 +1420,7 @@
       "version": "0.3.0",
       "dependencies": {
         "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
         "@checkstack/otlp-wire": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "zod": "^4.2.1",
@@ -1442,6 +1443,7 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
         "@checkstack/telemetry-frontend": "workspace:*",
+        "@checkstack/tracestream-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
@@ -2648,6 +2650,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
         "@checkstack/otlp-wire": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
@@ -2666,6 +2669,8 @@
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/logstream-common": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
         "@checkstack/telemetry-frontend": "workspace:*",
         "@checkstack/tracestream-common": "workspace:*",

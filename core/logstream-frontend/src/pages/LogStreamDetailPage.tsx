@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LogstreamApi, type ImportantEvent } from "@checkstack/logstream-common";
+import { EXPLORE_PARAMS, EXPLORE_TAB_VALUE } from "../lib/explore-link";
 import { OverviewTab } from "../components/tabs/OverviewTab";
 import { ExploreTab } from "../components/tabs/ExploreTab";
 import { PatternsTab } from "../components/tabs/PatternsTab";
@@ -55,7 +56,7 @@ export function LogStreamDetailPage() {
     { enabled: !!streamId, gcTime: 0 },
   );
 
-  const requestedTab = searchParams.get("tab");
+  const requestedTab = searchParams.get(EXPLORE_PARAMS.tab);
   const activeTab: TabId = (TAB_IDS as readonly string[]).includes(
     requestedTab ?? "",
   )
@@ -64,29 +65,36 @@ export function LogStreamDetailPage() {
 
   const selectTab = (tabId: string) => {
     const next = new URLSearchParams(searchParams);
-    next.set("tab", tabId);
+    next.set(EXPLORE_PARAMS.tab, tabId);
     // Drop stale explore deep-link params when leaving the explorer.
-    if (tabId !== "explore") {
-      next.delete("pattern");
-      next.delete("from");
-      next.delete("to");
+    if (tabId !== EXPLORE_TAB_VALUE) {
+      next.delete(EXPLORE_PARAMS.pattern);
+      next.delete(EXPLORE_PARAMS.traceId);
+      next.delete(EXPLORE_PARAMS.from);
+      next.delete(EXPLORE_PARAMS.to);
     }
     setSearchParams(next, { replace: true });
   };
 
   const goToExplore = (params: {
     patternId?: string;
+    traceId?: string;
     from?: Date;
     to?: Date;
   }) => {
     const next = new URLSearchParams(searchParams);
-    next.set("tab", "explore");
-    if (params.patternId) next.set("pattern", params.patternId);
-    else next.delete("pattern");
-    if (params.from) next.set("from", params.from.toISOString());
-    else next.delete("from");
-    if (params.to) next.set("to", params.to.toISOString());
-    else next.delete("to");
+    next.set(EXPLORE_PARAMS.tab, EXPLORE_TAB_VALUE);
+    if (params.patternId) next.set(EXPLORE_PARAMS.pattern, params.patternId);
+    else next.delete(EXPLORE_PARAMS.pattern);
+    // Always clear a stale trace filter (e.g. from a bookmarked correlations
+    // link) unless this jump explicitly carries one, so a "explore this pattern"
+    // jump never silently ANDs in a leftover trace id.
+    if (params.traceId) next.set(EXPLORE_PARAMS.traceId, params.traceId);
+    else next.delete(EXPLORE_PARAMS.traceId);
+    if (params.from) next.set(EXPLORE_PARAMS.from, params.from.toISOString());
+    else next.delete(EXPLORE_PARAMS.from);
+    if (params.to) next.set(EXPLORE_PARAMS.to, params.to.toISOString());
+    else next.delete(EXPLORE_PARAMS.to);
     setSearchParams(next, { replace: false });
   };
 
@@ -99,9 +107,10 @@ export function LogStreamDetailPage() {
     });
   };
 
-  const initialPattern = searchParams.get("pattern");
-  const initialFrom = searchParams.get("from");
-  const initialTo = searchParams.get("to");
+  const initialPattern = searchParams.get(EXPLORE_PARAMS.pattern);
+  const initialTraceId = searchParams.get(EXPLORE_PARAMS.traceId);
+  const initialFrom = searchParams.get(EXPLORE_PARAMS.from);
+  const initialTo = searchParams.get(EXPLORE_PARAMS.to);
 
   return (
     <PageLayout
@@ -149,6 +158,7 @@ export function LogStreamDetailPage() {
               <ExploreTab
                 streamId={stream.id}
                 initialPatternId={initialPattern}
+                initialTraceId={initialTraceId}
                 initialFrom={initialFrom ? new Date(initialFrom) : null}
                 initialTo={initialTo ? new Date(initialTo) : null}
               />

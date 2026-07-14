@@ -8,6 +8,9 @@
       "path": "../common"
     },
     {
+      "path": "../frontend-api"
+    },
+    {
       "path": "../otlp-wire"
     },
     {

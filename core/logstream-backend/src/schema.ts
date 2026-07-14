@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -98,6 +99,13 @@ export const logEvents = pgTable(
       t.ts.desc(),
     ),
     index("log_events_ts_idx").on(t.ts),
+    // Trace correlation lookup: `findEventsByTraceId` and the `searchEvents`
+    // trace filter both key on `trace_id`, newest-first. PARTIAL (only rows that
+    // carry a trace id) so it stays small - most lines have no trace id, and an
+    // index entry for every NULL would bloat it for no query benefit.
+    index("log_events_trace_ts_idx")
+      .on(t.traceId, t.ts.desc(), t.id.desc())
+      .where(sql`${t.traceId} IS NOT NULL`),
   ],
 );
 

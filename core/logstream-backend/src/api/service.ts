@@ -13,6 +13,8 @@ import {
   LogStreamConfigSchema,
   bandFromSeverityNumber,
   logstreamResourceTypes,
+  normalizeTraceId,
+  MAX_TRACE_CORRELATION_STREAMS,
   type LogStream,
   type CreateLogStream,
   type UpdateLogStream,
@@ -20,6 +22,8 @@ import {
   type MintTokenResult,
   type SearchEvents,
   type SearchEventsResult,
+  type FindEventsByTraceId,
+  type FindEventsByTraceIdResult,
   type LogEvent,
   type EventCursor,
   type GetBuckets,
@@ -121,6 +125,9 @@ export interface LogstreamService {
   revokeToken(input: { streamId: string; tokenId: string }): Promise<void>;
 
   searchEvents(input: SearchEvents): Promise<SearchEventsResult>;
+  findEventsByTraceId(
+    input: FindEventsByTraceId,
+  ): Promise<FindEventsByTraceIdResult>;
   getSeverityBuckets(input: GetBuckets): Promise<SeverityBucketsResult>;
   getPatternBuckets(input: GetBuckets): Promise<PatternBucketsResult>;
   listPatterns(input: ListPatterns): Promise<LogPattern[]>;
@@ -588,6 +595,16 @@ export function createLogstreamService({
       if (input.patternId) {
         conditions.push(eq(logEvents.patternId, input.patternId));
       }
+      if (input.traceId !== undefined) {
+        // Stored trace ids are normalized (dash-stripped, lowercased) at the
+        // flush seam, so the query input must be normalized the SAME way to
+        // match. An input that normalizes to nothing can match no row.
+        const normalized = normalizeTraceId(input.traceId);
+        if (normalized === undefined) {
+          return { events: [], nextCursor: null };
+        }
+        conditions.push(eq(logEvents.traceId, normalized));
+      }
       if (input.from) conditions.push(gte(logEvents.ts, input.from));
       if (input.to) conditions.push(lte(logEvents.ts, input.to));
       if (input.cursor) {
@@ -610,6 +627,103 @@ export function createLogstreamService({
         .limit(input.limit);
       const events = rows.map((row) => mapEventRow(row));
       return { events, nextCursor: nextCursorFor(events, input.limit) };
+    },
+
+    async findEventsByTraceId({ traceId: rawTraceId, from, to, limitPerStream }) {
+      // Stored ids are normalized at the flush seam; normalize the input the
+      // SAME way so an operator pasting a dashed/uppercase id still matches. An
+      // input that normalizes to nothing can match no row.
+      const traceId = normalizeTraceId(rawTraceId);
+      if (traceId === undefined) return { matches: [] };
+
+      // `from`/`to` are REQUIRED by the contract, so every scan is ts-bounded
+      // and rides the partial `(trace_id, ts)` index - a degenerate id shared by
+      // millions of rows can never turn this into a full ranking scan.
+      const windowConditions = and(
+        eq(logEvents.traceId, traceId),
+        gte(logEvents.ts, from),
+        lte(logEvents.ts, to),
+      );
+
+      // 1) The streams carrying this trace in-window, ranked by their newest
+      //    matching event and capped at MAX_TRACE_CORRELATION_STREAMS. This
+      //    bounds the number of GROUPS (and the ranking scan below) even if a
+      //    degenerate extraction rule stamped one "trace id" across many streams.
+      const topStreams = await db
+        .select({ streamId: logEvents.streamId })
+        .from(logEvents)
+        .where(windowConditions)
+        .groupBy(logEvents.streamId)
+        .orderBy(
+          sql`max(${logEvents.ts}) desc`,
+          // Tiebreak on the newest row's id (a global identity, unique per
+          // stream) so the cap is deterministic when two streams' newest events
+          // share a ts.
+          sql`max(${logEvents.id}) desc`,
+        )
+        .limit(MAX_TRACE_CORRELATION_STREAMS);
+      if (topStreams.length === 0) return { matches: [] };
+      const boundedStreamIds = topStreams.map((s) => s.streamId);
+
+      // 2) Per-stream newest-first events for ONLY those bounded streams, keeping
+      //    at most `limitPerStream` per stream via a window rank. Total rows are
+      //    thus bounded by MAX_TRACE_CORRELATION_STREAMS * limitPerStream.
+      const ranked = db
+        .select({
+          id: logEvents.id,
+          streamId: logEvents.streamId,
+          ts: logEvents.ts,
+          observedAt: logEvents.observedAt,
+          severityNumber: logEvents.severityNumber,
+          severityText: logEvents.severityText,
+          band: logEvents.band,
+          body: logEvents.body,
+          attributes: logEvents.attributes,
+          resource: logEvents.resource,
+          patternId: logEvents.patternId,
+          traceId: logEvents.traceId,
+          spanId: logEvents.spanId,
+          rn: sql<number>`row_number() over (partition by ${logEvents.streamId} order by ${logEvents.ts} desc, ${logEvents.id} desc)`.as(
+            "rn",
+          ),
+        })
+        .from(logEvents)
+        .where(and(windowConditions, inArray(logEvents.streamId, boundedStreamIds)))
+        .as("ranked");
+
+      const rows = await db
+        .select()
+        .from(ranked)
+        .where(lte(ranked.rn, limitPerStream))
+        .orderBy(desc(ranked.ts), desc(ranked.id));
+
+      // Group the (already newest-first) rows per stream; the global DESC order
+      // preserves per-stream DESC order, so each group stays newest-first.
+      const eventsByStream = new Map<string, LogEvent[]>();
+      for (const row of rows) {
+        const group = eventsByStream.get(row.streamId);
+        if (group) group.push(mapEventRow(row));
+        else eventsByStream.set(row.streamId, [mapEventRow(row)]);
+      }
+
+      const streamIds = [...eventsByStream.keys()];
+      if (streamIds.length === 0) return { matches: [] };
+
+      // Resolve stream names in one batch. `id` on each match IS the stream id -
+      // the field the `listKey` RLAC filter post-filters on.
+      const nameRows = await db
+        .select({ id: logStreams.id, name: logStreams.name })
+        .from(logStreams)
+        .where(inArray(logStreams.id, streamIds));
+      const nameById = new Map(nameRows.map((r) => [r.id, r.name]));
+
+      return {
+        matches: streamIds.map((id) => ({
+          id,
+          streamName: nameById.get(id) ?? id,
+          events: eventsByStream.get(id)!,
+        })),
+      };
     },
 
     async getSeverityBuckets(input) {

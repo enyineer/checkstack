@@ -29,6 +29,9 @@
       "path": "../telemetry-frontend"
     },
     {
+      "path": "../tracestream-common"
+    },
+    {
       "path": "../ui"
     }
   ]

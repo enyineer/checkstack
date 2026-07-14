@@ -1,5 +1,10 @@
-import { createFrontendPlugin } from "@checkstack/frontend-api";
+import {
+  createFrontendPlugin,
+  createSlotExtension,
+} from "@checkstack/frontend-api";
 import { Waypoints } from "lucide-react";
+import { LogEventDetailSlot } from "@checkstack/logstream-common";
+import { RunDetailExtrasSlot } from "@checkstack/healthcheck-common";
 import {
   tracestreamRoutes,
   pluginMetadata,
@@ -8,6 +13,8 @@ import {
   TRACESTREAM_ACTIVITY,
   TRACESTREAM_IMPORTANT_EVENT,
 } from "@checkstack/tracestream-common";
+import { ViewTraceForLogEvent } from "./components/ViewTraceForLogEvent";
+import { ViewTraceForRun } from "./components/ViewTraceForRun";
 
 /**
  * Trace stream frontend plugin. Wires the list + detail routes under the
@@ -26,6 +33,19 @@ import {
 export default createFrontendPlugin({
   metadata: pluginMetadata,
   signals: [TRACESTREAM_ACTIVITY, TRACESTREAM_IMPORTANT_EVENT],
+  // Cross-plugin "View trace" jumps: tracestream fills the log-event detail and
+  // health-check run-detail slots. Each filler gates on a present trace id
+  // before querying and self-hides when the id resolves to no readable trace.
+  extensions: [
+    createSlotExtension(LogEventDetailSlot, {
+      id: "tracestream.log-event-view-trace",
+      component: ViewTraceForLogEvent,
+    }),
+    createSlotExtension(RunDetailExtrasSlot, {
+      id: "tracestream.run-view-trace",
+      component: ViewTraceForRun,
+    }),
+  ],
   routes: [
     {
       route: tracestreamRoutes.routes.home,

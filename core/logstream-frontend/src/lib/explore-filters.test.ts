@@ -55,12 +55,21 @@ describe("hasActiveFilters", () => {
       hasActiveFilters({ ...EMPTY_EXPLORE_FILTERS, patternId: "p1" }),
     ).toBe(true);
     expect(
+      hasActiveFilters({ ...EMPTY_EXPLORE_FILTERS, traceId: "abc123" }),
+    ).toBe(true);
+    expect(
       hasActiveFilters({ ...EMPTY_EXPLORE_FILTERS, from: new Date() }),
     ).toBe(true);
   });
 
   it("ignores whitespace-only text", () => {
     expect(hasActiveFilters({ ...EMPTY_EXPLORE_FILTERS, text: "   " })).toBe(
+      false,
+    );
+  });
+
+  it("ignores whitespace-only traceId", () => {
+    expect(hasActiveFilters({ ...EMPTY_EXPLORE_FILTERS, traceId: "   " })).toBe(
       false,
     );
   });
@@ -86,6 +95,7 @@ describe("toSearchInput", () => {
       text: "",
       severityBands: ["error", "fatal"],
       patternId: "pat-1",
+      traceId: "  trace-42  ",
       from,
       to,
     };
@@ -94,12 +104,21 @@ describe("toSearchInput", () => {
       streamId: "s1",
       severityBands: ["error", "fatal"],
       patternId: "pat-1",
+      traceId: "trace-42",
       from,
       to,
       cursor,
       limit: 50,
     });
     expect("text" in input).toBe(false);
+  });
+
+  it("omits a blank traceId", () => {
+    const input = toSearchInput({
+      streamId: "s1",
+      filters: { ...EMPTY_EXPLORE_FILTERS, traceId: "   " },
+    });
+    expect("traceId" in input).toBe(false);
   });
 });
 

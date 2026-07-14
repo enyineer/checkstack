@@ -5,9 +5,11 @@ import type { RpcContext } from "@checkstack/backend-api";
 import {
   DEFAULT_LOG_STREAM_CONFIG,
   bandFromSeverityNumber,
+  FindEventsByTraceIdSchema,
   type LogStream,
   type LogStreamToken,
   type LogPattern,
+  type LogEvent,
 } from "@checkstack/logstream-common";
 import { createLogstreamRouter } from "./router";
 import type { LogstreamService } from "./service";
@@ -48,6 +50,22 @@ const userPattern = (id: string, streamId: string): LogPattern => ({
   band: bandFromSeverityNumber(0),
   origin: "user",
   hidden: false,
+});
+
+const event = (id: string, streamId: string): LogEvent => ({
+  id,
+  streamId,
+  ts: new Date("2026-01-01T00:00:00Z"),
+  observedAt: new Date("2026-01-01T00:00:00Z"),
+  severityNumber: 9,
+  severityText: null,
+  band: "info",
+  body: "correlated line",
+  attributes: null,
+  resource: null,
+  patternId: null,
+  traceId: "trace-x",
+  spanId: null,
 });
 
 const token = (id: string, streamId: string): LogStreamToken => ({
@@ -100,6 +118,20 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
     }),
     revokeToken: async () => {},
     searchEvents: async () => ({ events: [], nextCursor: null }),
+    findEventsByTraceId: async () => ({
+      matches: [
+        {
+          id: STREAM_1.id,
+          streamName: STREAM_1.name,
+          events: [event("1", STREAM_1.id)],
+        },
+        {
+          id: STREAM_2.id,
+          streamName: STREAM_2.name,
+          events: [event("2", STREAM_2.id)],
+        },
+      ],
+    }),
     getSeverityBuckets: notImplemented("getSeverityBuckets"),
     getPatternBuckets: notImplemented("getPatternBuckets"),
     listPatterns: async () => [],
@@ -245,6 +277,55 @@ describe("searchEvents (idParam read) authorization", () => {
       { context },
     );
     expect(result.events).toEqual([]);
+  });
+});
+
+describe("findEventsByTraceId (listKey 'matches') post-filter", () => {
+  // from/to are REQUIRED by the contract; the stub ignores them but they must
+  // be present for the input to validate.
+  const WINDOW = {
+    from: new Date("2026-01-01T00:00:00Z"),
+    to: new Date("2026-01-01T01:00:00Z"),
+  };
+
+  it("a team-scoped caller sees only matches on granted streams (keyed on item id)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    const result = await call(
+      buildRouter().findEventsByTraceId,
+      { traceId: "trace-x", ...WINDOW, limitPerStream: 50 },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-2"]);
+  });
+
+  it("a global read-rule holder sees every stream the trace appears in", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().findEventsByTraceId,
+      { traceId: "trace-x", ...WINDOW, limitPerStream: 50 },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1", "stream-2"]);
+  });
+
+  it("the contract REQUIRES the time window (from/to) - a missing window is rejected", () => {
+    // The required window is what keeps every scan ts-bounded (DoS guard); the
+    // schema must reject an input without it.
+    expect(
+      FindEventsByTraceIdSchema.safeParse({ traceId: "trace-x" }).success,
+    ).toBe(false);
+    expect(
+      FindEventsByTraceIdSchema.safeParse({
+        traceId: "trace-x",
+        from: new Date(),
+        to: new Date(),
+      }).success,
+    ).toBe(true);
   });
 });
 

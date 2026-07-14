@@ -111,6 +111,219 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
   });
 
   // ==========================================================================
+  // findEventsByTraceId: cross-stream grouping, per-stream cap, window, order
+  // ==========================================================================
+
+  describe("findEventsByTraceId", () => {
+    const STREAM_A = "trace-stream-a";
+    const STREAM_B = "trace-stream-b";
+    const TRACE = "4bf92f3577b34da6a3ce929d0e0e4736";
+    const OTHER_TRACE = "00000000000000000000000000000000";
+    const BASE = new Date("2026-07-12T12:00:00.000Z").getTime();
+    const at = (offsetMs: number) => new Date(BASE + offsetMs);
+    // A window wide enough to cover every fixture event (from/to are required).
+    const WINDOW = { from: at(-60_000), to: at(60_000) };
+
+    beforeEach(async () => {
+      const { db } = test;
+      await db.delete(schema.logEvents);
+      await db.delete(schema.logStreams);
+      await db.insert(schema.logStreams).values([
+        { id: STREAM_A, name: "Stream A", config: DEFAULT_LOG_STREAM_CONFIG },
+        { id: STREAM_B, name: "Stream B", config: DEFAULT_LOG_STREAM_CONFIG },
+      ]);
+      // Stream A: three lines carrying TRACE at ascending ts, one with a
+      // different trace, one with no trace. Stream B: two lines with TRACE.
+      await db.insert(schema.logEvents).values([
+        row(STREAM_A, at(0), TRACE, "a-oldest"),
+        row(STREAM_A, at(1000), TRACE, "a-middle"),
+        row(STREAM_A, at(2000), TRACE, "a-newest"),
+        row(STREAM_A, at(3000), OTHER_TRACE, "a-other-trace"),
+        row(STREAM_A, at(4000), null, "a-no-trace"),
+        row(STREAM_B, at(500), TRACE, "b-oldest"),
+        row(STREAM_B, at(1500), TRACE, "b-newest"),
+      ]);
+    });
+
+    function row(
+      streamId: string,
+      ts: Date,
+      traceId: string | null,
+      body: string,
+    ) {
+      return {
+        streamId,
+        ts,
+        observedAt: ts,
+        severityNumber: 9,
+        band: "info" as const,
+        body,
+        ...(traceId ? { traceId } : {}),
+      };
+    }
+
+    it("groups the trace's events per stream, newest-first, keyed on stream id", async () => {
+      const { matches } = await service.findEventsByTraceId({
+        traceId: TRACE,
+        ...WINDOW,
+        limitPerStream: 50,
+      });
+      // Two streams matched; each match's `id` IS the stream id (listKey key).
+      expect(new Set(matches.map((m) => m.id))).toEqual(
+        new Set([STREAM_A, STREAM_B]),
+      );
+
+      const a = matches.find((m) => m.id === STREAM_A)!;
+      expect(a.streamName).toBe("Stream A");
+      // Only TRACE lines, newest first (no OTHER_TRACE / no-trace line).
+      expect(a.events.map((e) => e.body)).toEqual([
+        "a-newest",
+        "a-middle",
+        "a-oldest",
+      ]);
+      expect(a.events.every((e) => e.traceId === TRACE)).toBe(true);
+
+      const b = matches.find((m) => m.id === STREAM_B)!;
+      expect(b.events.map((e) => e.body)).toEqual(["b-newest", "b-oldest"]);
+    });
+
+    it("caps events PER stream at limitPerStream (keeping the newest)", async () => {
+      const { matches } = await service.findEventsByTraceId({
+        traceId: TRACE,
+        ...WINDOW,
+        limitPerStream: 2,
+      });
+      const a = matches.find((m) => m.id === STREAM_A)!;
+      // Stream A has three TRACE lines; only the two newest survive the cap.
+      expect(a.events.map((e) => e.body)).toEqual(["a-newest", "a-middle"]);
+      const b = matches.find((m) => m.id === STREAM_B)!;
+      expect(b.events.map((e) => e.body)).toEqual(["b-newest", "b-oldest"]);
+    });
+
+    it("honors the required time window", async () => {
+      const { matches } = await service.findEventsByTraceId({
+        traceId: TRACE,
+        from: at(1800),
+        to: at(2500),
+        limitPerStream: 50,
+      });
+      // Only Stream A's newest line (2000ms) falls inside [1800ms, 2500ms];
+      // Stream B's newest is at 1500ms, before the window.
+      expect(matches.map((m) => m.id)).toEqual([STREAM_A]);
+      expect(matches[0]!.events.map((e) => e.body)).toEqual(["a-newest"]);
+    });
+
+    it("normalizes a dashed/uppercase input so it matches the stored (normalized) id", async () => {
+      // The stored rows carry the canonical lowercase-hex TRACE; an operator
+      // pasting the dashed/uppercase form must still correlate.
+      const dashedUpper = "4BF9-2F35-77B3-4DA6-A3CE-929D-0E0E-4736";
+      const { matches } = await service.findEventsByTraceId({
+        traceId: dashedUpper,
+        ...WINDOW,
+        limitPerStream: 50,
+      });
+      expect(new Set(matches.map((m) => m.id))).toEqual(
+        new Set([STREAM_A, STREAM_B]),
+      );
+    });
+
+    it("returns no matches for an unknown trace id", async () => {
+      const { matches } = await service.findEventsByTraceId({
+        traceId: "deadbeefdeadbeefdeadbeefdeadbeef",
+        ...WINDOW,
+        limitPerStream: 50,
+      });
+      expect(matches).toEqual([]);
+    });
+
+    it("returns no matches when the input normalizes to nothing (never queries)", async () => {
+      const { matches } = await service.findEventsByTraceId({
+        traceId: "  --  ",
+        ...WINDOW,
+        limitPerStream: 50,
+      });
+      expect(matches).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
+  // searchEvents traceId filter
+  // ==========================================================================
+
+  describe("searchEvents traceId filter", () => {
+    const STREAM = "trace-filter-stream";
+    const TRACE = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const TS = new Date("2026-07-12T13:00:00.000Z");
+
+    beforeEach(async () => {
+      const { db } = test;
+      await db.delete(schema.logEvents);
+      await db.delete(schema.logStreams);
+      await db.insert(schema.logStreams).values({
+        id: STREAM,
+        name: "Filter",
+        config: DEFAULT_LOG_STREAM_CONFIG,
+      });
+      await db.insert(schema.logEvents).values([
+        {
+          streamId: STREAM,
+          ts: TS,
+          observedAt: TS,
+          severityNumber: 9,
+          band: "info" as const,
+          body: "matching",
+          traceId: TRACE,
+        },
+        {
+          streamId: STREAM,
+          ts: TS,
+          observedAt: TS,
+          severityNumber: 9,
+          band: "info" as const,
+          body: "other-trace",
+          traceId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        {
+          streamId: STREAM,
+          ts: TS,
+          observedAt: TS,
+          severityNumber: 9,
+          band: "info" as const,
+          body: "no-trace",
+        },
+      ]);
+    });
+
+    it("returns only events whose traceId matches exactly", async () => {
+      const { events } = await service.searchEvents({
+        streamId: STREAM,
+        traceId: TRACE,
+        limit: 100,
+      });
+      expect(events.map((e) => e.body)).toEqual(["matching"]);
+    });
+
+    it("normalizes a dashed/uppercase traceId input before matching", async () => {
+      // Uppercase + dashed form of TRACE; must normalize back and match the row.
+      const { events } = await service.searchEvents({
+        streamId: STREAM,
+        traceId: "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA",
+        limit: 100,
+      });
+      expect(events.map((e) => e.body)).toEqual(["matching"]);
+    });
+
+    it("returns no events when the traceId input normalizes to nothing", async () => {
+      const { events } = await service.searchEvents({
+        streamId: STREAM,
+        traceId: "  --  ",
+        limit: 100,
+      });
+      expect(events).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
   // Important-events timeline keyset over rows sharing a timestamp
   // ==========================================================================
 
