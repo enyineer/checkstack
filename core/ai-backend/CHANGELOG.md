@@ -1,5 +1,25 @@
 # @checkstack/ai-backend
 
+## 0.11.2
+
+### Patch Changes
+
+- 56af572: Regenerate the docs index for the hidden-patterns documentation: the
+  user-guide log-streams page now describes hiding noisy patterns (raw-line
+  skip, aggregates keep counting, unhide via the Patterns tab), and the
+  developer guide documents the engine's hidden-id set and its propagation.
+- 56af572: Regenerate the docs index for the updated log-stream masking documentation:
+  the pattern engine's number rule now keeps letter-attached digits (`S3`,
+  `utf8`, `sha256`) literal and only masks numbers behind a non-alphanumeric
+  separator.
+  - @checkstack/ai-common@0.6.6
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/common@0.22.0
+  - @checkstack/integration-backend@0.7.7
+  - @checkstack/sdk@0.132.0
+
 ## 0.11.1
 
 ### Patch Changes

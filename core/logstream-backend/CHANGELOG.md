@@ -1,5 +1,66 @@
 # @checkstack/logstream-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 56af572: Hideable log patterns and a severity filter for the Top patterns card.
+
+  - A pattern (mined or user-authored) can now be hidden (`setPatternHidden`,
+    manage-gated on the stream). A hidden pattern leaves every default listing
+    (Top patterns card, explorer pattern picker, Patterns tab default view) and
+    its matched lines are NO LONGER stored as raw log lines - while every
+    aggregate keeps counting them (severity totals, pattern/variable buckets,
+    spike detection, health checks pinned to the pattern), so hiding noise like
+    fully-wildcarded access logs never falsifies stream volume or breaks a
+    check. The hide flag propagates to every pod's in-memory Drain engine
+    (including worker-hosted trees) via the existing patterns-changed broadcast,
+    with hydration as the convergence backstop.
+  - The Patterns tab shows a "Show hidden (N)" toggle revealing hidden patterns
+    (dimmed, badged) with a per-row hide/unhide action; unhiding resumes raw
+    line storage immediately.
+  - `listPatterns` accepts `includeHidden` (default false), `bands` (filter by
+    the pattern's derived severity band, computed in SQL exactly like the DTO's
+    `bandFromSeverityNumber`) and `orderBy: "lastSeenAt" | "totalCount"`.
+  - The overview's Top patterns card is now severity-filterable via the same
+    band pills the explorer uses (extracted into a shared `SeverityBandPills`
+    component) and queries `listPatterns` ordered by volume.
+
+- 56af572: Stop masking digits that are part of an identifier in the Drain
+  preprocessor. The number rule masked every digit run as a substring, so
+  constant names like `S3`, `utf8`, `sha256`, or `TLSv1.2` were wildcarded
+  ("TechDocs S3 router failed" mined as "TechDocs S<_> router failed"). The
+  rule now only fires after a non-alphanumeric separator (`key=42` -> `key=<_>`,
+`db-9`->`db-<_>`, `took 250ms`->`took <_>ms`all keep working): a digit
+run attached to a preceding letter, or continuing an identifier across a dot,
+stays literal. A letter-attached token that genuinely varies across lines
+(worker ids, version tags) is still generalized to`<\*>` by the Drain tree's
+  own clustering, which is exactly what it exists for.
+
+  BREAKING CHANGES: pattern identity is `sha256(streamId + template)`, so
+  templates that previously contained a letter-attached wildcard change under
+  the new masking and are re-mined under a NEW pattern id. The old mined
+  patterns stop matching and age out normally. User-authored patterns whose
+  templates contain such a wildcard produced by the old masking (e.g. `S<*>`)
+  no longer match incoming lines and should be re-authored from a current
+  line. Health checks referencing an affected pattern will read zero new
+  occurrences until they are pointed at the re-mined pattern.
+
+### Patch Changes
+
+- Updated dependencies [56af572]
+  - @checkstack/logstream-common@0.3.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/common@0.22.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/ingest-utils@0.1.0
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/satellite-backend@0.9.2
+  - @checkstack/signal-common@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

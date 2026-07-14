@@ -1,5 +1,80 @@
 # @checkstack/logstream-frontend
 
+## 0.2.0
+
+### Minor Changes
+
+- 56af572: Hideable log patterns and a severity filter for the Top patterns card.
+
+  - A pattern (mined or user-authored) can now be hidden (`setPatternHidden`,
+    manage-gated on the stream). A hidden pattern leaves every default listing
+    (Top patterns card, explorer pattern picker, Patterns tab default view) and
+    its matched lines are NO LONGER stored as raw log lines - while every
+    aggregate keeps counting them (severity totals, pattern/variable buckets,
+    spike detection, health checks pinned to the pattern), so hiding noise like
+    fully-wildcarded access logs never falsifies stream volume or breaks a
+    check. The hide flag propagates to every pod's in-memory Drain engine
+    (including worker-hosted trees) via the existing patterns-changed broadcast,
+    with hydration as the convergence backstop.
+  - The Patterns tab shows a "Show hidden (N)" toggle revealing hidden patterns
+    (dimmed, badged) with a per-row hide/unhide action; unhiding resumes raw
+    line storage immediately.
+  - `listPatterns` accepts `includeHidden` (default false), `bands` (filter by
+    the pattern's derived severity band, computed in SQL exactly like the DTO's
+    `bandFromSeverityNumber`) and `orderBy: "lastSeenAt" | "totalCount"`.
+  - The overview's Top patterns card is now severity-filterable via the same
+    band pills the explorer uses (extracted into a shared `SeverityBandPills`
+    component) and queries `listPatterns` ordered by volume.
+
+### Patch Changes
+
+- 56af572: Fix chart stretching and loading layout shift in the log-stream and
+  metric-stream chart surfaces.
+
+  - `TimeSeriesChart` now measures its container and projects the geometry at
+    1 viewBox unit = 1 CSS px (re-measured on resize) instead of stretching a
+    fixed 720-unit viewBox with `preserveAspectRatio="none"`, so y-axis tick
+    labels and line weights render undistorted at every width. The SVG is only
+    rendered once the real width is known, while the fixed-height wrapper
+    reserves the space - no layout shift and no wrongly-scaled first paint.
+  - The log explorer's "Pattern occurrences" chart keeps the last built chart on
+    screen during refetches (`placeholderData`), quantizes its fallback
+    "last 24h" window to the minute so re-renders no longer churn the query key
+    (previously every parent re-render - a keystroke, expanding a log row -
+    minted a new `Date`, triggering a refetch and a skeleton flash), and is
+    memoized so unrelated explorer state changes skip the chart subtree
+    entirely.
+  - The pattern-occurrences and metric-explorer charts now use the shared 192px
+    `chart` footprint, matching their skeleton and empty states so swapping
+    between loading / empty / chart never shifts the layout.
+
+- 56af572: Bound the log explorer's event search by the effective time range at all
+  times. Previously the default "Last 24h" window was only applied to the
+  pattern-occurrences chart while `searchEvents` was sent without `from`/`to`
+  unless the user explicitly picked a range - so filtering to a pattern fetched
+  its ENTIRE history, and the list could show days-old lines directly under a
+  chart honestly reporting "no occurrences in this range". The search (and
+  "Load older" pagination) now shares the exact window the chart uses - the
+  explicit pick when set, otherwise the minute-quantized last-24h fallback - so
+  the list and chart always agree and no query is ever unbounded. Pagination
+  state deliberately keys on the user's explicit facets only, so the rolling
+  fallback window doesn't reset loaded pages every minute.
+
+  (Metric streams were audited for the same issue: all metricstream queries
+  already require a time window or are limit-capped, so no change was needed
+  there.)
+
+- Updated dependencies [56af572]
+- Updated dependencies [56af572]
+- Updated dependencies [56af572]
+  - @checkstack/ui@1.28.2
+  - @checkstack/logstream-common@0.3.0
+  - @checkstack/auth-frontend@0.13.6
+  - @checkstack/healthcheck-frontend@0.36.2
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/signal-common@0.3.0
+
 ## 0.1.1
 
 ### Patch Changes

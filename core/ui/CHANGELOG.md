@@ -1,5 +1,47 @@
 # @checkstack/ui
 
+## 1.28.2
+
+### Patch Changes
+
+- 56af572: Fix chart stretching and loading layout shift in the log-stream and
+  metric-stream chart surfaces.
+
+  - `TimeSeriesChart` now measures its container and projects the geometry at
+    1 viewBox unit = 1 CSS px (re-measured on resize) instead of stretching a
+    fixed 720-unit viewBox with `preserveAspectRatio="none"`, so y-axis tick
+    labels and line weights render undistorted at every width. The SVG is only
+    rendered once the real width is known, while the fixed-height wrapper
+    reserves the space - no layout shift and no wrongly-scaled first paint.
+  - The log explorer's "Pattern occurrences" chart keeps the last built chart on
+    screen during refetches (`placeholderData`), quantizes its fallback
+    "last 24h" window to the minute so re-renders no longer churn the query key
+    (previously every parent re-render - a keystroke, expanding a log row -
+    minted a new `Date`, triggering a refetch and a skeleton flash), and is
+    memoized so unrelated explorer state changes skip the chart subtree
+    entirely.
+  - The pattern-occurrences and metric-explorer charts now use the shared 192px
+    `chart` footprint, matching their skeleton and empty states so swapping
+    between loading / empty / chart never shifts the layout.
+
+- 56af572: Fix two Safari-only animation glitches on the `Tabs` buttons.
+
+  - Hovering no longer animates the icon later than the label: the icon span
+    transitioned `all`, so it re-transitioned the color it inherits from the
+    (already transitioning) button - a compounding lag most visible in Safari.
+    It now transitions only `transform` (the active scale), so its color moves
+    in lockstep with the label.
+  - The "flash highlight border" now appears only when a tab is actually
+    activated (click completed or keyboard-selected), not already on mouse-down.
+    Safari applies its focus ring on press; mouse-driven focus is now suppressed
+    (keyboard focus rings are unaffected, and the clicked tab is re-focused on
+    click so arrow-key navigation continues from it), replaced by a deliberate
+    short-lived ring on the activated tab. Also disables the WebKit tap
+    highlight on the buttons.
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/template-engine@0.4.11
+
 ## 1.28.1
 
 ### Patch Changes

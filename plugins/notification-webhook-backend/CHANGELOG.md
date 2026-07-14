@@ -1,5 +1,13 @@
 # @checkstack/notification-webhook-backend
 
+## 0.1.5
+
+### Patch Changes
+
+- @checkstack/backend-api@0.33.0
+- @checkstack/common@0.22.0
+- @checkstack/notification-backend@1.8.4
+
 ## 0.1.4
 
 ### Patch Changes

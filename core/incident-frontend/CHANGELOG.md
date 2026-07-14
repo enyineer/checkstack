@@ -1,5 +1,23 @@
 # @checkstack/incident-frontend
 
+## 0.16.2
+
+### Patch Changes
+
+- Updated dependencies [56af572]
+- Updated dependencies [56af572]
+  - @checkstack/ui@1.28.2
+  - @checkstack/auth-frontend@0.13.6
+  - @checkstack/dashboard-frontend@0.10.11
+  - @checkstack/notification-frontend@0.9.5
+  - @checkstack/tips-frontend@0.5.3
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/incident-common@1.10.3
+  - @checkstack/notification-common@1.7.1
+  - @checkstack/signal-frontend@0.3.6
+
 ## 0.16.1
 
 ### Patch Changes

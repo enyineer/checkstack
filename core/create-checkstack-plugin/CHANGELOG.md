@@ -1,5 +1,13 @@
 # create-checkstack-plugin
 
+## 0.1.16
+
+### Patch Changes
+
+- Updated dependencies [56af572]
+- Updated dependencies [56af572]
+  - @checkstack/scripts@0.7.5
+
 ## 0.1.15
 
 ### Patch Changes

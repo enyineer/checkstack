@@ -1,5 +1,22 @@
 # @checkstack/catalog-frontend
 
+## 0.20.2
+
+### Patch Changes
+
+- Updated dependencies [56af572]
+- Updated dependencies [56af572]
+  - @checkstack/ui@1.28.2
+  - @checkstack/auth-frontend@0.13.6
+  - @checkstack/gitops-frontend@0.7.7
+  - @checkstack/notification-frontend@0.9.5
+  - @checkstack/tips-frontend@0.5.3
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/notification-common@1.7.1
+
 ## 0.20.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/integration-jira-backend",
-  "version": "0.7.16",
+  "version": "0.7.17",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
