@@ -132,6 +132,12 @@ export interface TraceStreamActivity {
   approxSpansPerMinute: number;
   droppedSpansCount: number;
   droppedTracesCount: number;
+  /**
+   * Spans a SATELLITE dropped in transit (bounded-buffer overflow during a
+   * disconnect / slow-consumer episode), attributed to this stream. Cumulative;
+   * a distinct failure mode from the pipeline's own `droppedSpansCount`.
+   */
+  droppedInTransitCount: number;
 }
 
 /** Per-stream rollup of the streams-list counts (last 24h). */
@@ -139,6 +145,23 @@ export interface StreamSummaryCounts {
   streamId: string;
   traces24h: number;
   errorTraces24h: number;
+}
+
+/**
+ * One MERGED latency/volume aggregate for a `(service, op?)` selection over a
+ * whole `[from, to)` window (see {@link OpBucketStore.queryWindowLatency}). The
+ * health `operation-latency` collector reads this. `p95Ms` is derived from the
+ * t-digest merged across EVERY bucket in the window (never an average of
+ * per-bucket p95s, which is statistically wrong). All-zero (`spanCount 0`,
+ * null latencies) when the window has no matching buckets.
+ */
+export interface TraceWindowLatency {
+  spanCount: number;
+  errorCount: number;
+  durSumMs: number;
+  durMinMs: number | null;
+  durMaxMs: number | null;
+  p95Ms: number | null;
 }
 
 // ===========================================================================
@@ -320,6 +343,37 @@ export interface OpBucketStore {
     to: Date;
     grain: BucketGrain;
   }): Promise<TraceOpBucket[]>;
+  /**
+   * ONE merged aggregate for a `(service, op?)` selection over the WHOLE
+   * `[from, to)` window - the health `operation-latency` collector's read. Unlike
+   * {@link queryBuckets} (one row per bucket, each with its own p95), this merges
+   * the t-digests of every matching bucket into a single digest and derives ONE
+   * window p95, which is the only correct way to percentile across buckets. A
+   * read REJECTION propagates (transport failure); an empty window is all-zero.
+   */
+  queryWindowLatency(args: {
+    streamId: string;
+    serviceName: string;
+    spanName?: string;
+    from: Date;
+    to: Date;
+    grain: BucketGrain;
+  }): Promise<TraceWindowLatency>;
+  /**
+   * SUM of span + error counts across a `[from, to)` window at one tier, computed
+   * ENTIRELY in SQL (`SUM(...)`). The health window collector and the error-spike
+   * detection need only these two integers; going through {@link queryBuckets}
+   * would fetch every bucket's t-digest blob and run `mergeTDigestStates` +
+   * `percentileFromState` per bucket only to discard all of it - a real hot-path
+   * cost on a stream erroring steadily (thousands of digest rows per flush). A
+   * read REJECTION propagates (transport failure); an empty window is all-zero.
+   */
+  sumWindowCounts(args: {
+    streamId: string;
+    from: Date;
+    to: Date;
+    grain: BucketGrain;
+  }): Promise<{ spanCount: number; errorSpanCount: number }>;
   /** Top services by span volume since `since` (overview). */
   topServices(args: {
     streamId: string;
@@ -375,6 +429,13 @@ export interface ActivityStore {
     droppedSpans?: number;
     droppedTraces?: number;
   }): Promise<void>;
+  /**
+   * Add a satellite's in-transit drop count to a stream's running total (upsert-
+   * increment). Called by the satellite telemetry handler once per stream from a
+   * forwarded batch's per-group `droppedByGroup`. No-op for a non-positive count.
+   * Independent of `touch` so it never advances `lastReceivedAt` / the rate.
+   */
+  addInTransitDrops(args: { streamId: string; dropped: number }): Promise<void>;
   read(args: { streamId: string }): Promise<TraceStreamActivity | null>;
   /** Every stream's `(streamId, lastReceivedAt)` (silence detection scan). */
   listActivity(): Promise<{ streamId: string; lastReceivedAt: Date | null }[]>;
@@ -400,6 +461,12 @@ export interface ImportantEventStore {
   lastMarkerByStream(args: {
     types: string[];
   }): Promise<Map<string, string>>;
+  /**
+   * Timestamp (`ts`) of the most recent event of `type` for a stream, or null
+   * when none. Cluster-wide (reads the shared table), so the error-spike
+   * detection dedupes one spike per stream per window across every pod.
+   */
+  lastEventAt(args: { streamId: string; type: string }): Promise<Date | null>;
   deleteBefore(args: { streamId: string; cutoff: Date }): Promise<void>;
   deleteAllForStream(args: { streamId: string }): Promise<void>;
 }

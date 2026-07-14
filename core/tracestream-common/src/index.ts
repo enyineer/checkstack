@@ -26,6 +26,9 @@ export * from "./signals";
 // Frontend slots (fillable by other plugins)
 export * from "./slots";
 
+// Health-check integration identifiers (strategy id + dropdown resolvers)
+export * from "./health-resolvers";
+
 // RPC contract + client definition
 export {
   tracestreamContract,

@@ -5,6 +5,7 @@ import {
   Layers,
   Network,
   Route,
+  TrendingUp,
   Volume2,
   VolumeX,
   type LucideIcon,
@@ -46,6 +47,9 @@ export function importantEventVisual(
     }
     case "operation_cap_exceeded": {
       return { icon: Route, tone: "warn", label: "Operation cap exceeded" };
+    }
+    case "error_spike": {
+      return { icon: TrendingUp, tone: "error", label: "Error spike" };
     }
   }
 }

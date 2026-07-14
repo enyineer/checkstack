@@ -16,4 +16,10 @@ describe("importantEventVisual", () => {
     expect(importantEventVisual("silence_recovered").tone).toBe("ok");
     expect(importantEventVisual("silence").tone).toBe("warn");
   });
+
+  it("tones an error spike as error, matching the logstream spike visual", () => {
+    const visual = importantEventVisual("error_spike");
+    expect(visual.tone).toBe("error");
+    expect(visual.label).toBe("Error spike");
+  });
 });

@@ -5,6 +5,7 @@ import {
 import { Waypoints } from "lucide-react";
 import { LogEventDetailSlot } from "@checkstack/logstream-common";
 import { RunDetailExtrasSlot } from "@checkstack/healthcheck-common";
+import { HealthCheckConfigOptionsResolverSlot } from "@checkstack/healthcheck-frontend";
 import {
   tracestreamRoutes,
   pluginMetadata,
@@ -12,7 +13,9 @@ import {
   tracestreamResourceTypes,
   TRACESTREAM_ACTIVITY,
   TRACESTREAM_IMPORTANT_EVENT,
+  TRACESTREAM_STRATEGY_ID,
 } from "@checkstack/tracestream-common";
+import { buildTracestreamOptionsResolvers } from "./health-options-resolvers";
 import { ViewTraceForLogEvent } from "./components/ViewTraceForLogEvent";
 import { ViewTraceForRun } from "./components/ViewTraceForRun";
 
@@ -26,9 +29,10 @@ import { ViewTraceForRun } from "./components/ViewTraceForRun";
  * with `meta: { signalScope: "plugin" }`.
  *
  * NOTE: the Settings tab now embeds the telemetry `StreamSourcesSection`
- * (signal "traces"), so telemetry sources can bind a trace stream. Still pending:
- * the healthcheck strategy picker - add the `HealthCheckConfigOptionsResolverSlot`
- * extension + `listStreamsForPicker` resolver here when that ships.
+ * (signal "traces"), so telemetry sources can bind a trace stream. The
+ * healthcheck strategy picker is wired below via the
+ * `HealthCheckConfigOptionsResolverSlot` fill (stream / service / operation
+ * dropdown resolvers for the `tracestream` strategy's config + collector forms).
  */
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -44,6 +48,18 @@ export default createFrontendPlugin({
     createSlotExtension(RunDetailExtrasSlot, {
       id: "tracestream.run-view-trace",
       component: ViewTraceForRun,
+    }),
+    // Contribute the stream / service / operation dropdown resolvers for the
+    // `tracestream` health-check strategy's config + collector fields. The
+    // editor reads the metadata; the component is never rendered (metadata-only
+    // contribution).
+    createSlotExtension(HealthCheckConfigOptionsResolverSlot, {
+      id: "tracestream.health-config-options-resolvers",
+      component: () => null,
+      metadata: {
+        strategyId: TRACESTREAM_STRATEGY_ID,
+        buildResolvers: buildTracestreamOptionsResolvers,
+      },
     }),
   ],
   routes: [

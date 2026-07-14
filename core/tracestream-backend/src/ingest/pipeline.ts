@@ -39,6 +39,7 @@ import {
 } from "@checkstack/ingest-utils";
 import type { Storage } from "../storage";
 import type { ImportantEventRecorder } from "../events/recorder";
+import type { OnIngestFlush } from "../health/setup";
 import { prepareSpan, type PreparedSpan } from "./prepare";
 import {
   capStreamSpans,
@@ -46,6 +47,7 @@ import {
   foldAggregates,
   keepPersistedSpans,
 } from "./fold";
+import { createErrorSpikeDetector } from "./error-spike";
 
 export const DEFAULT_FLUSH_INTERVAL_MS = 500;
 export const DEFAULT_FLUSH_SIZE_THRESHOLD = 1000;
@@ -95,6 +97,7 @@ export function createIngestPipeline({
   recorder,
   signalService,
   logger,
+  onIngestFlush = () => {},
   now = () => new Date(),
   flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS,
   flushSizeThreshold = DEFAULT_FLUSH_SIZE_THRESHOLD,
@@ -105,6 +108,12 @@ export function createIngestPipeline({
   recorder: ImportantEventRecorder;
   signalService: SignalService;
   logger: Logger;
+  /**
+   * Post-commit health fast-path hook (fires a debounced re-evaluation on an
+   * error burst). Synchronous by contract - never awaited in a way that blocks
+   * the flush loop. Defaults to a no-op (tests / no health integration).
+   */
+  onIngestFlush?: OnIngestFlush;
   now?: () => Date;
   flushIntervalMs?: number;
   flushSizeThreshold?: number;
@@ -119,6 +128,8 @@ export function createIngestPipeline({
   const rateLimiter = new RateLimiter();
   const streamConfigs = new Map<string, TraceStreamConfig>();
   const state = new Map<string, StreamState>();
+  // Pod-local error-spike detector (holds the per-stream dedupe-skip horizon).
+  const errorSpikeDetector = createErrorSpikeDetector({ storage });
 
   const loop = createFlushLoop({ runCycle, intervalMs: flushIntervalMs });
 
@@ -229,6 +240,10 @@ export function createIngestPipeline({
     let droppedServices = 0;
     let droppedOperations = 0;
     let persistedSpanCount = 0;
+    let persistedErrorSpanCount = 0;
+    // The freshest minute bucket this flush committed error spans into (a span
+    // bucketStart, NOT the wall clock) - the minute the spike detector evaluates.
+    let persistedErrorMinuteStart: Date | null = null;
     // The whole batch commits in ONE transaction; the drop counts and persisted
     // count are (re)assigned inside so a rolled-back attempt leaks no stale value.
     const writeOnce = () =>
@@ -236,12 +251,32 @@ export function createIngestPipeline({
         droppedServices = 0;
         droppedOperations = 0;
         persistedSpanCount = 0;
+        persistedErrorSpanCount = 0;
+        persistedErrorMinuteStart = null;
         const insertedKeys = await ports.spans.insertSpans({ spans: inserts });
         persistedSpanCount = insertedKeys.length;
         // Fold summaries / buckets / catalog over the persisted subset only, so a
         // duplicate span never inflates a trace's span count or a latency bucket.
         const persisted = keepPersistedSpans({ spans: kept, insertedKeys });
         const agg = foldAggregates({ streamId, spans: persisted });
+        // Error spans committed this flush - gates the post-commit spike + health
+        // fast-path (computed from the folded, persisted aggregates: cheap).
+        persistedErrorSpanCount = agg.summaries.reduce(
+          (total, s) => total + s.errorSpanCount,
+          0,
+        );
+        // Freshest op-bucket minute that received error spans this flush - the
+        // spike detector reads THIS minute (span-time), never floorToMinute(now),
+        // so export lag / boundary-straddling bursts are not missed.
+        for (const b of agg.buckets) {
+          if (
+            b.errorCount > 0 &&
+            (persistedErrorMinuteStart === null ||
+              b.bucketStart > persistedErrorMinuteStart)
+          ) {
+            persistedErrorMinuteStart = b.bucketStart;
+          }
+        }
         await ports.summaries.upsertFromFlush({ summaries: agg.summaries });
         await ports.opBuckets.foldSpans({ folds: agg.buckets });
         const drops = await ports.serviceOps.touch({
@@ -286,7 +321,53 @@ export function createIngestPipeline({
       droppedServices,
       droppedOperations,
     });
+
+    // POST-COMMIT error handling (reads run outside the write transaction). Only
+    // when the flush committed error spans into a labeled op bucket - a non-error
+    // flush (or one whose errors were all unlabeled, so no op bucket) does zero
+    // extra work here.
+    if (persistedErrorSpanCount > 0 && persistedErrorMinuteStart !== null) {
+      await recordErrorSpike(streamId, persistedErrorMinuteStart, flushAt);
+    }
+
+    // Health fast-path: fire the debounced re-evaluation hook (it gates on
+    // errorSpanCount > 0 internally and returns synchronously - the detached
+    // fan-out never blocks the flush loop). AWAITED so an async implementation's
+    // rejection is caught here, never escaping as an unhandled rejection.
+    try {
+      await onIngestFlush({ streamId, errorSpanCount: persistedErrorSpanCount });
+    } catch (error) {
+      logger.warn(
+        `tracestream: onIngestFlush hook failed for ${streamId}: ${String(error)}`,
+      );
+    }
+
     maybeBroadcastActivity(streamId, s, flushAt, persistedSpanCount);
+  }
+
+  /**
+   * Detect + record an error-spike important event post-commit (deduped one per
+   * stream per 10 min via the shared table; the pod-local detector further skips
+   * the read while suppressed). Best-effort: a read/record failure is logged,
+   * never propagated to the flush.
+   */
+  async function recordErrorSpike(
+    streamId: string,
+    minuteStart: Date,
+    flushAt: Date,
+  ): Promise<void> {
+    try {
+      const event = await errorSpikeDetector.detect({
+        streamId,
+        now: flushAt,
+        minuteStart,
+      });
+      if (event) await recorder.record(event);
+    } catch (error) {
+      logger.warn(
+        `tracestream: error-spike detection failed for ${streamId}: ${String(error)}`,
+      );
+    }
   }
 
   /**

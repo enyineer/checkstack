@@ -92,6 +92,21 @@ export function createImportantEventStore({
       return new Map(rows.map((r) => [r.streamId, r.type as string]));
     },
 
+    async lastEventAt({ streamId, type }) {
+      const [row] = await db
+        .select({ ts: traceImportantEvents.ts })
+        .from(traceImportantEvents)
+        .where(
+          and(
+            eq(traceImportantEvents.streamId, streamId),
+            eq(traceImportantEvents.type, type as EventType),
+          ),
+        )
+        .orderBy(desc(traceImportantEvents.ts))
+        .limit(1);
+      return row?.ts ?? null;
+    },
+
     async deleteBefore({ streamId, cutoff }) {
       await db
         .delete(traceImportantEvents)

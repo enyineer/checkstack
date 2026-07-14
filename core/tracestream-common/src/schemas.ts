@@ -463,6 +463,7 @@ export const TRACE_IMPORTANT_EVENT_TYPES = [
   "span_bytes_exceeded",
   "service_cap_exceeded",
   "operation_cap_exceeded",
+  "error_spike",
 ] as const;
 
 export const ImportantEventTypeSchema = z.enum(TRACE_IMPORTANT_EVENT_TYPES);

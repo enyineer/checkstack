@@ -28,6 +28,7 @@
     "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/healthcheck-frontend": "workspace:*",
     "@checkstack/logstream-common": "workspace:*",
     "@checkstack/telemetry-common": "workspace:*",
     "@checkstack/telemetry-frontend": "workspace:*",

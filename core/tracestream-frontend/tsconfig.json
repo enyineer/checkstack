@@ -23,6 +23,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../healthcheck-frontend"
+    },
+    {
       "path": "../logstream-common"
     },
     {
