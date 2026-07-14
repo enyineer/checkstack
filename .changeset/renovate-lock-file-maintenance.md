@@ -13,8 +13,14 @@ Updated dependencies:
 - `@floating-ui/dom` 1.7.6 -> 1.8.0
 - `@floating-ui/react-dom` 2.1.8 -> 2.1.9
 - `@floating-ui/utils` 0.2.11 -> 0.2.12
+- `baseline-browser-mapping` 2.10.42 -> 2.10.43
+- `browserslist` 4.28.5 -> 4.28.6
+- `bullmq` 5.80.1 -> 5.80.2
+- `caniuse-lite` 1.0.30001803 -> 1.0.30001805
 - `dompurify` 3.4.11 -> 3.4.12
 - `fast-xml-builder` 1.2.1 -> 1.3.0
 - `fast-xml-parser` 5.9.3 -> 5.10.0
 - `is-unsafe` 1.0.1 -> 2.0.0
+- `ldapts` 8.1.8 -> 8.2.0
+- `svgo` 4.0.1 -> 4.0.2
 - `xml-naming` 0.1.0 -> 0.3.0
