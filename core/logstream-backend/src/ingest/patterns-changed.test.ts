@@ -13,15 +13,24 @@ import { applyPatternsChanged } from "./setup";
  */
 
 function recordingExecutor(): {
-  executor: Pick<FlushExecutor, "upsertUserPattern" | "removeUserPattern">;
+  executor: Pick<
+    FlushExecutor,
+    "upsertUserPattern" | "removeUserPattern" | "setPatternHidden"
+  >;
   upserts: Array<{ streamId: string; template: string }>;
   removals: Array<{ streamId: string; patternId: string }>;
+  hiddenToggles: Array<{ streamId: string; patternId: string; hidden: boolean }>;
 } {
   const upserts: Array<{ streamId: string; template: string }> = [];
   const removals: Array<{ streamId: string; patternId: string }> = [];
+  const hiddenToggles: Array<{
+    streamId: string;
+    patternId: string;
+    hidden: boolean;
+  }> = [];
   const executor: Pick<
     FlushExecutor,
-    "upsertUserPattern" | "removeUserPattern"
+    "upsertUserPattern" | "removeUserPattern" | "setPatternHidden"
   > = {
     upsertUserPattern: (input) => {
       upserts.push(input);
@@ -29,8 +38,11 @@ function recordingExecutor(): {
     removeUserPattern: (input) => {
       removals.push(input);
     },
+    setPatternHidden: (input) => {
+      hiddenToggles.push(input);
+    },
   };
-  return { executor, upserts, removals };
+  return { executor, upserts, removals, hiddenToggles };
 }
 
 describe("applyPatternsChanged", () => {
@@ -62,6 +74,25 @@ describe("applyPatternsChanged", () => {
     });
     expect(removals).toEqual([{ streamId: "s1", patternId: "p:abc" }]);
     expect(upserts).toEqual([]);
+  });
+
+  it("hidden-changed: flips the pattern's hidden flag via setPatternHidden", () => {
+    const { executor, upserts, removals, hiddenToggles } = recordingExecutor();
+    applyPatternsChanged({
+      payload: {
+        streamId: "s1",
+        patternId: "p:abc",
+        template: "user <*> logged in",
+        action: "hidden-changed",
+        hidden: true,
+      },
+      executor,
+    });
+    expect(hiddenToggles).toEqual([
+      { streamId: "s1", patternId: "p:abc", hidden: true },
+    ]);
+    expect(upserts).toEqual([]);
+    expect(removals).toEqual([]);
   });
 });
 

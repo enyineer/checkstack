@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   ChartCard,
@@ -27,9 +27,16 @@ export interface PatternOccurrencesChartProps {
  *
  * `staleTime` keeps a remount within the window from refetching; live updates
  * still arrive via the plugin's activity-signal invalidation (which refetches
- * active queries regardless of `staleTime`).
+ * active queries regardless of `staleTime`). `placeholderData` keeps the last
+ * built chart on screen while any refetch (or a rolled live window) loads, so
+ * the skeleton only ever shows before the FIRST build - updates never cause a
+ * skeleton flash / layout shift.
+ *
+ * Memoized: the explorer re-renders on every keystroke and row expansion, and
+ * this chart's props (ids + the memoized, minute-quantized range) are stable
+ * across those - so the whole chart subtree bails out instead of re-rendering.
  */
-export function PatternOccurrencesChart({
+export const PatternOccurrencesChart = memo(function PatternOccurrencesChart({
   streamId,
   patternId,
   from,
@@ -41,7 +48,7 @@ export function PatternOccurrencesChart({
   // buckets and keep just this pattern's points in `toPatternSeries`.
   const { data, isLoading } = client.getPatternBuckets.useQuery(
     { streamId, from, to },
-    { staleTime: 15_000 },
+    { staleTime: 15_000, placeholderData: (prev) => prev },
   );
 
   const series: TimeSeries = useMemo(
@@ -65,6 +72,9 @@ export function PatternOccurrencesChart({
     [series],
   );
 
+  // All three states share the `chart` footprint height (skeleton variant,
+  // EmptyState footprint, and the chart's own 192px = min-h-48), so swapping
+  // between them never shifts the layout below.
   return (
     <ChartCard title="Pattern occurrences">
       {isLoading ? (
@@ -74,7 +84,7 @@ export function PatternOccurrencesChart({
           primary={series}
           ariaLabel="Pattern occurrences over time"
           formatY={(v) => String(Math.round(v))}
-          height={140}
+          height={192}
         />
       ) : (
         <EmptyState
@@ -85,4 +95,4 @@ export function PatternOccurrencesChart({
       )}
     </ChartCard>
   );
-}
+});

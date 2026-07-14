@@ -22,6 +22,13 @@
       "when": 1783929129770,
       "tag": "0002_motionless_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784025806418,
+      "tag": "0003_big_shaman",
+      "breakpoints": true
     }
   ]
 }

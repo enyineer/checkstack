@@ -107,6 +107,14 @@ port.on("message", (msg: MainToWorkerMessage) => {
       });
       return;
     }
+    case "set-pattern-hidden": {
+      drain.setPatternHidden({
+        streamId: msg.streamId,
+        patternId: msg.patternId,
+        hidden: msg.hidden,
+      });
+      return;
+    }
     case "hydrate-response": {
       const pending = pendingHydrations.get(msg.requestId);
       if (pending) {

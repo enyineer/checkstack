@@ -326,7 +326,12 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
         },
       ]);
 
-      const patterns = await service.listPatterns({ streamId: STREAM, limit: 100 });
+      const patterns = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: false,
+        orderBy: "lastSeenAt",
+      });
       // User-origin sorts first despite its far-older lastSeenAt.
       expect(patterns.map((p) => p.id)).toEqual(["user-quiet", "mined-active"]);
     });
@@ -360,9 +365,130 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
         },
       ]);
 
-      const patterns = await service.listPatterns({ streamId: STREAM, limit: 100 });
+      const patterns = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: false,
+        orderBy: "lastSeenAt",
+      });
       // Both are user-origin, so the recency tiebreak applies.
       expect(patterns.map((p) => p.id)).toEqual(["user-recent", "user-old"]);
+    });
+
+    it("excludes hidden patterns by default and includes them on request", async () => {
+      const { db } = test;
+      await db.insert(schema.logPatterns).values([
+        {
+          id: "visible",
+          streamId: STREAM,
+          template: "visible <*>",
+          tokenCount: 2,
+          firstSeenAt: OLD,
+          lastSeenAt: RECENT,
+          sampleBody: "visible 1",
+          totalCount: 5,
+          severityMax: 9,
+          origin: "mined",
+        },
+        {
+          id: "concealed",
+          streamId: STREAM,
+          template: "concealed <*>",
+          tokenCount: 2,
+          firstSeenAt: OLD,
+          lastSeenAt: RECENT,
+          sampleBody: "concealed 1",
+          totalCount: 999,
+          severityMax: 9,
+          origin: "mined",
+          hidden: true,
+        },
+      ]);
+
+      const visibleOnly = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: false,
+        orderBy: "totalCount",
+      });
+      expect(visibleOnly.map((p) => p.id)).toEqual(["visible"]);
+
+      const all = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: true,
+        orderBy: "totalCount",
+      });
+      expect(all.map((p) => p.id)).toEqual(["concealed", "visible"]);
+      expect(all[0]?.hidden).toBe(true);
+    });
+
+    it("filters by derived severity band and orders by volume", async () => {
+      const { db } = test;
+      const base = {
+        streamId: STREAM,
+        tokenCount: 2,
+        firstSeenAt: OLD,
+        lastSeenAt: RECENT,
+        origin: "mined" as const,
+      };
+      await db.insert(schema.logPatterns).values([
+        // severityMax 18 -> error band.
+        {
+          ...base,
+          id: "err-small",
+          template: "err small <*>",
+          sampleBody: "err small 1",
+          totalCount: 10,
+          severityMax: 18,
+        },
+        {
+          ...base,
+          id: "err-big",
+          template: "err big <*>",
+          sampleBody: "err big 1",
+          totalCount: 100,
+          severityMax: 18,
+        },
+        // severityMax 9 -> info band.
+        {
+          ...base,
+          id: "informational",
+          template: "informational <*>",
+          sampleBody: "informational 1",
+          totalCount: 5000,
+          severityMax: 9,
+        },
+        // severityMax 0 (never-seen user default) -> info via the else-branch.
+        {
+          ...base,
+          id: "unspecified",
+          template: "unspecified <*>",
+          sampleBody: "unspecified 1",
+          totalCount: 1,
+          severityMax: 0,
+        },
+      ]);
+
+      const errors = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: false,
+        bands: ["error"],
+        orderBy: "totalCount",
+      });
+      expect(errors.map((p) => p.id)).toEqual(["err-big", "err-small"]);
+
+      // The out-of-range severityMax 0 lands in 'info', exactly like the DTO's
+      // bandFromSeverityNumber default.
+      const infos = await service.listPatterns({
+        streamId: STREAM,
+        limit: 100,
+        includeHidden: false,
+        bands: ["info"],
+        orderBy: "totalCount",
+      });
+      expect(infos.map((p) => p.id)).toEqual(["informational", "unspecified"]);
     });
   });
 });

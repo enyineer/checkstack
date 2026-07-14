@@ -69,6 +69,14 @@ export interface MainSetProtectedPatterns {
   patternIds: readonly string[];
 }
 
+/** Mark a pattern hidden/visible on the owning worker's engine. */
+export interface MainSetPatternHidden {
+  type: "set-pattern-hidden";
+  streamId: string;
+  patternId: string;
+  hidden: boolean;
+}
+
 /** The pattern rows the worker asked for (answers a {@link WorkerHydrateRequest}). */
 export interface MainHydrateResponse {
   type: "hydrate-response";
@@ -98,6 +106,7 @@ export type MainToWorkerMessage =
   | MainUpsertUserPattern
   | MainRemoveUserPattern
   | MainSetProtectedPatterns
+  | MainSetPatternHidden
   | MainHydrateResponse
   | MainHydrateError
   | MainStop;

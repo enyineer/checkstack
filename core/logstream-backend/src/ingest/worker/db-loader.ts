@@ -31,6 +31,7 @@ export function createDbPatternLoader({
         id: logPatterns.id,
         template: logPatterns.template,
         origin: logPatterns.origin,
+        hidden: logPatterns.hidden,
       })
       .from(logPatterns)
       .where(eq(logPatterns.streamId, streamId))

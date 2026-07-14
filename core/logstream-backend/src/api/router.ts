@@ -85,7 +85,7 @@ export function createLogstreamRouter({
     ),
 
     listPatterns: os.listPatterns.handler(async ({ input }) =>
-      service.listPatterns({ streamId: input.streamId, limit: input.limit }),
+      service.listPatterns(input),
     ),
 
     // ── Custom patterns + pattern variables ─────────────────────────────
@@ -96,6 +96,10 @@ export function createLogstreamRouter({
     deletePattern: os.deletePattern.handler(async ({ input }) => {
       await service.deletePattern(input);
     }),
+
+    setPatternHidden: os.setPatternHidden.handler(async ({ input }) =>
+      service.setPatternHidden(input),
+    ),
 
     testPattern: os.testPattern.handler(async ({ input }) =>
       service.testPattern(input),

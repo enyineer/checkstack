@@ -53,6 +53,7 @@ describe("patternToOption", () => {
       severityMax: 9,
       band: "info",
       origin: "mined",
+      hidden: false,
     } satisfies LogPattern;
     expect(patternToOption(pattern)).toEqual({
       value: "p1",

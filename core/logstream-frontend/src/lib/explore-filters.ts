@@ -51,6 +51,48 @@ export function hasActiveFilters(filters: ExploreFilters): boolean {
   );
 }
 
+/**
+ * Fallback "last 24 hours" window used while the user has not picked a range.
+ * The end is quantized UP to the next minute boundary so every call within
+ * the same minute yields an identical window: the pattern-occurrences chart
+ * keys its buckets query on this window, and an un-quantized `new Date()` per
+ * render meant a new query key - and a refetch with a loading flash - on
+ * every parent re-render. Ceiling (not flooring) keeps lines newer than "now"
+ * inside the window, so signal-driven refetches within the minute still pick
+ * up fresh occurrences, and the window itself rolls forward once a minute.
+ */
+export function defaultExploreRange({ now = Date.now() }: { now?: number } = {}): {
+  startDate: Date;
+  endDate: Date;
+} {
+  const end = Math.ceil(now / 60_000) * 60_000;
+  return {
+    startDate: new Date(end - 24 * 60 * 60 * 1000),
+    endDate: new Date(end),
+  };
+}
+
+/**
+ * The window every explorer query is bounded by: the user's explicit pick
+ * when set, otherwise the quantized `defaultExploreRange` fallback. Both the
+ * occurrences chart AND the events search key off this, so the list always
+ * agrees with the chart and a pattern/text filter can never fetch unbounded
+ * history.
+ */
+export function effectiveExploreRange({
+  from,
+  to,
+  now = Date.now(),
+}: {
+  from: Date | null;
+  to: Date | null;
+  now?: number;
+}): { startDate: Date; endDate: Date } {
+  return from && to
+    ? { startDate: from, endDate: to }
+    : defaultExploreRange({ now });
+}
+
 export interface ToSearchInput {
   streamId: string;
   filters: ExploreFilters;

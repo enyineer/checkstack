@@ -14,14 +14,43 @@ describe("maskLine", () => {
     { name: "plain integer", input: "took 42 ms", expected: `took ${W} ms` },
     { name: "decimal", input: "latency 3.14s", expected: `latency ${W}s` },
     {
-      name: "dotted version",
+      // Letter-attached versions are identifiers: if they truly vary, the
+      // Drain tree wildcards the token by clustering instead.
+      name: "letter-attached dotted version kept",
       input: "started v1.2.3 ok",
-      expected: `started v${W} ok`,
+      expected: "started v1.2.3 ok",
+    },
+    {
+      name: "standalone dotted version",
+      input: "release 1.2.3 deployed",
+      expected: `release ${W} deployed`,
     },
     {
       name: "key=number",
       input: "retries=5 done",
       expected: `retries=${W} done`,
+    },
+    {
+      // Regression: "S3" was masked to "S<*>" even though the digit is part
+      // of the (constant) service name, never a parameter.
+      name: "letter-attached digit kept (S3)",
+      input: "TechDocs S3 router failed after 3 retries",
+      expected: `TechDocs S3 router failed after ${W} retries`,
+    },
+    {
+      name: "letter-attached digits kept (utf8, sha256, TLSv1.2)",
+      input: "utf8 body hashed with sha256 over TLSv1.2",
+      expected: "utf8 body hashed with sha256 over TLSv1.2",
+    },
+    {
+      name: "separator-attached digits still masked",
+      input: "connect db-9 failed with code=500",
+      expected: `connect db-${W} failed with code=${W}`,
+    },
+    {
+      name: "number with unit suffix still masked",
+      input: "took 250ms total",
+      expected: `took ${W}ms total`,
     },
     {
       name: "hex with digit",
@@ -231,6 +260,10 @@ describe("maskAndTokenizeAnnotated", () => {
     "\ttab\tseparated\t42\t",
     "mixed\nnewline 3 and space 4",
     "key=42next", // masked span adjacent to a literal with no whitespace
+    "TechDocs S3 router failed after 3 retries", // letter-attached digit kept
+    "utf8 body hashed with sha256 over TLSv1.2",
+    "connect db-9 failed with code=500",
+    '"quoted"42 adjacent digits after a masked span', // lookbehind at a segment boundary
     'auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N ok',
   ];
 

@@ -32,6 +32,11 @@ export interface DrainClassification {
    * positions mid-flush, the values follow the CURRENT (post-refine) template.
    */
   wildcardValues: string[];
+  /**
+   * True when the matched pattern is user-hidden: the flush still folds every
+   * aggregate delta for the line but skips persisting it as a raw event row.
+   */
+  hidden: boolean;
 }
 
 /**
@@ -101,6 +106,19 @@ export interface DrainEngine {
   setProtectedPatterns(input: {
     streamId: string;
     patternIds: readonly string[];
+  }): void;
+
+  /**
+   * Mark a pattern hidden/visible on this pod's engine so classifications flag
+   * matched lines (the flush then skips their raw persistence). Called by
+   * `setPatternHidden` on the owning pod and by the patterns-changed consumer
+   * elsewhere; hydration seeds the set from the `hidden` column. Idempotent.
+   * The durable `log_patterns.hidden` update is the API's concern.
+   */
+  setPatternHidden(input: {
+    streamId: string;
+    patternId: string;
+    hidden: boolean;
   }): void;
 }
 
@@ -182,6 +200,8 @@ export interface DrainPatternRow {
   template: string;
   /** `'mined'` | `'user'`; a `'user'` row re-seeds as a protected cluster. */
   origin: string;
+  /** Seeds the engine's hidden set (raw-line persistence skip). */
+  hidden: boolean;
 }
 
 /**
@@ -246,6 +266,7 @@ export function createDrainEngine({
           id: logPatterns.id,
           template: logPatterns.template,
           origin: logPatterns.origin,
+          hidden: logPatterns.hidden,
         })
         .from(logPatterns)
         .where(eq(logPatterns.streamId, streamId))
@@ -256,12 +277,23 @@ export function createDrainEngine({
   // In-flight hydrations, so concurrent first-lines for one stream await a
   // single DB read instead of racing several.
   const hydrating = new Map<string, Promise<void>>();
+  // Per-stream hidden pattern ids. Engine-level (not a tree/cluster concern):
+  // classify() only needs a membership check to flag matched lines, hydration
+  // seeds it from the `hidden` column, and live toggles arrive via
+  // setPatternHidden (same at-least-once propagation as user patterns, with
+  // hydration as the convergence backstop). A refined template gets a NEW
+  // pattern id, which starts visible - hiding is per-identity, by design.
+  const hiddenIds = new Map<string, Set<string>>();
   // Pattern-row deltas accumulated since the last pendingPatternUpserts() drain,
   // keyed by patternId. `totalCount` here is the DELTA for this flush.
   const pending = new Map<string, PatternUpsert>();
 
   const core = createDrainCore({
-    onStreamEvicted: (streamId) => hydrated.delete(streamId),
+    onStreamEvicted: (streamId) => {
+      hydrated.delete(streamId);
+      // Drop the hidden set with the stream; re-hydration re-seeds it.
+      hiddenIds.delete(streamId);
+    },
     // Lets the core decide whether a resident mined cluster is in a stream's
     // healthcheck-referenced protected set (same id derivation as classify).
     computePatternId,
@@ -338,6 +370,7 @@ export function createDrainEngine({
           templateTokens,
           treeTokens: tokens,
         }),
+        hidden: hiddenIds.get(streamId)?.has(patternId) ?? false,
       };
     },
 
@@ -363,6 +396,16 @@ export function createDrainEngine({
       core.setProtectedIds({ streamId, patternIds });
     },
 
+    setPatternHidden({ streamId, patternId, hidden }) {
+      const set = hiddenIds.get(streamId);
+      if (hidden) {
+        if (set) set.add(patternId);
+        else hiddenIds.set(streamId, new Set([patternId]));
+        return;
+      }
+      set?.delete(patternId);
+    },
+
     pendingPatternUpserts() {
       const rows = [...pending.values()];
       pending.clear();
@@ -381,8 +424,10 @@ export function createDrainEngine({
             `logstream: stream ${streamId} hydration truncated at ${HYDRATION_ROW_LIMIT} patterns (coldest patterns will re-mine on next line)`,
           );
         }
+        const hidden = new Set<string>();
         for (const row of rows) {
           const tokens = templateToTokens(row.template);
+          if (row.hidden) hidden.add(row.id);
           if (row.origin === "user") {
             // User patterns re-seed as protected clusters so their precedence,
             // exact-match and no-eviction guarantees survive a re-hydration.
@@ -395,6 +440,9 @@ export function createDrainEngine({
             core.seed({ streamId, tokens });
           }
         }
+        // Replace (not merge) so an unhide that happened while the stream was
+        // out of memory is honored on re-hydration.
+        hiddenIds.set(streamId, hidden);
         hydrated.add(streamId);
       })().finally(() => hydrating.delete(streamId));
 

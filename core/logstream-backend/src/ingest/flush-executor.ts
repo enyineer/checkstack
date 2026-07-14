@@ -69,6 +69,13 @@ export interface FlushExecutor {
     patternIds: readonly string[];
   }): void;
 
+  /** Mark a pattern hidden/visible on the owning tree's engine. Idempotent. */
+  setPatternHidden(input: {
+    streamId: string;
+    patternId: string;
+    hidden: boolean;
+  }): void;
+
   /**
    * The current "protection epoch" for a stream: a counter the executor bumps
    * whenever the tree hosting `streamId` is RESET and its
@@ -142,6 +149,10 @@ export function createInProcessFlushExecutor({
 
     setProtectedPatterns({ streamId, patternIds }) {
       drain.setProtectedPatterns({ streamId, patternIds });
+    },
+
+    setPatternHidden({ streamId, patternId, hidden }) {
+      drain.setPatternHidden({ streamId, patternId, hidden });
     },
 
     // The in-process tree lives for the pod's lifetime and is never reset, so

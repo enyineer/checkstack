@@ -64,8 +64,13 @@ export interface LogstreamPatternsChangedPayload {
   patternId: string;
   /** The pattern's masked template (so a consumer can seed without a DB read). */
   template: string;
-  /** `upserted` after a create; `removed` after a delete. */
-  action: "upserted" | "removed";
+  /**
+   * `upserted` after a create; `removed` after a delete; `hidden-changed`
+   * after a hide/unhide toggle (the `hidden` field carries the new state).
+   */
+  action: "upserted" | "removed" | "hidden-changed";
+  /** New hidden state; only meaningful for `action: "hidden-changed"`. */
+  hidden?: boolean;
 }
 
 export const logstreamPatternsChangedHook =

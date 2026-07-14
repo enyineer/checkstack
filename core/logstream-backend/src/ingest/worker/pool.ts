@@ -345,6 +345,20 @@ export function createWorkerFlushExecutor({
       slot.transport.post({ type: "set-protected-patterns", streamId, patternIds });
     },
 
+    setPatternHidden({ streamId, patternId, hidden }) {
+      const slot = slotFor(streamId);
+      if (slot.dead) {
+        fallback.setPatternHidden({ streamId, patternId, hidden });
+        return;
+      }
+      slot.transport.post({
+        type: "set-pattern-hidden",
+        streamId,
+        patternId,
+        hidden,
+      });
+    },
+
     protectionEpoch({ streamId }) {
       // The owning slot's epoch even when dead: it was bumped on the transition
       // to dead, so the pipeline re-pushes the referenced set to the fallback.

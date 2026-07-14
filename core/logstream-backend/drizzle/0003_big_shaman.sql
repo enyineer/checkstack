@@ -1,0 +1,1 @@
+ALTER TABLE "log_patterns" ADD COLUMN "hidden" boolean DEFAULT false NOT NULL;

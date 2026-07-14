@@ -94,9 +94,15 @@ const MASK_RULES: readonly MaskRule[] = [
     regex: /\b0x[0-9a-fA-F]+\b|\b(?=[0-9a-fA-F]*\d)[0-9a-fA-F]{4,}\b/g,
   },
   // Plain numbers: integers, decimals and dotted versions (`1.2.3`). Substring
-  // replacement, so `v2` -> `v<*>` and `key=42` -> `key=<*>` keep their static
-  // affix while the numeric part becomes a parameter.
-  { name: "number", regex: /\d+(?:\.\d+)*/g },
+  // replacement after a non-alphanumeric separator, so `key=42` -> `key=<*>`
+  // and `db-9` -> `db-<*>` keep their static affix while the numeric part
+  // becomes a parameter. A digit run ATTACHED to a preceding letter - or
+  // continuing an identifier across a dot - is part of the identifier, not a
+  // parameter: `S3`, `utf8`, `sha256`, `TLSv1.2` stay literal (they are names,
+  // and wildcarding them made e.g. "TechDocs S3" mine as "TechDocs S<*>").
+  // A letter-attached token that genuinely varies across lines is still
+  // generalized to `<*>` by the Drain tree's own clustering.
+  { name: "number", regex: /(?<![A-Za-z0-9.])\d+(?:\.\d+)*/g },
 ];
 
 /** Replace every masked substring on the line with {@link WILDCARD}. */

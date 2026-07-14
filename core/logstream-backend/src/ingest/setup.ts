@@ -80,27 +80,44 @@ export async function applyTokenInvalidation({
  *
  * - `upserted`: install the protected user cluster (`upsertUserPattern`).
  * - `removed`: drop it (`removeUserPattern`).
+ * - `hidden-changed`: flip the pattern's hidden flag (`setPatternHidden`).
  *
- * Idempotent on both methods, so a redelivered event is harmless.
+ * Idempotent on all methods, so a redelivered event is harmless.
  */
 export function applyPatternsChanged({
   payload,
   executor,
 }: {
   payload: LogstreamPatternsChangedPayload;
-  executor: Pick<FlushExecutor, "upsertUserPattern" | "removeUserPattern">;
+  executor: Pick<
+    FlushExecutor,
+    "upsertUserPattern" | "removeUserPattern" | "setPatternHidden"
+  >;
 }): void {
-  if (payload.action === "upserted") {
-    executor.upsertUserPattern({
-      streamId: payload.streamId,
-      template: payload.template,
-    });
-    return;
+  switch (payload.action) {
+    case "upserted": {
+      executor.upsertUserPattern({
+        streamId: payload.streamId,
+        template: payload.template,
+      });
+      return;
+    }
+    case "removed": {
+      executor.removeUserPattern({
+        streamId: payload.streamId,
+        patternId: payload.patternId,
+      });
+      return;
+    }
+    case "hidden-changed": {
+      executor.setPatternHidden({
+        streamId: payload.streamId,
+        patternId: payload.patternId,
+        hidden: payload.hidden ?? false,
+      });
+      return;
+    }
   }
-  executor.removeUserPattern({
-    streamId: payload.streamId,
-    patternId: payload.patternId,
-  });
 }
 
 /** Teardown handle for the ingest subsystem (see {@link registerIngestEndpoints}). */

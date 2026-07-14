@@ -33,6 +33,7 @@ A stream keeps data at two fidelities so it can carry full volume without unboun
 
 **Raw lines are a capped, investigable sample.** Storing every raw line at thousands per second is neither cheap nor useful, so Checkstack keeps a representative subset in the log explorer:
 
+- Lines matching a [hidden pattern](#hiding-noisy-patterns) are never stored raw (their counts still land in every aggregate).
 - `warn` and above are always kept. These are the lines you investigate.
 - `info`, `debug`, and `trace` keep the first few lines per pattern each minute (for shape coverage) plus a small random sample of the rest, governed by the stream's sample rate.
 - A hard per-minute cap bounds raw rows per stream; sampled overflow is dropped and counted. `warn` and above is never dropped.
@@ -41,7 +42,7 @@ Because aggregates are complete and raw lines are sampled, a chart or assertion 
 
 ## Message patterns
 
-Checkstack groups similar log lines into **patterns** using the Drain algorithm. Before a line is grouped, its variable parts (numbers, hex ids, UUIDs, IP addresses, timestamps, quoted strings, emails, URLs) are masked to a single wildcard token `<*>`, and the remaining tokens form a template. Lines that differ only in those variable parts collapse to one pattern:
+Checkstack groups similar log lines into **patterns** using the Drain algorithm. Before a line is grouped, its variable parts (standalone numbers, hex ids, UUIDs, IP addresses, timestamps, quoted strings, emails, URLs) are masked to a single wildcard token `<*>`, and the remaining tokens form a template. A digit that is part of a name (`S3`, `utf8`, `sha256`) is kept as-is - only values behind a separator (`user 4821`, `db-9`, `code=500`) are treated as variables. Lines that differ only in those variable parts collapse to one pattern:
 
 ```text
 User 4821 logged in from 10.0.0.4   ->  User <*> logged in from <*>
@@ -60,6 +61,26 @@ Mined patterns only exist once a matching line has arrived, but you often want t
 While you build, a live preview counts how many recent lines the pattern would match, so you can see immediately whether it is too broad, too narrow, or (for a not-yet-occurring message) correctly matching nothing yet. If the pattern you define already exists as a mined one, it is promoted to a user pattern rather than duplicated - it keeps its history.
 
 User patterns behave like mined ones everywhere (counters, charts, the explorer, health checks) with one difference: they are yours. They never age out, they match with precedence, and they can be deleted from the Patterns tab - unless a health check still references them, in which case the delete is refused and tells you which checks to update first.
+
+### Hiding noisy patterns
+
+Some patterns are pure noise - an access-log template that masks to almost all
+wildcards, a chatty framework heartbeat. You can **hide** such a pattern (mined
+or user-authored) from the Patterns tab. Hiding does two things:
+
+- The pattern disappears from the default listings: the overview's Top
+  patterns card, the explorer's pattern picker, and the Patterns tab's default
+  view.
+- Its matched lines are **no longer stored as raw log lines**, so they stop
+  consuming raw storage and the explorer's per-minute raw budget.
+
+Hiding never falsifies your numbers: every aggregate keeps counting the
+pattern's lines - stream volume, severity totals, the pattern's own occurrence
+counters, and any health check or chart pinned to it keep working unchanged.
+
+To unhide, open the Patterns tab and use **Show hidden**; unhiding resumes raw
+line storage from that moment on (lines matched while hidden are gone - only
+their counts remain).
 
 ### Patterns your checks depend on are safe
 

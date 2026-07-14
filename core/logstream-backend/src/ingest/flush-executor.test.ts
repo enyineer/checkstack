@@ -31,12 +31,14 @@ function mockDrain(overrides: Partial<DrainEngine> = {}): DrainEngine {
       tokenCount: 1,
       severityNumber: 9,
       wildcardValues: [],
+      hidden: false,
     }),
     pendingPatternUpserts: () => pending.splice(0),
     hydrateStream: async () => {},
     upsertUserPattern: ({ template }) => ({ patternId: `p:${template}` }),
     removeUserPattern: () => {},
     setProtectedPatterns: () => {},
+    setPatternHidden: () => {},
     ...overrides,
   };
 }

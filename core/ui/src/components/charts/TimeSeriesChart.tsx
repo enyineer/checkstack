@@ -13,6 +13,7 @@ import {
 } from "./chart-math";
 import { ChartTooltip, type ChartTooltipRow } from "./ChartTooltip";
 import { useBandHover } from "./use-band-hover";
+import { useMeasuredWidth } from "./use-measured-width";
 
 /** A named series rendered on the chart. */
 export interface TimeSeries {
@@ -72,7 +73,13 @@ export interface TimeSeriesChartProps {
   className?: string;
 }
 
-const VIEW_W = 720;
+/**
+ * Fallback viewBox width used only before the first width measurement. The
+ * SVG is not rendered until the container is measured, so this value never
+ * reaches the screen - geometry is always drawn at 1 viewBox unit = 1 CSS px
+ * (see {@link useMeasuredWidth}), which keeps axis text unstretched.
+ */
+const FALLBACK_VIEW_W = 720;
 const AXIS_GUTTER = 44;
 const PAD_TOP = 12;
 const PAD_BOTTOM = 22;
@@ -87,7 +94,10 @@ const toneVar: Record<NonNullable<ReferenceLineSpec["tone"]>, string> = {
  * Honest time-series chart: a p50 aurora-gradient area + line layered under an
  * optional dashed p95 envelope, with low-contrast gridlines, an optional shaded
  * healthy band and a dashed SLO reference line. Token-driven, light/dark, and
- * responsive in width.
+ * responsive in width: the geometry is projected into the container's REAL
+ * pixel width (re-measured on resize), so axis text and line weights render
+ * undistorted at every size, and the SVG only appears once that width is known
+ * (the fixed-height wrapper reserves the space - no layout shift).
  *
  * Honesty: every series is drawn with literal straight segments between raw
  * buckets (no `monotone` spline), so a spike reads as a spike. Smoothing is
@@ -111,6 +121,12 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   className,
 }) => {
   const gradientId = useId();
+
+  // Draw at the container's real pixel width so nothing is stretched. Until
+  // the first measurement lands the SVG stays unrendered (the wrapper reserves
+  // the height), then geometry is projected 1:1 into CSS pixels.
+  const { ref: measureRef, width: measuredWidth } = useMeasuredWidth();
+  const viewW = measuredWidth ?? FALLBACK_VIEW_W;
 
   const geom = useMemo(() => {
     const all = [primary.points, secondary?.points].filter(
@@ -143,7 +159,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     const box = {
       left: AXIS_GUTTER,
       top: PAD_TOP,
-      width: VIEW_W - AXIS_GUTTER,
+      width: Math.max(viewW - AXIS_GUTTER, 1),
       height: height - PAD_TOP - PAD_BOTTOM,
     };
     const baselineY = box.top + box.height;
@@ -183,7 +199,16 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
       bandBottom: healthyBand ? yFor(healthyBand.from) : null,
       refY: referenceLine ? yFor(referenceLine.value) : null,
     };
-  }, [primary, secondary, healthyBand, referenceLine, height, yTicks, zeroFloor]);
+  }, [
+    primary,
+    secondary,
+    healthyBand,
+    referenceLine,
+    height,
+    yTicks,
+    zeroFloor,
+    viewW,
+  ]);
 
   const description = useMemo(() => {
     if (ariaLabel) return ariaLabel;
@@ -201,8 +226,8 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     () =>
       geom === null
         ? []
-        : geom.primaryProjected.map((p) => (p === null ? null : p.cx / VIEW_W)),
-    [geom],
+        : geom.primaryProjected.map((p) => (p === null ? null : p.cx / viewW)),
+    [geom, viewW],
   );
   const { hoverIndex, containerRef, containerProps, tooltipStyle, tooltipClassName } =
     useBandHover({
@@ -254,14 +279,22 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
 
   return (
     <div
-      ref={containerRef}
+      ref={(el) => {
+        containerRef.current = el;
+        measureRef(el);
+      }}
       {...containerProps}
       className={cn("relative", className)}
+      style={{ height }}
     >
+    {/* Rendered only once the real width is known: the wrapper's fixed height
+        reserves the space, so the chart appearing causes no layout shift and
+        is never drawn at a wrong (stretched) scale. */}
+    {measuredWidth !== null && (
     <svg
       width="100%"
       height={height}
-      viewBox={`0 0 ${VIEW_W} ${height}`}
+      viewBox={`0 0 ${viewW} ${height}`}
       preserveAspectRatio="none"
       role="img"
       aria-label={description}
@@ -400,6 +433,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
         </g>
       )}
     </svg>
+    )}
 
     {hoveredPoint !== undefined && tooltipRows.length > 0 && (
       <div
