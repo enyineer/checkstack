@@ -1,0 +1,56 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../backend"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dev-server"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../ingest-utils"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../satellite-backend"
+    },
+    {
+      "path": "../satellite-common"
+    },
+    {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../telemetry-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
+  ]
+}

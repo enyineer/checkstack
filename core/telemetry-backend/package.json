@@ -1,0 +1,59 @@
+{
+  "name": "@checkstack/telemetry-backend",
+  "version": "0.0.1",
+  "description": "Platform-level telemetry source/sink abstraction (pluggable sources for logs, metrics and traces)",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "checkstack": {
+    "type": "backend",
+    "pluginId": "telemetry",
+    "bundle": [
+      "@checkstack/telemetry-common",
+      "@checkstack/telemetry-frontend"
+    ]
+  },
+  "scripts": {
+    "dev": "checkstack-dev",
+    "pack": "checkstack-scripts plugin-pack",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
+    "@checkstack/cache-utils": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/ingest-utils": "workspace:*",
+    "@checkstack/queue-api": "workspace:*",
+    "@checkstack/satellite-backend": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@orpc/client": "^1.13.2",
+    "@orpc/server": "^1.13.2",
+    "drizzle-orm": "^0.45.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/dev-server": "workspace:*",
+    "@checkstack/backend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.2"
+  }
+}

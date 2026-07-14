@@ -1398,6 +1398,8 @@
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-backend": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
         "@orpc/server": "^1.14.4",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
@@ -1438,6 +1440,8 @@
         "@checkstack/healthcheck-frontend": "workspace:*",
         "@checkstack/logstream-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "@checkstack/telemetry-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
@@ -1551,6 +1555,8 @@
         "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-backend": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
         "@orpc/client": "^1.14.4",
         "@orpc/server": "^1.14.4",
         "drizzle-orm": "^0.45.0",
@@ -1593,6 +1599,8 @@
         "@checkstack/metricstream-common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "@checkstack/telemetry-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
@@ -1803,6 +1811,7 @@
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2366,6 +2375,80 @@
         "@checkstack/tsconfig": "workspace:*",
         "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
+      },
+    },
+    "core/telemetry-backend": {
+      "name": "@checkstack/telemetry-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/cache-api": "workspace:*",
+        "@checkstack/cache-utils": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/queue-api": "workspace:*",
+        "@checkstack/satellite-backend": "workspace:*",
+        "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "@orpc/client": "^1.13.2",
+        "@orpc/server": "^1.13.2",
+        "drizzle-orm": "^0.45.1",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/backend": "workspace:*",
+        "@checkstack/dev-server": "workspace:*",
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/telemetry-common": {
+      "name": "@checkstack/telemetry-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/telemetry-frontend": {
+      "name": "@checkstack/telemetry-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "@tanstack/react-query": "^5.100.14",
+        "lucide-react": "^0.469.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-router-dom": "^7.1.1",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-frontend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "typescript": "^5.7.2",
       },
     },
     "core/template-engine": {
@@ -3793,6 +3876,12 @@
     "@checkstack/status-page-common": ["@checkstack/status-page-common@workspace:core/status-page-common"],
 
     "@checkstack/status-page-frontend": ["@checkstack/status-page-frontend@workspace:core/status-page-frontend"],
+
+    "@checkstack/telemetry-backend": ["@checkstack/telemetry-backend@workspace:core/telemetry-backend"],
+
+    "@checkstack/telemetry-common": ["@checkstack/telemetry-common@workspace:core/telemetry-common"],
+
+    "@checkstack/telemetry-frontend": ["@checkstack/telemetry-frontend@workspace:core/telemetry-frontend"],
 
     "@checkstack/template-engine": ["@checkstack/template-engine@workspace:core/template-engine"],
 
@@ -6671,6 +6760,8 @@
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@checkstack/queue-backend/@hono/zod-validator": ["@hono/zod-validator@0.4.3", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.19.1" } }, "sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ=="],
+
+    "@checkstack/telemetry-frontend/lucide-react": ["lucide-react@0.469.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-28vvUnnKQ/dBwiCQtwJw7QauYnE7yd2Cyp4tTTJpvglX4EMpbflcdBgrgToX2j71B3YvugK/NH3BGUk+E/p/Fw=="],
 
     "@codingame/monaco-vscode-api/marked": ["marked@14.0.0", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ=="],
 

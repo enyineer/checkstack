@@ -313,6 +313,15 @@
       "path": "./core/status-page-frontend"
     },
     {
+      "path": "./core/telemetry-backend"
+    },
+    {
+      "path": "./core/telemetry-common"
+    },
+    {
+      "path": "./core/telemetry-frontend"
+    },
+    {
       "path": "./core/template-engine"
     },
     {
