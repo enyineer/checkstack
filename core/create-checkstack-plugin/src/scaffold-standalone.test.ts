@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterAll, beforeAll } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +16,7 @@ function makeTmpDir(): string {
   return dir;
 }
 
-afterEach(() => {
+afterAll(() => {
   for (const dir of tmpDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -35,6 +35,37 @@ function fixedResolver(baseName: string, packageScope: string) {
   });
 }
 
+// The scaffold tests assert over the emitted tree WITHOUT mutating it, and
+// there are only two distinct input configs across every test: a scoped
+// ("acme") and an unscoped ("") workspace. Scaffolding each ONCE and sharing
+// the result collapses this heavy, FS-syscall-bound work (a full workspace
+// tree per test) from per-test to twice — which is what let a ~110ms test
+// balloon past the 30s suite timeout under the parallel suite's tmpdir I/O
+// contention. The resolver is deterministic (version by name length), so a
+// shared scaffold is byte-identical to a per-test one.
+let acmeRoot: string;
+let unscopedRoot: string;
+
+beforeAll(async () => {
+  acmeRoot = makeTmpDir();
+  await scaffoldStandaloneWorkspace({
+    rootDir: acmeRoot,
+    baseName: "widget",
+    description: "Widget plugin",
+    packageScope: "acme",
+    resolveVersion: fixedResolver("widget", "acme"),
+  });
+
+  unscopedRoot = makeTmpDir();
+  await scaffoldStandaloneWorkspace({
+    rootDir: unscopedRoot,
+    baseName: "widget",
+    description: "Widget plugin",
+    packageScope: "",
+    resolveVersion: fixedResolver("widget", ""),
+  });
+});
+
 describe("localSiblingNames", () => {
   it("builds scoped sibling names", () => {
     expect(localSiblingNames({ baseName: "widget", packageScope: "acme" })).toEqual(
@@ -50,16 +81,8 @@ describe("localSiblingNames", () => {
 });
 
 describe("scaffoldStandaloneWorkspace — layout", () => {
-  it("emits a root workspace + the trio under packages/", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "acme",
-      resolveVersion: fixedResolver("widget", "acme"),
-    });
-
+  it("emits a root workspace + the trio under packages/", () => {
+    const root = acmeRoot;
     expect(fs.existsSync(path.join(root, "package.json"))).toBe(true);
     expect(fs.existsSync(path.join(root, "tsconfig.json"))).toBe(true);
     expect(fs.existsSync(path.join(root, "eslint.config.mjs"))).toBe(true);
@@ -74,17 +97,8 @@ describe("scaffoldStandaloneWorkspace — layout", () => {
     }
   });
 
-  it("makes the root a private Bun workspace with forwarding scripts", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "acme",
-      resolveVersion: fixedResolver("widget", "acme"),
-    });
-
-    const pkg = readPkg(path.join(root, "package.json"));
+  it("makes the root a private Bun workspace with forwarding scripts", () => {
+    const pkg = readPkg(path.join(acmeRoot, "package.json"));
     expect(pkg.private).toBe(true);
     expect(pkg.workspaces).toEqual(["packages/*"]);
     const scripts = pkg.scripts as Record<string, string>;
@@ -94,18 +108,9 @@ describe("scaffoldStandaloneWorkspace — layout", () => {
 });
 
 describe("scaffoldStandaloneWorkspace — versions", () => {
-  it("rewrites every published @checkstack/* dep to a concrete version", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "acme",
-      resolveVersion: fixedResolver("widget", "acme"),
-    });
-
+  it("rewrites every published @checkstack/* dep to a concrete version", () => {
     const backend = readPkg(
-      path.join(root, "packages", "widget-backend", "package.json"),
+      path.join(acmeRoot, "packages", "widget-backend", "package.json"),
     );
     const deps = backend.dependencies as Record<string, string>;
     const devDeps = backend.devDependencies as Record<string, string>;
@@ -114,16 +119,8 @@ describe("scaffoldStandaloneWorkspace — versions", () => {
     expect(devDeps["@checkstack/scripts"]).toMatch(/^\^9\.9\.9/);
   });
 
-  it("leaves the local trio siblings as workspace:* and no published workspace:* survives", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "acme",
-      resolveVersion: fixedResolver("widget", "acme"),
-    });
-
+  it("leaves the local trio siblings as workspace:* and no published workspace:* survives", () => {
+    const root = acmeRoot;
     const backend = readPkg(
       path.join(root, "packages", "widget-backend", "package.json"),
     );
@@ -152,18 +149,9 @@ describe("scaffoldStandaloneWorkspace — versions", () => {
 });
 
 describe("scaffoldStandaloneWorkspace — bundle emission", () => {
-  it("sets checkstack.bundle on the backend listing the scoped siblings", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "acme",
-      resolveVersion: fixedResolver("widget", "acme"),
-    });
-
+  it("sets checkstack.bundle on the backend listing the scoped siblings", () => {
     const backend = readPkg(
-      path.join(root, "packages", "widget-backend", "package.json"),
+      path.join(acmeRoot, "packages", "widget-backend", "package.json"),
     );
     const checkstack = backend.checkstack as { bundle?: string[] };
     expect(checkstack.bundle).toEqual([
@@ -172,37 +160,19 @@ describe("scaffoldStandaloneWorkspace — bundle emission", () => {
     ]);
   });
 
-  it("does NOT set checkstack.bundle on the common/frontend siblings", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "",
-      resolveVersion: fixedResolver("widget", ""),
-    });
-
+  it("does NOT set checkstack.bundle on the common/frontend siblings", () => {
     for (const type of ["common", "frontend"]) {
       const pkg = readPkg(
-        path.join(root, "packages", `widget-${type}`, "package.json"),
+        path.join(unscopedRoot, "packages", `widget-${type}`, "package.json"),
       );
       const checkstack = pkg.checkstack as { bundle?: unknown };
       expect(checkstack.bundle).toBeUndefined();
     }
   });
 
-  it("emits unscoped sibling bundle names when no scope is given", async () => {
-    const root = makeTmpDir();
-    await scaffoldStandaloneWorkspace({
-      rootDir: root,
-      baseName: "widget",
-      description: "Widget plugin",
-      packageScope: "",
-      resolveVersion: fixedResolver("widget", ""),
-    });
-
+  it("emits unscoped sibling bundle names when no scope is given", () => {
     const backend = readPkg(
-      path.join(root, "packages", "widget-backend", "package.json"),
+      path.join(unscopedRoot, "packages", "widget-backend", "package.json"),
     );
     expect(backend.name).toBe("widget-backend");
     const checkstack = backend.checkstack as { bundle?: string[] };

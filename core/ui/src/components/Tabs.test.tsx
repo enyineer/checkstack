@@ -1,6 +1,6 @@
 import "@checkstack/test-utils-frontend/setup";
-import { describe, expect, it, mock } from "bun:test";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { describe, expect, it, mock, jest } from "bun:test";
+import { act, fireEvent, render } from "@testing-library/react";
 import { Tabs } from "./Tabs";
 
 const items = [
@@ -27,18 +27,29 @@ describe("Tabs", () => {
     expect(fireEvent.mouseDown(getByRole("tab", { name: "Two" }))).toBe(false);
   });
 
-  it("flashes the activated tab on click, then clears the flash", async () => {
-    const { getByRole } = render(
-      <Tabs items={items} activeTab="one" onTabChange={() => {}} />,
-    );
-    const tab = getByRole("tab", { name: "Two" });
-    expect(tab.className).not.toContain("ring-2 ring-primary/40");
-    fireEvent.click(tab);
-    expect(tab.className).toContain("ring-2 ring-primary/40");
-    await waitFor(
-      () => expect(tab.className).not.toContain("ring-2 ring-primary/40"),
-      { timeout: 1_000 },
-    );
+  it("flashes the activated tab on click, then clears the flash", () => {
+    // Drive the flash timer with fake timers instead of waiting on the real
+    // 250ms setTimeout. A real-timer `waitFor` flaked under the parallel suite:
+    // scheduler starvation could push the clear callback past the poll window.
+    // Advancing fake time is deterministic and asserts the exact same behaviour.
+    jest.useFakeTimers();
+    try {
+      const { getByRole } = render(
+        <Tabs items={items} activeTab="one" onTabChange={() => {}} />,
+      );
+      const tab = getByRole("tab", { name: "Two" });
+      expect(tab.className).not.toContain("ring-2 ring-primary/40");
+      fireEvent.click(tab);
+      expect(tab.className).toContain("ring-2 ring-primary/40");
+      // Past the flash window (the component clears at 250ms); wrap the timer
+      // flush in act() so the resulting state update is applied.
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(tab.className).not.toContain("ring-2 ring-primary/40");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("only transitions transform on the icon so its color never lags the label", () => {

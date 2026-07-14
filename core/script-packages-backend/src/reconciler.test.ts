@@ -225,6 +225,14 @@ describe("N-host reconcile convergence (shared blob store, two pods)", () => {
     expect(b2.pulledIntegrities).toEqual([]);
   }, 60_000);
 
+  // Deliberate timeout, not a poll fix: this test has no wall-clock polling to
+  // tighten — it is straight-line real work (a gzip-tar `packDir` plus two blob
+  // extractions to disk, all in tmpdir). That is genuinely CPU+I/O heavy and,
+  // under the parallel suite's tmpdir contention, has run past the 30s suite
+  // default despite finishing in well under a second in isolation. Its sibling
+  // convergence test (which additionally spawns `bun install`) already carries
+  // the same 60s ceiling; matching it keeps starvation from being read as a bug
+  // while still failing fast on a real hang.
   test("both pods pull the SAME blob from the one shared store (delta sync)", async () => {
     // Seed one real packed blob into the shared store (no network).
     const src = path.join(work, "src");
@@ -285,5 +293,5 @@ describe("N-host reconcile convergence (shared blob store, two pods)", () => {
     }
     expect(await depsA.localCacheIntegrities()).toEqual([entry.integrity]);
     expect(await depsB.localCacheIntegrities()).toEqual([entry.integrity]);
-  });
+  }, 60_000);
 });

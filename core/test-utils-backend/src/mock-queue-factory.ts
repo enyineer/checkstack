@@ -6,6 +6,7 @@ import type {
   RecurringJobInfo,
   RecurringJobDetails,
 } from "@checkstack/queue-api";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Creates a mock QueueManager for testing.
@@ -50,8 +51,18 @@ export function createMockQueueManager(): QueueManager {
               attempts: 0,
             });
           } catch (error) {
-            // Mock queue catches errors like real implementation
-            console.error("Mock queue caught error:", error);
+            // Mock queue catches handler errors like the real implementation
+            // (which reaches its retry/fail path). Log the MESSAGE only, never
+            // the raw Error object: bun renders a logged `Error` as a red
+            // `error:` block with a full stack, so an expected/caught failure
+            // (e.g. the event-bus "one listener fails, others continue" test)
+            // masqueraded as an uncaught error and got counted as a suite error
+            // even though every test passed. A string keeps the debug signal
+            // without the false alarm. The real queue logs via its (silent in
+            // tests) Logger and produces no such block.
+            console.error(
+              `Mock queue caught error: ${extractErrorMessage(error)}`,
+            );
           }
         }
         return `job-${Date.now()}`;
