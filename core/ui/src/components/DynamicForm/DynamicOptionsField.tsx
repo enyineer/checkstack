@@ -40,6 +40,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   valueType,
   formValues,
   optionsResolvers,
+  resolversDependencyKey,
   onChange,
 }) => {
   // Resolver options always carry STRING values, but a number/integer field
@@ -121,10 +122,14 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
     return () => {
       cancelled = true;
     };
-    // Only re-fetch when the resolver NAME or this field's declared
-    // `x-depends-on` values change - NOT when an unrelated field re-renders the
-    // form (the resolvers object identity is read via ref above).
-  }, [resolverName, dependencyValues]);
+    // Re-fetch when the resolver NAME, this field's declared `x-depends-on`
+    // values, or the EXTERNAL `resolversDependencyKey` change - the last covers
+    // state a resolver closes over that is NOT in `formValues` (e.g. the health
+    // check editor's sibling strategy config, which `x-depends-on` cannot name).
+    // An unrelated field re-rendering the form still does NOT refetch (the
+    // resolvers object identity is read via ref above, and the key is a stable
+    // fingerprint the host memoizes).
+  }, [resolverName, dependencyValues, resolversDependencyKey]);
 
   // Filter options based on search query
   const filteredOptions = React.useMemo(() => {

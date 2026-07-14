@@ -120,6 +120,22 @@ export interface DynamicFormProps {
    */
   optionsResolvers?: Record<string, OptionsResolver>;
   /**
+   * Optional fingerprint of EXTERNAL state a resolver closes over that is NOT
+   * part of this form's own `value` (and therefore invisible to `x-depends-on`,
+   * which can only name sibling form fields). When it changes, every
+   * `x-options-resolver` field in this form re-fetches its options.
+   *
+   * The health-check editor uses this to keep a COLLECTOR form's cross-form
+   * pickers fresh: a collector resolver (e.g. tracestream's service / span-name
+   * picker, or logstream's pattern / variable picker) reads the `streamId`
+   * chosen in the sibling STRATEGY form, which lives outside the collector's
+   * `value`. Passing a fingerprint of the strategy config here makes the picker
+   * re-fetch when the operator switches the stream, instead of relying on the
+   * form incidentally re-mounting. Keep it referentially stable (memoize the
+   * serialization) so unrelated re-renders do not churn the pickers.
+   */
+  resolversDependencyKey?: string;
+  /**
    * Optional list of available template properties for multi-type editor fields.
    * When provided, fields with x-editor-types get {{ autocomplete suggestions.
    */
@@ -243,6 +259,12 @@ export interface FormFieldProps {
   isRequired?: boolean;
   formValues: Record<string, unknown>;
   optionsResolvers?: Record<string, OptionsResolver>;
+  /**
+   * Fingerprint of external (non-form) state resolvers depend on; forwarded to
+   * `DynamicOptionsField` so a cross-form picker re-fetches when it changes.
+   * See {@link DynamicFormProps.resolversDependencyKey}.
+   */
+  resolversDependencyKey?: string;
   templateProperties?: TemplateProperty[];
   templateCompletionProvider?: TemplateCompletionProvider;
   /**
@@ -321,6 +343,14 @@ export interface DynamicOptionsFieldProps {
   valueType?: "string" | "number" | "integer";
   formValues: Record<string, unknown>;
   optionsResolvers: Record<string, OptionsResolver>;
+  /**
+   * Fingerprint of external (non-form) state this field's resolver depends on.
+   * Included in the fetch effect's dependencies alongside the field's own
+   * `x-depends-on` values, so the options re-fetch when the external state
+   * changes even though it is not part of `formValues`. See
+   * {@link DynamicFormProps.resolversDependencyKey}.
+   */
+  resolversDependencyKey?: string;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

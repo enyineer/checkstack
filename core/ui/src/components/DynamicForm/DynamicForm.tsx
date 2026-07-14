@@ -22,6 +22,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   onChange,
   onValidChange,
   optionsResolvers,
+  resolversDependencyKey,
   templateProperties,
   templateCompletionProvider,
   templatableFieldsOnly,
@@ -156,6 +157,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 isRequired={isRequired}
                 formValues={value}
                 optionsResolvers={optionsResolvers}
+                resolversDependencyKey={resolversDependencyKey}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
                 templatableFieldsOnly={templatableFieldsOnly}
