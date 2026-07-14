@@ -777,19 +777,34 @@ export function createLogstreamService({
     maskLine: patternOps.maskLine,
     listPatternVariables: patternOps.listPatternVariables,
 
-    async listImportantEvents({ streamId, before, limit }) {
+    async listImportantEvents({ streamId, cursor, limit }) {
       const conditions = [eq(logImportantEvents.streamId, streamId)];
-      if (before) conditions.push(lt(logImportantEvents.ts, before));
+      if (cursor) {
+        // Tuple keyset over the (ts DESC, id DESC) order: strictly BEFORE the
+        // cursor row. `ts` alone would skip or repeat rows sharing a millisecond
+        // (throttle/pattern events burst at the same ts), so the id breaks the tie.
+        conditions.push(
+          or(
+            lt(logImportantEvents.ts, cursor.ts),
+            and(
+              eq(logImportantEvents.ts, cursor.ts),
+              lt(logImportantEvents.id, cursor.id),
+            ),
+          )!,
+        );
+      }
+      // Fetch one extra to compute the next cursor without a second query.
       const rows = await db
         .select()
         .from(logImportantEvents)
         .where(and(...conditions))
-        .orderBy(desc(logImportantEvents.ts))
-        .limit(limit);
-      const events = rows.map((row) => mapImportantEventRow(row));
-      const nextBefore =
-        events.length < limit ? null : events.at(-1)!.ts;
-      return { events, nextBefore };
+        .orderBy(desc(logImportantEvents.ts), desc(logImportantEvents.id))
+        .limit(limit + 1);
+      const events = rows.slice(0, limit).map((row) => mapImportantEventRow(row));
+      const last = events.at(-1);
+      const nextCursor =
+        rows.length > limit && last ? { ts: last.ts, id: last.id } : null;
+      return { events, nextCursor };
     },
 
     async getStreamOverview({ streamId }) {

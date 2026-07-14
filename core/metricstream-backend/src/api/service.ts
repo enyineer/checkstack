@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type {
   SafeDatabase,
   Logger,
@@ -830,18 +830,34 @@ export function createMetricstreamService({
       return { grain: "hour", points };
     },
 
-    async listImportantEvents({ streamId, before, limit }) {
+    async listImportantEvents({ streamId, cursor, limit }) {
       const conditions = [eq(metricImportantEvents.streamId, streamId)];
-      if (before) conditions.push(lt(metricImportantEvents.ts, before));
+      if (cursor) {
+        // Tuple keyset over the (ts DESC, id DESC) order: strictly BEFORE the
+        // cursor row. `ts` alone would skip or repeat rows sharing a millisecond
+        // (cap/rate events burst at the same ts), so the id breaks the tie.
+        conditions.push(
+          or(
+            lt(metricImportantEvents.ts, cursor.ts),
+            and(
+              eq(metricImportantEvents.ts, cursor.ts),
+              lt(metricImportantEvents.id, cursor.id),
+            ),
+          )!,
+        );
+      }
+      // Fetch one extra to compute the next cursor without a second query.
       const rows = await db
         .select()
         .from(metricImportantEvents)
         .where(and(...conditions))
-        .orderBy(desc(metricImportantEvents.ts))
-        .limit(limit);
-      const events = rows.map((row) => mapImportantEventRow(row));
-      const nextBefore = events.length < limit ? null : (events.at(-1)?.ts ?? null);
-      return { events, nextBefore };
+        .orderBy(desc(metricImportantEvents.ts), desc(metricImportantEvents.id))
+        .limit(limit + 1);
+      const events = rows.slice(0, limit).map((row) => mapImportantEventRow(row));
+      const last = events.at(-1);
+      const nextCursor =
+        rows.length > limit && last ? { ts: last.ts, id: last.id } : null;
+      return { events, nextCursor };
     },
 
     async getStreamOverview({ streamId }) {

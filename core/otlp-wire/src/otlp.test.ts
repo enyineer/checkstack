@@ -29,6 +29,22 @@ describe("readAnyValue", () => {
     );
   });
 
+  it("decodes int64 signed, keeping unsafe magnitudes as exact strings", () => {
+    // Negative int64 rides the varint as 64-bit two's complement.
+    expect(
+      roundTripAnyValue((v) => v.uint(3, BigInt.asUintN(64, -5n))),
+    ).toBe(-5);
+    // Values beyond Number's safe-integer range must not silently round.
+    expect(roundTripAnyValue((v) => v.uint(3, 9_223_372_036_854_775_807n))).toBe(
+      "9223372036854775807",
+    );
+    expect(
+      roundTripAnyValue((v) => v.uint(3, BigInt.asUintN(64, -9_223_372_036_854_775_808n))),
+    ).toBe("-9223372036854775808");
+    // Safe magnitudes stay plain numbers.
+    expect(roundTripAnyValue((v) => v.uint(3, 2n ** 52n))).toBe(2 ** 52);
+  });
+
   it("decodes a nested kvlist AnyValue", () => {
     const inner = new ProtoWriter().string(1, "leaf").finish(); // string_value
     const keyValue = new ProtoWriter().string(1, "k").bytes(2, inner).finish();

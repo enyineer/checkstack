@@ -44,7 +44,15 @@ export function readAnyValue(reader: ProtoReader, depth = 0): unknown {
         break;
       }
       case 3: { // int_value (int64)
-        value = Number(reader.readVarint());
+        // int64 rides the varint as two's complement, so interpret the raw
+        // bits SIGNED first (a negative attr previously surfaced as ~1.8e19).
+        // Then: int64 exceeds the JS safe-integer range, so unsafe magnitudes
+        // (64-bit ids, byte counts) keep the exact decimal STRING instead of
+        // silently rounding - matching proto3-JSON, where int64 is a string
+        // on the wire for the same reason.
+        const signed = BigInt.asIntN(64, reader.readVarint());
+        const asNumber = Number(signed);
+        value = Number.isSafeInteger(asNumber) ? asNumber : signed.toString();
         break;
       }
       case 4: { // double_value

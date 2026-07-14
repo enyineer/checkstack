@@ -545,16 +545,28 @@ export type RecordImportantEventInput = z.infer<
   typeof RecordImportantEventSchema
 >;
 
+/**
+ * Keyset page cursor for the important-events timeline. Ordering is
+ * `(ts DESC, id DESC)`, so the cursor carries BOTH the timestamp and the id of
+ * the last row on the page: paging on `ts` alone would skip or repeat rows that
+ * share a millisecond (throttle/pattern events fire in bursts at the same `ts`).
+ */
+export const ImportantEventCursorSchema = z.object({
+  ts: z.coerce.date(),
+  id: z.string(),
+});
+export type ImportantEventCursor = z.infer<typeof ImportantEventCursorSchema>;
+
 export const ListImportantEventsSchema = z.object({
   streamId: z.string(),
-  before: z.coerce.date().optional(),
+  cursor: ImportantEventCursorSchema.optional(),
   limit: z.number().int().min(1).max(200).default(50),
 });
 export type ListImportantEvents = z.infer<typeof ListImportantEventsSchema>;
 
 export const ListImportantEventsResultSchema = z.object({
   events: z.array(ImportantEventSchema),
-  nextBefore: z.coerce.date().nullable(),
+  nextCursor: ImportantEventCursorSchema.nullable(),
 });
 export type ListImportantEventsResult = z.infer<
   typeof ListImportantEventsResultSchema

@@ -111,7 +111,7 @@ function stubService(
     listLabelValues: async () => ({ values: [] }),
     listMetricSeries: async () => ({ series: [] }),
     getMetricBuckets: async ({ grain }) => ({ grain: grain ?? "minute", points: [] }),
-    listImportantEvents: async () => ({ events: [], nextBefore: null }),
+    listImportantEvents: async () => ({ events: [], nextCursor: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
     ...overrides,
   };

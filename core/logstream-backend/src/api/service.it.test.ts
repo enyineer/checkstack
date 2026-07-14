@@ -111,6 +111,60 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
   });
 
   // ==========================================================================
+  // Important-events timeline keyset over rows sharing a timestamp
+  // ==========================================================================
+
+  describe("listImportantEvents keyset cursor with equal timestamps", () => {
+    const STREAM = "evt-keyset-stream";
+    const SHARED_TS = new Date("2026-07-12T11:00:00.000Z");
+
+    beforeEach(async () => {
+      const { db } = test;
+      await db.delete(schema.logImportantEvents);
+      await db.delete(schema.logStreams);
+      await db.insert(schema.logStreams).values({
+        id: STREAM,
+        name: "Event Keyset IT",
+        config: DEFAULT_LOG_STREAM_CONFIG,
+        createdAt: SHARED_TS,
+        updatedAt: SHARED_TS,
+      });
+      // Five throttle/pattern events at the SAME ts: an offset-by-ts cursor would
+      // skip or repeat rows when a page boundary lands inside the cluster.
+      await db.insert(schema.logImportantEvents).values(
+        Array.from({ length: 5 }, (_, i) => ({
+          id: `evt-${i}`,
+          streamId: STREAM,
+          ts: SHARED_TS,
+          type: "spike" as const,
+          title: `event ${i}`,
+        })),
+      );
+    });
+
+    it("returns every event exactly once across pages (limit < cluster size)", async () => {
+      const seen: string[] = [];
+      let cursor: { ts: Date; id: string } | undefined;
+      let pages = 0;
+      for (;;) {
+        const page = await service.listImportantEvents({
+          streamId: STREAM,
+          limit: 2,
+          ...(cursor ? { cursor } : {}),
+        });
+        pages++;
+        seen.push(...page.events.map((e) => e.id));
+        if (!page.nextCursor) break;
+        cursor = page.nextCursor;
+        if (pages > 10) throw new Error("paging did not terminate");
+      }
+      expect(pages).toBe(3); // 2 + 2 + 1
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5); // each row once, none skipped
+    });
+  });
+
+  // ==========================================================================
   // deleteStream cascade against a real database
   // ==========================================================================
 

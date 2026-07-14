@@ -118,7 +118,7 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
       variables: [],
       summaryWindowSeconds: 86_400,
     }),
-    listImportantEvents: async () => ({ events: [], nextBefore: null }),
+    listImportantEvents: async () => ({ events: [], nextCursor: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
     ...overrides,
   };
