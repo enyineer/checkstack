@@ -1,5 +1,21 @@
 # @checkstack/satellite
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [56af572]
+  - @checkstack/logstream-common@0.3.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/common@0.22.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/ingest-utils@0.1.0
+  - @checkstack/metricstream-common@0.1.0
+  - @checkstack/otlp-wire@0.1.0
+  - @checkstack/satellite-common@0.10.0
+  - @checkstack/script-packages-backend@0.4.4
+  - @checkstack/secrets-common@0.3.2
+
 ## 0.7.1
 
 ### Patch Changes

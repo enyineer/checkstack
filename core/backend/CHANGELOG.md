@@ -1,5 +1,33 @@
 # @checkstack/backend
 
+## 0.25.4
+
+### Patch Changes
+
+- 229bdad: Refresh `bun.lock` to the newest versions permitted by the existing semver
+  ranges (Renovate lock-file maintenance). No `package.json` range changed, so
+  this only affects the resolutions baked into the production image.
+
+  Updated dependencies:
+
+  - `@ai-sdk/gateway` 3.0.146 -> 3.0.148
+  - `@eslint/eslintrc` 3.3.5 -> 3.3.6
+  - `@eslint/js` 9.39.4 -> 9.39.5
+  - `ai` 6.0.222 -> 6.0.224
+  - `bullmq` 5.80.0 -> 5.80.1
+  - `eslint` 9.39.4 -> 9.39.5
+  - `sanitize-html` 2.17.5 -> 2.17.6
+  - `shell-quote` 1.9.0 -> 1.10.0
+  - @checkstack/api-docs-common@0.1.27
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/common@0.22.0
+  - @checkstack/pluginmanager-common@0.2.16
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/signal-backend@0.3.25
+  - @checkstack/signal-common@0.3.0
+
 ## 0.25.3
 
 ### Patch Changes

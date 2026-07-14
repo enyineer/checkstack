@@ -1,5 +1,16 @@
 # @checkstack/status-page-backend
 
+## 0.6.4
+
+### Patch Changes
+
+- @checkstack/backend-api@0.33.0
+- @checkstack/command-backend@0.2.25
+- @checkstack/common@0.22.0
+- @checkstack/notification-backend@1.8.4
+- @checkstack/notification-common@1.7.1
+- @checkstack/status-page-common@0.6.3
+
 ## 0.6.3
 
 ### Patch Changes

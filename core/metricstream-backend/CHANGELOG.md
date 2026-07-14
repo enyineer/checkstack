@@ -1,5 +1,24 @@
 # @checkstack/metricstream-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- @checkstack/auth-common@0.14.0
+- @checkstack/backend-api@0.33.0
+- @checkstack/cache-api@0.3.19
+- @checkstack/cache-utils@0.3.0
+- @checkstack/common@0.22.0
+- @checkstack/healthcheck-common@1.17.0
+- @checkstack/ingest-utils@0.1.0
+- @checkstack/metricstream-common@0.1.0
+- @checkstack/queue-api@0.3.19
+- @checkstack/satellite-backend@0.9.2
+- @checkstack/satellite-common@0.10.0
+- @checkstack/secrets-backend@0.3.7
+- @checkstack/secrets-common@0.3.2
+- @checkstack/signal-common@0.3.0
+
 ## 0.1.1
 
 ### Patch Changes

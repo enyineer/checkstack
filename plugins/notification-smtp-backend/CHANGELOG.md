@@ -1,5 +1,13 @@
 # @checkstack/notification-smtp-backend
 
+## 0.0.78
+
+### Patch Changes
+
+- @checkstack/backend-api@0.33.0
+- @checkstack/common@0.22.0
+- @checkstack/notification-backend@1.8.4
+
 ## 0.0.77
 
 ### Patch Changes
