@@ -42,4 +42,5 @@ export * from "./bearer-token";
 export * from "./public-host";
 export * from "./public-path";
 export * from "./ssrf-guard";
+export * from "./guarded-fetch";
 export * from "./instance-runtime";
