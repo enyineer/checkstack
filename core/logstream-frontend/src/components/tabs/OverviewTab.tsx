@@ -16,7 +16,11 @@ import {
   formatRelativeTime,
   type DateRange,
 } from "@checkstack/ui";
-import { LogstreamApi, type ImportantEvent } from "@checkstack/logstream-common";
+import {
+  LogstreamApi,
+  type ImportantEvent,
+  type SeverityBand,
+} from "@checkstack/logstream-common";
 import { ScrollText } from "lucide-react";
 import {
   severityBandIcon,
@@ -27,8 +31,10 @@ import {
   SEVERITY_STACK_LABELS,
   toStackedBuckets,
 } from "../../lib/severity-buckets";
+import { toggleBand } from "../../lib/explore-filters";
 import { PatternTemplate } from "../PatternTemplate";
 import { ImportantEventsTimeline } from "../ImportantEventsTimeline";
+import { SeverityBandPills } from "../SeverityBandPills";
 
 function last24h(): DateRange {
   const endDate = new Date();
@@ -65,6 +71,20 @@ export function OverviewTab({
     });
 
   const { data: events } = client.listImportantEvents.useQuery({ streamId });
+
+  // Top patterns card: its own volume-ordered, severity-filterable query
+  // (hidden patterns are excluded server-side by default). Keep-previous so
+  // toggling a band never flashes the card empty.
+  const [patternBands, setPatternBands] = useState<SeverityBand[]>([]);
+  const { data: topPatterns } = client.listPatterns.useQuery(
+    {
+      streamId,
+      limit: 5,
+      orderBy: "totalCount",
+      ...(patternBands.length > 0 ? { bands: patternBands } : {}),
+    },
+    { placeholderData: (prev) => prev },
+  );
 
   const stacked = useMemo(
     () =>
@@ -157,13 +177,19 @@ export function OverviewTab({
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="gap-2">
             <CardTitle>Top patterns</CardTitle>
+            <SeverityBandPills
+              value={patternBands}
+              onToggle={(band) =>
+                setPatternBands((bands) => toggleBand(bands, band))
+              }
+            />
           </CardHeader>
           <CardContent>
-            {overview && overview.topPatterns.length > 0 ? (
+            {topPatterns && topPatterns.length > 0 ? (
               <ul className="space-y-2">
-                {overview.topPatterns.map((pattern) => (
+                {topPatterns.map((pattern) => (
                   <li key={pattern.id}>
                     <button
                       type="button"
@@ -191,8 +217,16 @@ export function OverviewTab({
             ) : (
               <EmptyState
                 icon={<ScrollText className="h-6 w-6" />}
-                title="No patterns yet"
-                description="Patterns appear once logs start flowing."
+                title={
+                  patternBands.length > 0
+                    ? "No patterns match this severity"
+                    : "No patterns yet"
+                }
+                description={
+                  patternBands.length > 0
+                    ? "No pattern's worst severity falls in the selected bands. Clear the filter to see all patterns."
+                    : "Patterns appear once logs start flowing."
+                }
               />
             )}
           </CardContent>

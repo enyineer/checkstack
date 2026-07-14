@@ -87,6 +87,7 @@ function recordingFallback(): FlushExecutor & {
     setProtectedPatterns: () => {
       calls.protected += 1;
     },
+    setPatternHidden: () => {},
     protectionEpoch: () => 0,
     stop: async () => {
       calls.stop += 1;
@@ -101,7 +102,7 @@ function harness({
 }: {
   poolSize: number;
   loadPatternRows?: (input: { streamId: string }) => Promise<
-    { id: string; template: string; origin: string }[]
+    { id: string; template: string; origin: string; hidden: boolean }[]
   >;
 }) {
   const fakes: FakeTransport[] = [];
@@ -155,7 +156,7 @@ describe("createWorkerFlushExecutor", () => {
   });
 
   it("routes a worker hydrate-request through the main-thread loader", async () => {
-    const rows = [{ id: "p1", template: "user <*> in", origin: "user" }];
+    const rows = [{ id: "p1", template: "user <*> in", origin: "user", hidden: false }];
     const loadPatternRows = mock(async () => rows);
     const { executor, fakes } = harness({ poolSize: 1, loadPatternRows });
     // touch the executor so it is not tree-shaken; the pool is already live

@@ -302,14 +302,36 @@ export const LogPatternSchema = z.object({
   band: SeverityBandSchema,
   /** Whether the pattern was mined by Drain or authored by a user. */
   origin: PatternOriginSchema,
+  /**
+   * A hidden pattern keeps counting in every aggregate (severity/pattern
+   * buckets, health checks), but its matched lines are no longer stored as raw
+   * `log_events` rows and it is excluded from pattern listings by default.
+   */
+  hidden: z.boolean(),
 });
 export type LogPattern = z.infer<typeof LogPatternSchema>;
 
 export const ListPatternsSchema = z.object({
   streamId: z.string(),
   limit: z.number().int().min(1).max(500).default(100),
+  /** Include hidden patterns (the Patterns tab's management view). */
+  includeHidden: z.boolean().default(false),
+  /** Restrict to patterns whose derived band is one of these (omitted = all). */
+  bands: z.array(SeverityBandSchema).optional(),
+  /**
+   * `lastSeenAt` (default): user patterns first, then recency - the picker /
+   * management ordering. `totalCount`: by volume - the "Top patterns" ordering.
+   */
+  orderBy: z.enum(["lastSeenAt", "totalCount"]).default("lastSeenAt"),
 });
 export type ListPatterns = z.infer<typeof ListPatternsSchema>;
+
+export const SetPatternHiddenSchema = z.object({
+  streamId: z.string(),
+  patternId: z.string(),
+  hidden: z.boolean(),
+});
+export type SetPatternHidden = z.infer<typeof SetPatternHiddenSchema>;
 
 // =============================================================================
 // CUSTOM PATTERNS (user-authored: create / delete / test)

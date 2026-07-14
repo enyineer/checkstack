@@ -4,6 +4,7 @@ import {
   integer,
   smallint,
   bigint,
+  boolean,
   doublePrecision,
   jsonb,
   timestamp,
@@ -120,6 +121,10 @@ export const logPatterns = pgTable(
       .notNull()
       .default(0),
     severityMax: integer("severity_max").notNull().default(0),
+    // A hidden pattern keeps counting in every aggregate but stops persisting
+    // raw lines and is excluded from pattern listings by default. Defaulted so
+    // the migration backfills every existing row as visible.
+    hidden: boolean("hidden").notNull().default(false),
     // 'mined' (Drain-learned) or 'user' (authored up front). User patterns are
     // protected: never LRU-evicted, refined, or removed by stale retention.
     // Defaulted so the migration backfills every existing row as 'mined'.

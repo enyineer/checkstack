@@ -19,6 +19,7 @@ import {
   LogPatternSchema,
   CreatePatternSchema,
   DeletePatternSchema,
+  SetPatternHiddenSchema,
   TestPatternSchema,
   TestPatternResultSchema,
   MaskLineSchema,
@@ -227,6 +228,21 @@ export const logstreamContract = {
     .route({ method: "DELETE" })
     .input(DeletePatternSchema)
     .output(z.void()),
+
+  /**
+   * Hide or unhide a pattern (mined or user-authored). Gated by `manage` on
+   * the owning stream. A hidden pattern keeps counting in every aggregate but
+   * stops persisting raw lines and leaves the default pattern listings; it can
+   * be unhidden at any time from the Patterns tab.
+   */
+  setPatternHidden: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [logstreamAccess.manage],
+    instanceAccess: { idParam: "streamId" },
+  })
+    .input(SetPatternHiddenSchema)
+    .output(LogPatternSchema),
 
   /**
    * Dry-run a candidate template against the newest raw lines (read-gated on the

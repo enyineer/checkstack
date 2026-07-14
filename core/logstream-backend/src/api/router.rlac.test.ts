@@ -47,6 +47,7 @@ const userPattern = (id: string, streamId: string): LogPattern => ({
   severityMax: 0,
   band: bandFromSeverityNumber(0),
   origin: "user",
+  hidden: false,
 });
 
 const token = (id: string, streamId: string): LogStreamToken => ({
@@ -107,6 +108,10 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
       template,
     }),
     deletePattern: async () => {},
+    setPatternHidden: async ({ streamId, patternId, hidden }) => ({
+      ...userPattern(patternId, streamId),
+      hidden,
+    }),
     testPattern: async () => ({ matchCount: 0, samples: [] }),
     maskLine: async ({ body }) => ({ template: body }),
     listPatternVariables: async () => ({
@@ -425,6 +430,33 @@ describe("createPattern/deletePattern gated on manage (idParam streamId)", () =>
       call(
         buildRouter().deletePattern,
         { streamId: "stream-1", patternId: "p-1" },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+  });
+
+  it("a manage grant on the stream may hide a pattern", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().setPatternHidden,
+      { streamId: "stream-1", patternId: "p-1", hidden: true },
+      { context },
+    );
+    expect(result.hidden).toBe(true);
+  });
+
+  it("no grant on the stream is FORBIDDEN for setPatternHidden", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth([]),
+    });
+    await expect(
+      call(
+        buildRouter().setPatternHidden,
+        { streamId: "stream-1", patternId: "p-1", hidden: true },
         { context },
       ),
     ).rejects.toThrow(/FORBIDDEN|Access denied/i);

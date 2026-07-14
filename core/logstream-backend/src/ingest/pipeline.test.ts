@@ -42,12 +42,14 @@ function mockDrain(): DrainEngine {
       tokenCount: 1,
       severityNumber: 9,
       wildcardValues: [],
+      hidden: false,
     }),
     pendingPatternUpserts: () => pending.splice(0),
     hydrateStream: async () => {},
     upsertUserPattern: ({ template }) => ({ patternId: `p:${template}` }),
     removeUserPattern: () => {},
     setProtectedPatterns: () => {},
+    setPatternHidden: () => {},
   };
 }
 
@@ -324,6 +326,7 @@ describe("createIngestPipeline - protected pattern refresh", () => {
       setProtectedPatterns: (input) => {
         protectedCalls.push({ streamId: input.streamId, patternIds: input.patternIds });
       },
+      setPatternHidden: inner.setPatternHidden,
       protectionEpoch: () => epoch,
       stop: inner.stop,
     };

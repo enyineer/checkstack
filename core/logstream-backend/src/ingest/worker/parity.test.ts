@@ -50,8 +50,8 @@ function line(band: SeverityBand, body: string): IngestedLine {
 // Mined templates the tree is hydrated with (ids are ignored for mined seeds, but
 // we compute the real ones so the fixture reads honestly).
 const SEED_ROWS: DrainPatternRow[] = [
-  { id: patternId("request took <*> ms"), template: "request took <*> ms", origin: "mined" },
-  { id: patternId("cache miss for <*>"), template: "cache miss for <*>", origin: "mined" },
+  { id: patternId("request took <*> ms"), template: "request took <*> ms", origin: "mined", hidden: false },
+  { id: patternId("cache miss for <*>"), template: "cache miss for <*>", origin: "mined", hidden: false },
 ];
 
 const LINES: IngestedLine[] = [
@@ -89,6 +89,7 @@ const unusedFallback: FlushExecutor = {
   upsertUserPattern: () => {},
   removeUserPattern: () => {},
   setProtectedPatterns: () => {},
+  setPatternHidden: () => {},
   protectionEpoch: () => 0,
   stop: async () => {},
 };

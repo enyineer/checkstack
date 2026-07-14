@@ -23,6 +23,7 @@ import {
   bandFromSeverityNumber,
   type CreatePattern,
   type DeletePattern,
+  type SetPatternHidden,
   type LogPattern,
   type TestPattern,
   type TestPatternResult,
@@ -124,6 +125,7 @@ async function assertUnderUserPatternCap({
 export interface PatternOperations {
   createPattern(input: CreatePattern): Promise<LogPattern>;
   deletePattern(input: DeletePattern): Promise<void>;
+  setPatternHidden(input: SetPatternHidden): Promise<LogPattern>;
   testPattern(input: TestPattern): Promise<TestPatternResult>;
   maskLine(input: MaskLine): Promise<MaskLineResult>;
   listPatternVariables(
@@ -317,6 +319,37 @@ export function createPatternOperations({
         template: "",
         action: "removed",
       });
+    },
+
+    async setPatternHidden({ streamId, patternId, hidden }) {
+      // Both mined and user patterns can be hidden: hiding is a per-identity
+      // display + raw-persistence toggle, not ownership (unlike delete).
+      const [row] = await db
+        .update(logPatterns)
+        .set({ hidden })
+        .where(
+          and(
+            eq(logPatterns.id, patternId),
+            eq(logPatterns.streamId, streamId),
+          ),
+        )
+        .returning();
+      if (!row) {
+        throw new ORPCError("NOT_FOUND", { message: "Pattern not found" });
+      }
+
+      // Post-commit: tell every pod's engine (in-process or worker tree) so
+      // raw-line persistence flips immediately instead of waiting for the
+      // stream's next hydration.
+      await emitPatternsChanged({
+        streamId,
+        patternId,
+        template: row.template,
+        action: "hidden-changed",
+        hidden,
+      });
+
+      return mapPatternRow(row);
     },
 
     async testPattern({ streamId, template, sampleLimit }) {
@@ -675,5 +708,6 @@ function mapPatternRow(row: typeof logPatterns.$inferSelect): LogPattern {
     severityMax: row.severityMax,
     band: bandFromSeverityNumber(row.severityMax),
     origin: row.origin,
+    hidden: row.hidden,
   };
 }

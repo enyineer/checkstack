@@ -162,12 +162,17 @@ export async function prepareFlush({
       wildcardValues: classification.wildcardValues,
     });
 
-    samplerInputs.push({
-      line,
-      patternId: classification.patternId,
-      band,
-      minuteEpoch,
-    });
+    // A hidden pattern's lines never reach the raw store (that is what hiding
+    // means operationally) - but every aggregate above already counted them,
+    // so stream volume, pattern buckets and health checks stay honest.
+    if (!classification.hidden) {
+      samplerInputs.push({
+        line,
+        patternId: classification.patternId,
+        band,
+        minuteEpoch,
+      });
+    }
 
     worst = worseOf({ a: worst, b: band });
     const rank = SEVERITY_BAND_RANK[band];

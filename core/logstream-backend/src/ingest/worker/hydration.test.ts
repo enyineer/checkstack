@@ -9,7 +9,7 @@ import { createDrainEngine } from "../../drain/engine";
 describe("createDrainEngine with injected loadPatternRows", () => {
   it("seeds a stream's tree from the injected rows (no DB / storage)", async () => {
     const loadPatternRows = mock(async () => [
-      { id: "p-mined", template: "cache hit key <*>", origin: "mined" },
+      { id: "p-mined", template: "cache hit key <*>", origin: "mined", hidden: false },
     ]);
     const engine = createDrainEngine({ loadPatternRows });
 
@@ -29,7 +29,7 @@ describe("createDrainEngine with injected loadPatternRows", () => {
 
   it("re-seeds a user row as a protected, match-first cluster", async () => {
     const loadPatternRows = mock(async () => [
-      { id: "p-user", template: "user <*> logged in", origin: "user" },
+      { id: "p-user", template: "user <*> logged in", origin: "user", hidden: false },
     ]);
     const engine = createDrainEngine({ loadPatternRows });
     await engine.hydrateStream({ streamId: "s1" });

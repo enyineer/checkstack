@@ -17,7 +17,7 @@ import {
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 import { LogstreamApi, type LogPattern } from "@checkstack/logstream-common";
-import { ScrollText, Search, Trash2, Plus } from "lucide-react";
+import { ScrollText, Search, Trash2, Plus, Eye, EyeOff } from "lucide-react";
 import {
   severityBandIcon,
   severityBandLabel,
@@ -49,8 +49,10 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
+  // The management view fetches hidden patterns too (so they can be unhidden
+  // at any time); a toolbar toggle controls whether they are displayed.
   const { data, isLoading, isError, error, refetch } =
-    client.listPatterns.useQuery({ streamId, limit: 500 });
+    client.listPatterns.useQuery({ streamId, limit: 500, includeHidden: true });
 
   const { allowed: canCreate } = accessApi.useProcedureAccess(
     LogstreamApi.contract.createPattern,
@@ -68,11 +70,32 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
     onError: (err) => toast.error(extractErrorMessage(err)),
   });
 
+  const hiddenMutation = client.setPatternHidden.useGatedMutation({
+    gateInput: { streamId },
+    onSuccess: (pattern) => {
+      toast.success(
+        pattern.hidden
+          ? "Pattern hidden - its lines keep counting, but raw lines are no longer stored"
+          : "Pattern visible again - raw lines are stored from now on",
+      );
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  });
+
   const [builderOpen, setBuilderOpen] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LogPattern | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
 
-  const patterns = useMemo(() => sortPatterns(data ?? []), [data]);
+  const hiddenCount = useMemo(
+    () => (data ?? []).filter((p) => p.hidden).length,
+    [data],
+  );
+  const patterns = useMemo(
+    () =>
+      sortPatterns((data ?? []).filter((p) => showHidden || !p.hidden)),
+    [data, showHidden],
+  );
 
   const columns: DataTableColumn<LogPattern>[] = [
     {
@@ -85,12 +108,16 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
       id: "origin",
       header: "Origin",
       sortValue: (p) => (p.origin === "user" ? 0 : 1),
-      cell: (p) =>
-        p.origin === "user" ? (
-          <Badge variant="info">User</Badge>
-        ) : (
-          <Badge variant="outline">Mined</Badge>
-        ),
+      cell: (p) => (
+        <span className="flex items-center gap-1">
+          {p.origin === "user" ? (
+            <Badge variant="info">User</Badge>
+          ) : (
+            <Badge variant="outline">Mined</Badge>
+          )}
+          {p.hidden && <Badge variant="secondary">Hidden</Badge>}
+        </span>
+      ),
     },
     {
       id: "severity",
@@ -139,6 +166,32 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
             <Search className="h-4 w-4" />
             Explore
           </Button>
+          {hiddenMutation.allowed && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={p.hidden ? "Unhide pattern" : "Hide pattern"}
+              title={
+                p.hidden
+                  ? "Unhide: store raw lines again and show it in listings"
+                  : "Hide: keep counting, but stop storing raw lines and drop it from listings"
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                hiddenMutation.mutate({
+                  streamId,
+                  patternId: p.id,
+                  hidden: !p.hidden,
+                });
+              }}
+            >
+              {p.hidden ? (
+                <Eye className="h-4 w-4" />
+              ) : (
+                <EyeOff className="h-4 w-4 text-muted-foreground" />
+              )}
+            </Button>
+          )}
           {p.origin === "user" && deleteMutation.allowed && (
             <Button
               variant="ghost"
@@ -163,6 +216,33 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
       New pattern
     </Button>
   ) : undefined;
+
+  // Reveal hidden patterns on demand so they can be unhidden later; the toggle
+  // only appears once something is actually hidden (or currently revealed).
+  const showHiddenToggle =
+    hiddenCount > 0 || showHidden ? (
+      <Button
+        variant="outline"
+        size="sm"
+        aria-pressed={showHidden}
+        onClick={() => setShowHidden((v) => !v)}
+      >
+        {showHidden ? (
+          <EyeOff className="h-4 w-4" />
+        ) : (
+          <Eye className="h-4 w-4" />
+        )}
+        {showHidden ? "Conceal hidden" : `Show hidden (${hiddenCount})`}
+      </Button>
+    ) : undefined;
+
+  const toolbar =
+    newPatternButton || showHiddenToggle ? (
+      <div className="flex items-center gap-2">
+        {showHiddenToggle}
+        {newPatternButton}
+      </div>
+    ) : undefined;
 
   const onCreated = (patternId: string) => {
     setHighlightId(patternId);
@@ -207,9 +287,10 @@ export function PatternsTab({ streamId, onExplorePattern }: PatternsTabProps) {
           searchPlaceholder="Search templates..."
           defaultSort={{ columnId: "count", direction: "desc" }}
           onRowClick={(p) => onExplorePattern(p.id)}
-          toolbar={newPatternButton}
+          toolbar={toolbar}
           getRowProps={(p) => ({
             className: cn(
+              p.hidden && "opacity-60",
               highlightId === p.id &&
                 "bg-primary/10 ring-1 ring-inset ring-primary/40",
             ),

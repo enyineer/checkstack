@@ -34,6 +34,7 @@ const unusedFallback: FlushExecutor = {
   upsertUserPattern: () => {},
   removeUserPattern: () => {},
   setProtectedPatterns: () => {},
+  setPatternHidden: () => {},
   protectionEpoch: () => 0,
   stop: async () => {},
 };

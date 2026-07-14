@@ -411,6 +411,7 @@ describe("DrainEngine.hydrateStream row bound", () => {
       id: `p${i}`,
       template: `tpl ${i} value`,
       origin: "mined",
+      hidden: false,
     }));
     const logger = createMockLogger();
     const engine = createDrainEngine({ loadPatternRows: async () => rows, logger });
@@ -426,6 +427,7 @@ describe("DrainEngine.hydrateStream row bound", () => {
       id: `p${i}`,
       template: `tpl ${i} value`,
       origin: "mined",
+      hidden: false,
     }));
     const logger = createMockLogger();
     const engine = createDrainEngine({ loadPatternRows: async () => rows, logger });
@@ -472,4 +474,80 @@ describe("DrainEngine performance smoke", () => {
     },
     60_000,
   );
+});
+
+describe("DrainEngine hidden patterns", () => {
+  it("setPatternHidden flips the flag classifications report", () => {
+    const e = makeEngine();
+    const first = e.classify({
+      streamId: "s",
+      body: "GET /health 200",
+      severityNumber: 9,
+      at: AT,
+    });
+    expect(first.hidden).toBe(false);
+
+    e.setPatternHidden({ streamId: "s", patternId: first.patternId, hidden: true });
+    const second = e.classify({
+      streamId: "s",
+      body: "GET /health 503",
+      severityNumber: 9,
+      at: AT,
+    });
+    expect(second.patternId).toBe(first.patternId);
+    expect(second.hidden).toBe(true);
+
+    // Unhide restores raw persistence eligibility.
+    e.setPatternHidden({ streamId: "s", patternId: first.patternId, hidden: false });
+    const third = e.classify({
+      streamId: "s",
+      body: "GET /health 200",
+      severityNumber: 9,
+      at: AT,
+    });
+    expect(third.hidden).toBe(false);
+  });
+
+  it("hydration seeds the hidden set from the persisted rows", async () => {
+    // Learn the deterministic (id, template) pair from a throwaway engine.
+    const probe = makeEngine();
+    const learned = probe.classify({
+      streamId: "s",
+      body: "cache hit key 42",
+      severityNumber: 9,
+      at: AT,
+    });
+
+    const logger = createMockLogger();
+    const engine = createDrainEngine({
+      loadPatternRows: async () => [
+        {
+          id: learned.patternId,
+          template: learned.template,
+          origin: "mined",
+          hidden: true,
+        },
+      ],
+      logger,
+    });
+    await engine.hydrateStream({ streamId: "s" });
+
+    const result = engine.classify({
+      streamId: "s",
+      body: "cache hit key 77",
+      severityNumber: 9,
+      at: AT,
+    });
+    expect(result.patternId).toBe(learned.patternId);
+    expect(result.hidden).toBe(true);
+  });
+
+  it("hiding on one stream never leaks to another stream", () => {
+    const e = makeEngine();
+    const a = e.classify({ streamId: "a", body: "job 1 done", severityNumber: 9, at: AT });
+    e.setPatternHidden({ streamId: "a", patternId: a.patternId, hidden: true });
+
+    const b = e.classify({ streamId: "b", body: "job 1 done", severityNumber: 9, at: AT });
+    expect(b.hidden).toBe(false);
+  });
 });

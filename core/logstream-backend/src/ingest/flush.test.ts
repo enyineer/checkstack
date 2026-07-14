@@ -29,10 +29,12 @@ function line(
 }
 
 /** A deterministic Drain stub: patternId = template (digits masked). An optional
- * `wildcards` fn supplies the raw `<*>` values per line body (default none). */
+ * `wildcards` fn supplies the raw `<*>` values per line body (default none);
+ * `setPatternHidden` toggles the flag classifications report, like the real one. */
 function mockDrain(wildcards?: (body: string) => string[]): DrainEngine {
   const seen = new Set<string>();
   const pending: PatternUpsert[] = [];
+  const hiddenIds = new Set<string>();
   return {
     classify({ streamId, body, severityNumber, at }) {
       const template = body.replace(/\d+/g, "<*>");
@@ -59,6 +61,7 @@ function mockDrain(wildcards?: (body: string) => string[]): DrainEngine {
         tokenCount: template.split(" ").length,
         severityNumber,
         wildcardValues: wildcards ? wildcards(body) : [],
+        hidden: hiddenIds.has(patternId),
       };
     },
     pendingPatternUpserts() {
@@ -72,6 +75,10 @@ function mockDrain(wildcards?: (body: string) => string[]): DrainEngine {
     },
     removeUserPattern() {},
     setProtectedPatterns() {},
+    setPatternHidden({ patternId, hidden }) {
+      if (hidden) hiddenIds.add(patternId);
+      else hiddenIds.delete(patternId);
+    },
   };
 }
 
@@ -438,5 +445,73 @@ describe("detectSpike (post-commit read)", () => {
     const recent = [{ ts: new Date(now.getTime() - 2 * 60_000) }];
     const spike = await detectSpike({ runner: mockTx(recent), plan, storage, now });
     expect(spike).toBeNull();
+  });
+});
+
+describe("prepareFlush - hidden patterns", () => {
+  it("skips raw rows for a hidden pattern while every aggregate still counts", async () => {
+    const drain = mockDrain();
+    // mockDrain derives `p:` + digits-masked body, so both health lines share
+    // one pattern id; hide it before the flush.
+    drain.setPatternHidden({
+      streamId: "s1",
+      patternId: "p:GET /health <*>",
+      hidden: true,
+    });
+    const sampler = new RawSampler(() => 1);
+    const lines = [
+      line("info", "GET /health 200"),
+      line("error", "GET /health 503"), // hidden skips even WARN+ raw rows
+      line("error", "boom"),
+    ];
+    const plan = await prepareFlush({
+      streamId: "s1",
+      lines,
+      drain,
+      sampler,
+      config: DEFAULT_LOG_STREAM_CONFIG,
+      now: new Date(100 * 60_000),
+      flushIntervalMs: 500,
+    });
+
+    // Raw store: only the visible pattern's line survives.
+    expect(plan.eventRows.map((r) => r.patternId)).toEqual(["p:boom"]);
+
+    // Aggregates: all three lines counted - severity, pattern buckets, worst
+    // band and error delta are untouched by hiding.
+    const errorDelta = plan.severityDeltas.find((d) => d.band === "error");
+    expect(errorDelta?.count).toBe(2);
+    const hiddenPattern = plan.patternDeltas.find(
+      (d) => d.patternId === "p:GET /health <*>",
+    );
+    expect(hiddenPattern?.count).toBe(2);
+    expect(plan.worstBand).toBe("error");
+    expect(plan.errorDelta).toBe(2);
+    expect(plan.linesClassified).toBe(3);
+  });
+
+  it("resumes raw persistence after an unhide", async () => {
+    const drain = mockDrain();
+    drain.setPatternHidden({
+      streamId: "s1",
+      patternId: "p:GET /health <*>",
+      hidden: true,
+    });
+    drain.setPatternHidden({
+      streamId: "s1",
+      patternId: "p:GET /health <*>",
+      hidden: false,
+    });
+    const sampler = new RawSampler(() => 1);
+    const plan = await prepareFlush({
+      streamId: "s1",
+      lines: [line("error", "GET /health 503")],
+      drain,
+      sampler,
+      config: DEFAULT_LOG_STREAM_CONFIG,
+      now: new Date(100 * 60_000),
+      flushIntervalMs: 500,
+    });
+    expect(plan.eventRows).toHaveLength(1);
   });
 });

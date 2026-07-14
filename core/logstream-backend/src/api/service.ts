@@ -37,6 +37,8 @@ import {
   type SeverityBand,
   type CreatePattern,
   type DeletePattern,
+  type ListPatterns,
+  type SetPatternHidden,
   type TestPattern,
   type TestPatternResult,
   type MaskLine,
@@ -121,11 +123,12 @@ export interface LogstreamService {
   searchEvents(input: SearchEvents): Promise<SearchEventsResult>;
   getSeverityBuckets(input: GetBuckets): Promise<SeverityBucketsResult>;
   getPatternBuckets(input: GetBuckets): Promise<PatternBucketsResult>;
-  listPatterns(input: { streamId: string; limit: number }): Promise<LogPattern[]>;
+  listPatterns(input: ListPatterns): Promise<LogPattern[]>;
 
   // Custom patterns (see ./patterns).
   createPattern(input: CreatePattern): Promise<LogPattern>;
   deletePattern(input: DeletePattern): Promise<void>;
+  setPatternHidden(input: SetPatternHidden): Promise<LogPattern>;
   testPattern(input: TestPattern): Promise<TestPatternResult>;
   maskLine(input: MaskLine): Promise<MaskLineResult>;
   listPatternVariables(
@@ -719,18 +722,47 @@ export function createLogstreamService({
       return { grain: "hour", points };
     },
 
-    async listPatterns({ streamId, limit }) {
+    async listPatterns({ streamId, limit, includeHidden, bands, orderBy }) {
+      const conditions = [eq(logPatterns.streamId, streamId)];
+      // Hidden patterns leave every default listing (pickers, top patterns);
+      // only the Patterns tab's management view opts back in to unhide them.
+      if (!includeHidden) conditions.push(eq(logPatterns.hidden, false));
+      if (bands && bands.length > 0) {
+        // Derive the band in SQL exactly as `bandFromSeverityNumber` does
+        // (including the out-of-range -> 'info' default), so the filter can
+        // never disagree with the DTO's displayed band.
+        conditions.push(
+          inArray(
+            sql`
+              case
+                            when ${logPatterns.severityMax} between 1 and 4 then 'trace'
+                            when ${logPatterns.severityMax} between 5 and 8 then 'debug'
+                            when ${logPatterns.severityMax} between 13 and 16 then 'warn'
+                            when ${logPatterns.severityMax} between 17 and 20 then 'error'
+                            when ${logPatterns.severityMax} between 21 and 24 then 'fatal'
+                            else 'info' end
+            `,
+            bands,
+          ),
+        );
+      }
       const rows = await db
         .select()
         .from(logPatterns)
-        .where(eq(logPatterns.streamId, streamId))
-        // User-authored patterns first, then by recency. A stream can hold up to
-        // MAX_USER_PATTERNS_PER_STREAM protected user patterns; ordering by
-        // lastSeenAt alone would sink a quiet-but-important user pattern below the
-        // `limit`-capped page of chatty mined ones, hiding it from the picker.
+        .where(and(...conditions))
+        // `totalCount`: pure volume ordering (the "Top patterns" card).
+        // `lastSeenAt` (default): user-authored patterns first, then recency. A
+        // stream can hold up to MAX_USER_PATTERNS_PER_STREAM protected user
+        // patterns; ordering by lastSeenAt alone would sink a quiet-but-
+        // important user pattern below the `limit`-capped page of chatty mined
+        // ones, hiding it from the picker.
         .orderBy(
-          sql`case when ${logPatterns.origin} = 'user' then 0 else 1 end`,
-          desc(logPatterns.lastSeenAt),
+          ...(orderBy === "totalCount"
+            ? [desc(logPatterns.totalCount)]
+            : [
+                sql`case when ${logPatterns.origin} = 'user' then 0 else 1 end`,
+                desc(logPatterns.lastSeenAt),
+              ]),
         )
         .limit(limit);
       return rows.map((row) => mapPatternRow(row));
@@ -740,6 +772,7 @@ export function createLogstreamService({
     // in ./patterns to keep this file lean; RLAC is enforced by the contract.
     createPattern: patternOps.createPattern,
     deletePattern: patternOps.deletePattern,
+    setPatternHidden: patternOps.setPatternHidden,
     testPattern: patternOps.testPattern,
     maskLine: patternOps.maskLine,
     listPatternVariables: patternOps.listPatternVariables,
@@ -775,7 +808,14 @@ export function createLogstreamService({
           db
             .select()
             .from(logPatterns)
-            .where(eq(logPatterns.streamId, streamId))
+            .where(
+              and(
+                eq(logPatterns.streamId, streamId),
+                // Hidden patterns are exactly what the user pushed out of the
+                // Top patterns card.
+                eq(logPatterns.hidden, false),
+              ),
+            )
             .orderBy(desc(logPatterns.totalCount))
             .limit(OVERVIEW_TOP_PATTERNS),
         ]);
@@ -896,6 +936,7 @@ function mapPatternRow(row: typeof logPatterns.$inferSelect): LogPattern {
     severityMax: row.severityMax,
     band: bandFromSeverityNumber(row.severityMax),
     origin: row.origin,
+    hidden: row.hidden,
   };
 }
 
