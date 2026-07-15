@@ -32,6 +32,8 @@ Updated dependencies:
 - `@oxc-resolver/binding-wasm32-wasi` 11.23.0 -> 11.24.2
 - `@oxc-resolver/binding-win32-arm64-msvc` 11.23.0 -> 11.24.2
 - `@oxc-resolver/binding-win32-x64-msvc` 11.23.0 -> 11.24.2
+- `@tanstack/react-virtual` 3.14.5 -> 3.14.6
+- `@tanstack/virtual-core` 3.17.3 -> 3.17.4
 - `baseline-browser-mapping` 2.10.42 -> 2.10.43
 - `browserslist` 4.28.5 -> 4.28.6
 - `bullmq` 5.80.1 -> 5.80.2
@@ -44,7 +46,7 @@ Updated dependencies:
 - `ldapts` 8.1.8 -> 8.2.0
 - `nanoid` 3.3.15 -> 3.3.16
 - `oxc-resolver` 11.23.0 -> 11.24.2
-- `postcss` 8.5.16 -> 8.5.17
+- `postcss` 8.5.16 -> 8.5.18
 - `sql-escaper` 1.4.0 -> 1.5.1
 - `svgo` 4.0.1 -> 4.0.2
 - `tar` 7.5.19 -> 7.5.20
