@@ -19,8 +19,12 @@ type Props = SlotContext<typeof CatalogBrowseHealthSlot>;
  * direct copy of the resolved statuses; systems with no health are simply omitted
  * (the catalog rollup treats absence as `"unknown"`).
  */
-const HealthStatusReporter: React.FC<Props> = ({ systemIds, onStatuses }) => {
-  const { getSystemBadgeData } = useSystemBadgeData();
+const HealthStatusReporter: React.FC<Props> = ({
+  systemIds,
+  onStatuses,
+  onLoading,
+}) => {
+  const { getSystemBadgeData, loading } = useSystemBadgeData();
 
   // Stable, serialised status map: `useMemo` keeps the object identity fixed
   // unless `systemIds` or the bulk-data accessor change, so the effect below
@@ -38,6 +42,12 @@ const HealthStatusReporter: React.FC<Props> = ({ systemIds, onStatuses }) => {
     onStatuses(statuses);
   }, [statuses, onStatuses]);
 
+  // Surface load state so a consumer (e.g. the catalog manage Health column) can
+  // show a placeholder until the bulk health fetch settles.
+  useEffect(() => {
+    onLoading?.(loading);
+  }, [loading, onLoading]);
+
   return null;
 };
 
@@ -51,10 +61,15 @@ const HealthStatusReporter: React.FC<Props> = ({ systemIds, onStatuses }) => {
 export const CatalogBrowseHealthFiller: React.FC<Props> = ({
   systemIds,
   onStatuses,
+  onLoading,
 }) => {
   return (
     <SystemBadgeDataProvider systemIds={systemIds}>
-      <HealthStatusReporter systemIds={systemIds} onStatuses={onStatuses} />
+      <HealthStatusReporter
+        systemIds={systemIds}
+        onStatuses={onStatuses}
+        onLoading={onLoading}
+      />
     </SystemBadgeDataProvider>
   );
 };

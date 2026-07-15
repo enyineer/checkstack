@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import { evaluateAssertions } from "@checkstack/backend-api";
 import { RequestCollector, type RequestConfig } from "./request-collector";
-import type { HttpTransportClient } from "./transport-client";
+import type { HttpRequest, HttpTransportClient } from "./transport-client";
 
 describe("RequestCollector", () => {
   const createMockClient = (
@@ -21,6 +21,33 @@ describe("RequestCollector", () => {
     ),
   });
 
+  // Records the last request handed to exec so tests can inspect the headers
+  // the collector actually put on the wire (e.g. the emitted traceparent).
+  const createCapturingClient = (
+    response: {
+      statusCode?: number;
+      statusText?: string;
+      body?: string;
+    } = {},
+  ): {
+    client: HttpTransportClient;
+    lastRequest: () => HttpRequest | undefined;
+  } => {
+    let last: HttpRequest | undefined;
+    const client: HttpTransportClient = {
+      exec: (request) => {
+        last = request;
+        return Promise.resolve({
+          statusCode: response.statusCode ?? 200,
+          statusText: response.statusText ?? "OK",
+          headers: {},
+          body: response.body ?? "",
+        });
+      },
+    };
+    return { client, lastRequest: () => last };
+  };
+
   describe("execute", () => {
     it("should execute HTTP request successfully", async () => {
       const collector = new RequestCollector();
@@ -31,7 +58,12 @@ describe("RequestCollector", () => {
       });
 
       const result = await collector.execute({
-        config: { url: "https://example.com", method: "GET", timeout: 5000 },
+        config: {
+          url: "https://example.com",
+          method: "GET",
+          timeout: 5000,
+          emitTraceparent: false,
+        },
         client,
         pluginId: "test",
       });
@@ -62,6 +94,7 @@ describe("RequestCollector", () => {
           url: "https://example.com/error",
           method: "GET",
           timeout: 5000,
+          emitTraceparent: false,
         },
         client,
         pluginId: "test",
@@ -90,6 +123,7 @@ describe("RequestCollector", () => {
           url: "https://example.com/missing",
           method: "GET",
           timeout: 5000,
+          emitTraceparent: false,
         },
         client,
         pluginId: "test",
@@ -124,6 +158,7 @@ describe("RequestCollector", () => {
           url: "https://example.com",
           method: "POST",
           timeout: 5000,
+          emitTraceparent: false,
           headers: [
             { name: "Content-Type", value: "application/json" },
             { name: "Authorization", value: "Bearer token" },
@@ -152,7 +187,12 @@ describe("RequestCollector", () => {
       const client = createMockClient();
 
       const result = await collector.execute({
-        config: { url: "/healthz", method: "GET", timeout: 5000 },
+        config: {
+          url: "/healthz",
+          method: "GET",
+          timeout: 5000,
+          emitTraceparent: false,
+        },
         client,
         pluginId: "test",
       });
@@ -172,6 +212,7 @@ describe("RequestCollector", () => {
           url: "https://example.com",
           method: "POST",
           timeout: 5000,
+          emitTraceparent: false,
           body: '{"key":"value"}',
         },
         client,
@@ -183,6 +224,119 @@ describe("RequestCollector", () => {
           body: '{"key":"value"}',
         }),
       );
+    });
+  });
+
+  describe("traceparent emission", () => {
+    const TRACEPARENT_RE = /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/;
+
+    // Default-on: a config parsed through the schema (no emitTraceparent set)
+    // gets the `true` default, so a fresh, well-formed traceparent is sent and
+    // its trace id is recorded on the result for later correlation.
+    it("emits a fresh traceparent by default and records the trace id", async () => {
+      const collector = new RequestCollector();
+      const { client, lastRequest } = createCapturingClient();
+      const config = collector.config.validate({
+        url: "https://example.com",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const result = await collector.execute({ config, client, pluginId: "test" });
+
+      const traceparent = lastRequest()?.headers?.traceparent;
+      expect(traceparent).toMatch(TRACEPARENT_RE);
+      const headerTraceId = traceparent?.split("-")[1];
+      expect(result.result.traceId).toBe(headerTraceId);
+    });
+
+    it("does not emit a traceparent when emitTraceparent is disabled", async () => {
+      const collector = new RequestCollector();
+      const { client, lastRequest } = createCapturingClient();
+
+      const result = await collector.execute({
+        config: {
+          url: "https://example.com",
+          method: "GET",
+          timeout: 5000,
+          emitTraceparent: false,
+        },
+        client,
+        pluginId: "test",
+      });
+
+      expect(lastRequest()?.headers?.traceparent).toBeUndefined();
+      expect(result.result.traceId).toBeUndefined();
+    });
+
+    // A user-configured traceparent (any casing) is opaque to us: pass it
+    // through verbatim, add no generated one, and record no trace id.
+    it("passes a user-supplied traceparent through verbatim and records no trace id", async () => {
+      const collector = new RequestCollector();
+      const { client, lastRequest } = createCapturingClient();
+      const userTraceparent =
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+      const result = await collector.execute({
+        config: {
+          url: "https://example.com",
+          method: "GET",
+          timeout: 5000,
+          emitTraceparent: true,
+          // Mixed casing proves the check is case-insensitive.
+          headers: [{ name: "TraceParent", value: userTraceparent }],
+        },
+        client,
+        pluginId: "test",
+      });
+
+      const sentHeaders = lastRequest()?.headers ?? {};
+      const traceparentKeys = Object.keys(sentHeaders).filter(
+        (name) => name.toLowerCase() === "traceparent",
+      );
+      // Only the user's header is present; no generated one was added.
+      expect(traceparentKeys).toEqual(["TraceParent"]);
+      expect(sentHeaders["TraceParent"]).toBe(userTraceparent);
+      expect(result.result.traceId).toBeUndefined();
+    });
+
+    it("generates a fresh trace id on each run", async () => {
+      const collector = new RequestCollector();
+      const { client } = createCapturingClient();
+      const config = collector.config.validate({
+        url: "https://example.com",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const first = await collector.execute({ config, client, pluginId: "test" });
+      const second = await collector.execute({ config, client, pluginId: "test" });
+
+      expect(first.result.traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(second.result.traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(first.result.traceId).not.toBe(second.result.traceId);
+    });
+
+    // Regression (collectors rule): a 500 is a COMPLETED request - transport
+    // succeeded - so the trace id is still recorded (the trace exists
+    // server-side and is worth surfacing), and no `error` is set.
+    it("still records the trace id when the server answers 500", async () => {
+      const collector = new RequestCollector();
+      const { client } = createCapturingClient({
+        statusCode: 500,
+        statusText: "Internal Server Error",
+      });
+      const config = collector.config.validate({
+        url: "https://example.com/error",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const result = await collector.execute({ config, client, pluginId: "test" });
+
+      expect(result.result.statusCode).toBe(500);
+      expect(result.error).toBeUndefined();
+      expect(result.result.traceId).toMatch(/^[0-9a-f]{32}$/);
     });
   });
 

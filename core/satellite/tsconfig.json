@@ -9,6 +9,9 @@
   },
   "references": [
     {
+      "path": "../../plugins/k8s-events-common"
+    },
+    {
       "path": "../backend-api"
     },
     {
@@ -37,6 +40,12 @@
     },
     {
       "path": "../secrets-common"
+    },
+    {
+      "path": "../telemetry-common"
+    },
+    {
+      "path": "../tracestream-common"
     }
   ]
 }

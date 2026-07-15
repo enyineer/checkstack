@@ -75,6 +75,14 @@ interface CollectorSectionProps {
    * resolver can read a selection made in the sibling strategy form.
    */
   optionsResolvers?: Record<string, OptionsResolver>;
+  /**
+   * Fingerprint of the sibling STRATEGY config, forwarded to the config form so
+   * a cross-form picker (e.g. a service / pattern dropdown that resolves against
+   * the strategy's chosen stream) re-fetches when the strategy config changes.
+   * The strategy selection lives outside this collector's own values, so
+   * `x-depends-on` cannot name it; this key closes that gap.
+   */
+  resolversDependencyKey?: string;
 }
 
 export const CollectorSection: React.FC<CollectorSectionProps> = ({
@@ -92,6 +100,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   templatePreviewContext,
   templateCompletionProvider,
   optionsResolvers,
+  resolversDependencyKey,
 }) => {
   const scriptTestRenderer = React.useMemo(
     () => createCollectorScriptTestRenderer(entry.config),
@@ -179,6 +188,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 onValidChange={setConfigValid}
                 templatePreviewContext={templatePreviewContext}
                 optionsResolvers={optionsResolvers}
+                resolversDependencyKey={resolversDependencyKey}
                 {...ctx}
                 // After `ctx`: the fixed `environment.*/check.*/system.*`
                 // completion is wired ONLY to `x-templatable` collector fields

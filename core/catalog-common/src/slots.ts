@@ -32,9 +32,19 @@ export const SystemDetailsTopSlot = createSlot<{ system: System }>(
  *   component: ({ system }) => <MyComponent system={system} />,
  * }]
  */
-export const SystemDetailsSlot = createSlot<{ system: System }>(
-  "plugin.catalog.system-details"
-);
+export const SystemDetailsSlot = createSlot<{
+  system: System;
+  /**
+   * Optional: the card reports whether its own data is still loading, tagged
+   * with a stable `sourceId`. The system detail page holds the overview column
+   * on a skeleton set until every card has settled, then reveals them together,
+   * so the cards do not pop in one after another. Cards that self-hide when
+   * empty simply never appear on reveal; a card that never reports is bounded by
+   * a grace period. A card with no async data can ignore this (it is treated as
+   * settled once the column's other cards are).
+   */
+  onLoadingChange?: (sourceId: string, loading: boolean) => void;
+}>("plugin.catalog.system-details");
 
 /**
  * Slot for adding actions to the catalog system configuration page.
@@ -164,6 +174,14 @@ export type CatalogHealthStatuses = Record<string, CatalogHealthStatus>;
 export interface CatalogBrowseHealthSlotContext {
   systemIds: string[];
   onStatuses: (statuses: CatalogHealthStatuses) => void;
+  /**
+   * Optional: the filler reports whether its bulk health fetch is still loading.
+   * A consumer can use this to show a per-row loading placeholder in a health
+   * column until the statuses arrive, instead of the badges popping in onto an
+   * empty cell. Omitted-safe: consumers that only need the resolved statuses can
+   * ignore it, and a filler that does not report it just never signals loading.
+   */
+  onLoading?: (loading: boolean) => void;
 }
 
 /**
@@ -269,6 +287,19 @@ export type SystemSignalsMap = Record<string, SystemSignal[]>;
 export interface SystemSignalsSlotContext {
   systemIds: string[];
   onSignals: (sourceId: string, signals: SystemSignalsMap) => void;
+  /**
+   * The filler reports whether its bulk data is still loading, tagged with the
+   * SAME stable `sourceId` it uses for {@link onSignals}. The dashboard shows a
+   * loading placeholder for the overview until every mounted source has settled
+   * at least once - otherwise an empty problem list briefly reads as "all
+   * systems healthy" before any source has actually loaded. Report `true` while
+   * the query is pending and `false` once it settles (background refetches
+   * should NOT re-report `true` on their own - drive this from the initial-load
+   * flag, e.g. TanStack's `isLoading`). A source that never reports is treated
+   * as still loading; the dashboard bounds the wait so a non-reporting third-
+   * party filler cannot hang the overview forever.
+   */
+  onLoadingChange: (sourceId: string, loading: boolean) => void;
 }
 
 /**

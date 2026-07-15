@@ -36,7 +36,11 @@ Groups are flat. Checkstack does not nest groups inside other groups today. A sy
 > [!NOTE]
 > Subscribing to notifications for a group automatically catches every system in that group. When the catalog adds or removes a system from the group, group subscribers update instantly without you re-subscribing per system.
 
-Groups are managed under **Catalog -> Groups** in the UI. You can drag systems between groups, rename groups in place, and delete them when they become empty. The management page carries the same toolbar as the browse view, so you can search and filter the systems and groups lists while you arrange them.
+Groups are managed under **Catalog -> Groups** in the UI. You can drag systems between groups, edit a group (the row's **Edit** action opens the group editor), and delete them when they become empty. The management page carries the same toolbar as the browse view, so you can search and filter the systems and groups lists while you arrange them.
+
+Everyone still **sees** every group (they are shared organizing labels), but **creating, renaming, and deleting** them is team-scoped: you need the global group-manage rule, a group create-capability grant, or - because a system creator may also create groups - a System create-capability grant. New groups are owned by your team, and you can only rename or delete the ones your team owns. Reordering the browse order stays an admin action. See [Teams and access](/checkstack/user-guide/concepts/teams-and-access/).
+
+Each row on the manage page carries an **owned by \<team\>** badge so you can see at a glance which team may rename or delete it, and a team admin can re-assign a group to another team with the per-row **Scope to team** action (the same control systems have). Selecting the checkbox on rows you manage reveals a bulk bar to **scope to team**, **add a system to**, or **delete** many groups at once.
 
 > [!TIP]
 > Drag-and-drop assignment is keyboard-operable. Focus a system's drag handle, press Space or Enter to pick it up, move between groups with the arrow keys, and press Space or Enter again to drop it (Escape cancels). The assign button on each system row is an equivalent pointer-free alternative.

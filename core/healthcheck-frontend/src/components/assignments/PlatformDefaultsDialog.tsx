@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   DEFAULT_NOTIFICATION_POLICY,
   HealthCheckApi,
@@ -58,9 +58,20 @@ export const PlatformDefaultsDialog: React.FC<PlatformDefaultsDialogProps> = ({
     DEFAULT_NOTIFICATION_POLICY,
   );
 
-  useEffect(() => {
-    if (data) setDraft(data);
-  }, [data]);
+  // Seed the editable draft from the loaded defaults ONCE per open session -
+  // the first render on which the query has resolved. A naive
+  // `useEffect(() => { if (data) setDraft(data) }, [data])` re-seeds on every
+  // background refetch (realtime healthcheck signals invalidate this query),
+  // wiping the operator's in-progress edits. Seeding during render with a guard
+  // is StrictMode-safe: a setState scheduled from an effect can be dropped on
+  // StrictMode's double-mount.
+  const [seededForOpen, setSeededForOpen] = useState(false);
+  if (open && data && !seededForOpen) {
+    setSeededForOpen(true);
+    setDraft(data);
+  } else if (!open && seededForOpen) {
+    setSeededForOpen(false);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

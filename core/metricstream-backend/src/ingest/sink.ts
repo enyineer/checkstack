@@ -3,7 +3,7 @@ import type { NormalizedDatapoint } from "@checkstack/metricstream-common";
 import type {
   MetricIngestSink,
   IngestSinkResult,
-} from "../sources/extension-point";
+} from "../sources/ingest-sink";
 import { clampDatapointTs } from "@checkstack/metricstream-common";
 
 /** A buffered datapoint tagged with its owning stream (the buffer's item type). */

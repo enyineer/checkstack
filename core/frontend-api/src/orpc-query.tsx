@@ -289,21 +289,26 @@ type WrappedClient<TContract extends AnyContractRouter, TClient> = {
  * ```
  */
 /**
- * Cross-instance cache of wrapped plugin clients, keyed on the STABLE
- * `pluginUtils` object (one per provider+plugin) and then the contract.
+ * Cross-instance cache of wrapped plugin clients, keyed on the STABLE oRPC utils
+ * ROOT (the provider's memoized `orpcUtils`, one per rpc client) and then the
+ * contract.
  *
  * `wrapPluginUtils` walks a plugin's ENTIRE contract and allocates a
  * hook-wrapper closure per procedure (the AuthApi contract alone is ~80
- * procedures). Memoizing that inside {@link usePluginClient} makes it cheap on
- * re-render, but NOT across component instances: a page that gates many rows on
- * auth (e.g. the catalog manager, where every system row mounts several
- * auth-gated badges/actions) would otherwise rebuild the whole wrapper once per
- * instance - hundreds of throwaway closures per navigation, a real main-thread
- * GC storm. The wrappers are render-agnostic (their methods call React hooks at
- * CALL time and close over only stable values), so the wrapped object is a pure
- * function of `(pluginUtils, contract)` and safe to build ONCE and share. A
- * WeakMap keyed on `pluginUtils` lets the whole cache fall away automatically
- * when the provider re-creates its utils (new rpc client).
+ * procedures). It must be built ONCE and shared across component instances: a
+ * page that gates many rows (e.g. the catalog manager, where every system row
+ * mounts several auth-gated badges/actions) would otherwise rebuild the whole
+ * wrapper per row - hundreds of throwaway closures per navigation, a real
+ * main-thread GC storm.
+ *
+ * The key MUST be a stable reference shared across those instances. It is NOT
+ * `pluginUtils = orpcUtils[pluginId]`: indexing the oRPC `RouterUtils` proxy can
+ * return a FRESH object each render, so keying on it misses the cache and
+ * rebuilds per row (the regression this guards). `orpcUtils` itself is memoized
+ * by `OrpcQueryProvider` on the rpc client, so it is stable and shared by every
+ * row; the contract is a module constant. Keying on `(orpcUtils, contract)`
+ * therefore builds each plugin's wrapper once for the whole app and lets the
+ * cache fall away when the rpc client (and its utils) is re-created.
  */
 const wrappedClientCache = new WeakMap<
   object,
@@ -311,19 +316,22 @@ const wrappedClientCache = new WeakMap<
 >();
 
 /**
- * Return the shared wrapped client for `(pluginUtils, contract)`, building it
- * once and reusing it for every subsequent caller. Exported for unit testing;
+ * Return the shared wrapped client for `(cacheRoot, contract)`, building it once
+ * (from `pluginUtils`) and reusing it for every subsequent caller. `cacheRoot`
+ * is the stable key (the memoized `orpcUtils` root in production); `pluginUtils`
+ * is only read on a cache miss to build the wrapper. Exported for unit testing;
  * production code reaches it through {@link usePluginClient}.
  */
 export function getOrBuildWrappedClient(
+  cacheRoot: object,
   pluginUtils: Record<string, unknown>,
   contract: Record<string, unknown>,
   pluginId: string,
 ): Record<string, unknown> {
-  let byContract = wrappedClientCache.get(pluginUtils);
+  let byContract = wrappedClientCache.get(cacheRoot);
   if (!byContract) {
     byContract = new WeakMap();
-    wrappedClientCache.set(pluginUtils, byContract);
+    wrappedClientCache.set(cacheRoot, byContract);
   }
   let wrapped = byContract.get(contract);
   if (!wrapped) {
@@ -352,15 +360,15 @@ export function usePluginClient<T extends ClientDefinition>(
   // Get contract for operationType checking
   const contract = definition.contract as Record<string, unknown>;
 
-  // Shared across every instance (see wrappedClientCache): the useMemo keeps the
-  // reference stable per render; the cache keeps it stable ACROSS instances so a
-  // gate-heavy page doesn't rebuild the whole wrapper per row.
-  return useMemo(() => {
-    return getOrBuildWrappedClient(pluginUtils, contract, definition.pluginId);
-  }, [pluginUtils, contract, definition.pluginId]) as WrappedClient<
-    NonNullable<T["__contractType"]>,
-    InferClient<T>
-  >;
+  // Keyed on the STABLE orpcUtils root (see wrappedClientCache), so the wrapper
+  // is built once app-wide and every row gets the SAME cached reference - no
+  // useMemo needed for stability, and no per-row rebuild.
+  return getOrBuildWrappedClient(
+    orpcUtils as object,
+    pluginUtils,
+    contract,
+    definition.pluginId,
+  ) as WrappedClient<NonNullable<T["__contractType"]>, InferClient<T>>;
 }
 
 // =============================================================================

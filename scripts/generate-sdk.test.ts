@@ -24,6 +24,18 @@ import {
 const ROOT = path.join(import.meta.dirname, "..");
 const SDK_DIR = path.join(ROOT, "core", "sdk");
 
+// Deliberate starvation ceiling for the tests that shell out to the real
+// `bun run scripts/generate-sdk.ts --check` CLI. Each invocation is a fresh
+// `bun` cold-start plus a full SDK generation + git surface-drift read; it
+// runs in ~1s in isolation, but under the parallel suite the cold-start alone
+// starves for many seconds, and the mutate-then-recheck test spawns the CLI
+// TWICE (fail on the mutated tree, pass again after restore) — which is what
+// pushed it past the 30s suite default (~34s observed). Each `--check` run
+// validates a DISTINCT on-disk tree state, so the generation cannot be shared
+// across tests; the honest fix is this commented ceiling. It still fails fast
+// on a genuinely hung generation.
+const SDK_CHECK_CEILING_MS = 60_000;
+
 function fileByName(files: EmitFile[], rel: string): EmitFile {
   const abs = path.join(SDK_DIR, rel);
   const found = files.find((f) => f.file === abs);
@@ -156,24 +168,32 @@ describe("generate-sdk --check drift guard", () => {
     );
   }
 
-  test("--check passes on a clean tree (committed output matches a fresh run)", () => {
-    expect(runCheck().status).toBe(0);
-  });
+  test(
+    "--check passes on a clean tree (committed output matches a fresh run)",
+    () => {
+      expect(runCheck().status).toBe(0);
+    },
+    SDK_CHECK_CEILING_MS,
+  );
 
-  test("--check exits nonzero when a generated file is mutated", () => {
-    const target = path.join(SDK_DIR, "generated", "healthcheck.d.ts");
-    const original = readFileSync(target, "utf8");
-    try {
-      writeFileSync(target, original + "\n// drift\n", "utf8");
-      const result = runCheck();
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("out of sync");
-    } finally {
-      writeFileSync(target, original, "utf8");
-    }
-    // Tree restored → clean again.
-    expect(runCheck().status).toBe(0);
-  });
+  test(
+    "--check exits nonzero when a generated file is mutated",
+    () => {
+      const target = path.join(SDK_DIR, "generated", "healthcheck.d.ts");
+      const original = readFileSync(target, "utf8");
+      try {
+        writeFileSync(target, original + "\n// drift\n", "utf8");
+        const result = runCheck();
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("out of sync");
+      } finally {
+        writeFileSync(target, original, "utf8");
+      }
+      // Tree restored → clean again.
+      expect(runCheck().status).toBe(0);
+    },
+    SDK_CHECK_CEILING_MS,
+  );
 });
 
 describe("changeset readers", () => {
@@ -240,21 +260,25 @@ describe("§7.3 guard: --check fails on a changeset naming @checkstack/sdk", () 
     if (existsSync(offender)) unlinkSync(offender);
   });
 
-  test("--check exits nonzero and names the offending changeset", () => {
-    writeFileSync(
-      offender,
-      '---\n"@checkstack/sdk": minor\n---\n\nshould be rejected\n',
-      "utf8",
-    );
-    const result = spawnSync(
-      "bun",
-      ["run", path.join("scripts", "generate-sdk.ts"), "--check"],
-      { cwd: ROOT, encoding: "utf8" },
-    );
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("references @checkstack/sdk");
-    expect(result.stderr).toContain("zz-sdk-guard-fixture.md");
-  });
+  test(
+    "--check exits nonzero and names the offending changeset",
+    () => {
+      writeFileSync(
+        offender,
+        '---\n"@checkstack/sdk": minor\n---\n\nshould be rejected\n',
+        "utf8",
+      );
+      const result = spawnSync(
+        "bun",
+        ["run", path.join("scripts", "generate-sdk.ts"), "--check"],
+        { cwd: ROOT, encoding: "utf8" },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("references @checkstack/sdk");
+      expect(result.stderr).toContain("zz-sdk-guard-fixture.md");
+    },
+    SDK_CHECK_CEILING_MS,
+  );
 });
 
 describe("§7.1.1 guard: SDK surface drift vs base ref", () => {

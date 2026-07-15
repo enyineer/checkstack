@@ -3,19 +3,9 @@ import type {
   RpcService,
   RpcClient,
   SafeDatabase,
-  EventBus,
   ResourceResolverRegistry,
 } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
-import type { SignalService } from "@checkstack/signal-common";
-import type {
-  InternalSecretsService,
-  SecretResolverService,
-} from "@checkstack/secrets-backend";
-import type {
-  SourceTokenKit,
-  IngestAuthenticator,
-} from "@checkstack/ingest-utils";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import { ilike, inArray } from "drizzle-orm";
 import {
   metricstreamContract,
@@ -24,72 +14,56 @@ import {
 import type * as schema from "../schema";
 import { metricStreams } from "../schema";
 import type { Storage } from "../storage";
-import {
-  createMetricstreamService,
-  type OnScrapeTargetsChanged,
-} from "./service";
+import { createMetricstreamService } from "./service";
 import { createMetricstreamRouter } from "./router";
-import { createSatelliteBindingAuthorizer } from "../satellite/binding-auth";
+import { createSystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
- * Register the metricstream oRPC router (stream CRUD, tokens, scrape-target
- * CRUD, autocomplete + viewer reads) and the `metricstream.stream` resource
- * resolver so Teams can render grant names (rlac.md checklist #4).
- *
- * `onScrapeTargetsChanged` is a SEAM: the C1 scrape reconciler's post-commit
- * (re)schedule/cancel hook. Absent (until `index.ts` wires C1's reconciler) =>
- * scrape-target mutations still persist; the reconciler re-derives its schedule
- * from the table on its next tick.
+ * Register the metricstream oRPC router (stream CRUD, tokens, autocomplete +
+ * viewer reads, system links) and the `metricstream.stream` resource resolver so
+ * Teams can render grant names (rlac.md checklist #4). Prometheus scrape targets
+ * are no longer a metricstream resource - they are telemetry-platform source
+ * instances (`metricstream.prometheus-scrape`).
  */
 export function registerApi({
   rpc,
   db,
   storage,
-  cacheManager,
   logger,
   resourceResolverRegistry,
   rpcClient,
-  eventBus,
-  tokenKit,
-  auth,
-  internalSecrets,
+  sourceLifecycle,
   internalUrl,
-  onScrapeTargetsChanged,
 }: {
   rpc: RpcService;
   db: SafeDatabase<typeof schema>;
   storage: Storage;
-  cacheManager: CacheManager;
-  signalService: SignalService;
   logger: Logger;
   resourceResolverRegistry: ResourceResolverRegistry;
   rpcClient?: RpcClient;
-  eventBus?: EventBus;
-  tokenKit: SourceTokenKit;
-  auth: IngestAuthenticator;
-  internalSecrets: InternalSecretsService;
-  secretResolver: SecretResolverService;
-  /** Internal base URL for the caller-scoped satellite-binding authorization. */
+  /**
+   * Telemetry source-lifecycle service, forwarded to the service so
+   * `deleteStream` cascades the deletion to bound telemetry sources. Optional so
+   * tests can omit it; wire `telemetrySourceLifecycleRef` in `index.ts`.
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  /** Internal base URL for the caller-scoped system-links readability gate. */
   internalUrl: string;
-  onScrapeTargetsChanged?: OnScrapeTargetsChanged;
 }): void {
   const service = createMetricstreamService({
     db,
     storage,
-    cacheManager,
     logger,
-    tokenKit,
-    auth,
-    internalSecrets,
     rpcClient,
-    eventBus,
-    onScrapeTargetsChanged,
+    sourceLifecycle,
   });
 
   rpc.registerRouter(
     createMetricstreamRouter({
       service,
-      assertSatelliteBindable: createSatelliteBindingAuthorizer({ internalUrl }),
+      assertLinkedSystemsReadable: createSystemLinksReadableAuthorizer({
+        internalUrl,
+      }),
     }),
     metricstreamContract,
   );

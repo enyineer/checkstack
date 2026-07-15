@@ -12,6 +12,9 @@
     },
     {
       "path": "../signal-common"
+    },
+    {
+      "path": "../telemetry-common"
     }
   ]
 }

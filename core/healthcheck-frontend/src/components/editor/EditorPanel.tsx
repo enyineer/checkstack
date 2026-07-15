@@ -149,6 +149,19 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
     strategyId,
     strategyConfig: formState.strategyConfig,
   });
+  // A stable fingerprint of the strategy config, handed to the COLLECTOR forms
+  // as their external resolver dependency. A collector-field resolver may read a
+  // selection made in the sibling STRATEGY form (e.g. the stream a
+  // service/pattern picker resolves against); that selection is NOT in the
+  // collector's own form values, so `x-depends-on` cannot express it. Threading
+  // this key makes those pickers re-fetch when the strategy config changes
+  // instead of relying on the collector form incidentally re-mounting. Memoized
+  // so unrelated re-renders do not churn the pickers. NOT passed to the strategy
+  // form itself - its fields depend on their OWN values via `x-depends-on`.
+  const strategyConfigDependencyKey = React.useMemo(
+    () => JSON.stringify(formState.strategyConfig),
+    [formState.strategyConfig],
+  );
   // --- General Section ---
   if (selectedNode === "general") {
     return (
@@ -288,6 +301,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           templatePreviewContext={templatePreviewContext}
           templateCompletionProvider={templateCompletionProvider}
           optionsResolvers={configOptionsResolvers}
+          resolversDependencyKey={strategyConfigDependencyKey}
         />
       </div>
     );

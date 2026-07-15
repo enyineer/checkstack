@@ -14,7 +14,12 @@
  * skipped, so a newer producer decodes fine. Pure module: no IO.
  */
 
-import { ProtoReader, readAttribute, readResource } from "@checkstack/otlp-wire";
+import {
+  ProtoReader,
+  bytesToHex,
+  readAttribute,
+  readResource,
+} from "@checkstack/otlp-wire";
 
 /** OTLP `AggregationTemporality` enum. */
 export const AGGREGATION_TEMPORALITY = {
@@ -23,11 +28,26 @@ export const AGGREGATION_TEMPORALITY = {
   CUMULATIVE: 2,
 } as const;
 
+/**
+ * One OTLP `Exemplar`: a sampled measurement carrying the trace context of the
+ * request that produced it (the chart-point -> trace bridge). `traceId`/`spanId`
+ * are lowercase hex of the raw id bytes (empty string when the field was absent);
+ * the normalizer validates + drops those without a real 32-hex trace id.
+ */
+export interface OtlpExemplar {
+  timeUnixNano: bigint;
+  value: number;
+  traceId: string;
+  spanId: string;
+}
+
 /** One numeric datapoint (Gauge / Sum). */
 export interface OtlpNumberPoint {
   attributes: Record<string, unknown>;
   timeUnixNano: bigint;
   value: number;
+  /** Trace-context exemplars sampled on this point (absent when none decoded). */
+  exemplars?: OtlpExemplar[];
 }
 
 /** One histogram datapoint (only `count` + optional `sum` are kept; buckets dropped). */
@@ -36,6 +56,8 @@ export interface OtlpHistogramPoint {
   timeUnixNano: bigint;
   count: number;
   sum?: number;
+  /** Trace-context exemplars sampled on this point (absent when none decoded). */
+  exemplars?: OtlpExemplar[];
 }
 
 /** One summary datapoint (only `count` + `sum` are kept; quantiles dropped). */
@@ -73,8 +95,58 @@ export type OtlpMetricsPayload = OtlpResourceMetrics[];
 // datapoint readers
 // -----------------------------------------------------------------------------
 
+/**
+ * Read one `Exemplar` message. Fields (metrics.proto `Exemplar`):
+ * `time_unix_nano` = 2 (fixed64), `as_double` = 3 (double), `span_id` = 4 (bytes),
+ * `trace_id` = 5 (bytes), `as_int` = 6 (sfixed64), `filtered_attributes` = 7
+ * (skipped - the sink stores the trace context, not the exemplar's own attrs).
+ */
+function readExemplar(reader: ProtoReader): OtlpExemplar {
+  const exemplar: OtlpExemplar = {
+    timeUnixNano: 0n,
+    value: 0,
+    traceId: "",
+    spanId: "",
+  };
+  while (reader.hasMore) {
+    const { fieldNumber, wireType } = reader.readTag();
+    switch (fieldNumber) {
+      case 2: { // time_unix_nano (fixed64)
+        exemplar.timeUnixNano = reader.readFixed64();
+        break;
+      }
+      case 3: { // as_double (double)
+        exemplar.value = reader.readDouble();
+        break;
+      }
+      case 4: { // span_id (bytes)
+        exemplar.spanId = bytesToHex(reader.readBytes());
+        break;
+      }
+      case 5: { // trace_id (bytes)
+        exemplar.traceId = bytesToHex(reader.readBytes());
+        break;
+      }
+      case 6: { // as_int (sfixed64)
+        exemplar.value = Number(BigInt.asIntN(64, reader.readFixed64()));
+        break;
+      }
+      default: {
+        reader.skip(wireType);
+      }
+    }
+  }
+  return exemplar;
+}
+
 function readNumberDataPoint(reader: ProtoReader): OtlpNumberPoint {
-  const point: OtlpNumberPoint = { attributes: {}, timeUnixNano: 0n, value: 0 };
+  const exemplars: OtlpExemplar[] = [];
+  const point: OtlpNumberPoint = {
+    attributes: {},
+    timeUnixNano: 0n,
+    value: 0,
+    exemplars,
+  };
   while (reader.hasMore) {
     const { fieldNumber, wireType } = reader.readTag();
     switch (fieldNumber) {
@@ -90,6 +162,10 @@ function readNumberDataPoint(reader: ProtoReader): OtlpNumberPoint {
         point.value = reader.readDouble();
         break;
       }
+      case 5: { // exemplars (repeated Exemplar)
+        exemplars.push(readExemplar(new ProtoReader(reader.readBytes())));
+        break;
+      }
       case 6: { // as_int (sfixed64)
         point.value = Number(BigInt.asIntN(64, reader.readFixed64()));
         break;
@@ -103,7 +179,13 @@ function readNumberDataPoint(reader: ProtoReader): OtlpNumberPoint {
 }
 
 function readHistogramDataPoint(reader: ProtoReader): OtlpHistogramPoint {
-  const point: OtlpHistogramPoint = { attributes: {}, timeUnixNano: 0n, count: 0 };
+  const exemplars: OtlpExemplar[] = [];
+  const point: OtlpHistogramPoint = {
+    attributes: {},
+    timeUnixNano: 0n,
+    count: 0,
+    exemplars,
+  };
   while (reader.hasMore) {
     const { fieldNumber, wireType } = reader.readTag();
     switch (fieldNumber) {
@@ -121,6 +203,10 @@ function readHistogramDataPoint(reader: ProtoReader): OtlpHistogramPoint {
       }
       case 5: { // sum (double)
         point.sum = reader.readDouble();
+        break;
+      }
+      case 8: { // exemplars (repeated Exemplar)
+        exemplars.push(readExemplar(new ProtoReader(reader.readBytes())));
         break;
       }
       default: {

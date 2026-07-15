@@ -1,12 +1,30 @@
 import { describe, it, expect } from "bun:test";
 import type { Logger } from "@checkstack/backend-api";
 import {
+  fastPathJobId as sharedFastPathJobId,
+  FAST_PATH_DEBOUNCE_MS,
+} from "@checkstack/healthcheck-common";
+import {
   createFastPath,
   shouldFastPath,
   type EnqueueRun,
   type StreamAssignment,
 } from "./fast-path";
-import { fastPathJobId, FAST_PATH_DEBOUNCE_MS } from "./constants";
+import { LOGSTREAM_FAST_PATH_PREFIX } from "./constants";
+
+/**
+ * This plugin always builds fast-path ids with the logstream prefix; the wrapper
+ * keeps the call sites (and the byte-identical `logstream-fast:...` id shape
+ * asserted below) unchanged after the shared-module extraction.
+ */
+function fastPathJobId(args: {
+  configId: string;
+  systemId: string;
+  environmentId: string | null;
+  nowMs: number;
+}): string {
+  return sharedFastPathJobId({ prefix: LOGSTREAM_FAST_PATH_PREFIX, ...args });
+}
 
 const noopLogger: Logger = {
   info() {},
@@ -46,6 +64,24 @@ function fixedAssignments(
   assignments: StreamAssignment[],
 ): (streamId: string) => Promise<StreamAssignment[]> {
   return async () => assignments;
+}
+
+/** Enqueue that throws the next time it is called, then succeeds (Redis blip). */
+function flakyEnqueue(): {
+  enqueue: EnqueueRun;
+  calls: Enqueued[];
+  failNext: () => void;
+} {
+  const calls: Enqueued[] = [];
+  let fail = false;
+  const enqueue: EnqueueRun = async ({ payload, jobId }) => {
+    if (fail) {
+      fail = false;
+      throw new Error("redis down");
+    }
+    calls.push({ ...payload, jobId });
+  };
+  return { enqueue, calls, failNext: () => (fail = true) };
 }
 
 describe("shouldFastPath", () => {
@@ -246,6 +282,34 @@ describe("createFastPath fan-out", () => {
     onFlush({ streamId: "stream-1", worstBand: "error", errorDelta: 1 });
     await onFlush.whenIdle();
     expect(calls).toHaveLength(4);
+  });
+
+  it("re-enqueues in the SAME bucket after an enqueue failure (unmark on failure)", async () => {
+    const { enqueue, calls, failNext } = flakyEnqueue();
+    const nowMs =
+      Math.floor(1_000_000_000_000 / FAST_PATH_DEBOUNCE_MS) *
+      FAST_PATH_DEBOUNCE_MS;
+    const onFlush = createFastPath({
+      resolveAssignments: fixedAssignments([
+        { configId: "c1", systemId: "sysA", environmentIds: [null] },
+      ]),
+      enqueueRun: enqueue,
+      logger: noopLogger,
+      now: () => nowMs,
+    });
+
+    // First flush: the enqueue rejects, so the slice's mark is rolled back.
+    failNext();
+    onFlush({ streamId: "stream-1", worstBand: "error", errorDelta: 3 });
+    await onFlush.whenIdle();
+    expect(calls).toHaveLength(0);
+
+    // Second flush in the SAME debounce bucket must retry (mark was unmarked),
+    // instead of silently doing nothing for the rest of the bucket.
+    onFlush({ streamId: "stream-1", worstBand: "error", errorDelta: 3 });
+    await onFlush.whenIdle();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].systemId).toBe("sysA");
   });
 
   it("returns synchronously without awaiting the enqueue (flush loop never blocks)", async () => {

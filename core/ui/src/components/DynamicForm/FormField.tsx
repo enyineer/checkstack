@@ -50,6 +50,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   isRequired,
   formValues,
   optionsResolvers,
+  resolversDependencyKey,
   templateProperties,
   templateCompletionProvider,
   templatableFieldsOnly,
@@ -103,6 +104,7 @@ export const FormField: React.FC<FormFieldProps> = ({
         }
         formValues={formValues}
         optionsResolvers={optionsResolvers}
+        resolversDependencyKey={resolversDependencyKey}
         onChange={onChange}
       />
     );
@@ -502,6 +504,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             isRequired={childrenRequired && (propSchema.required?.includes(key) ?? false)}
             formValues={formValues}
             optionsResolvers={optionsResolvers}
+            resolversDependencyKey={resolversDependencyKey}
             templateProperties={templateProperties}
             templateCompletionProvider={templateCompletionProvider}
             templatableFieldsOnly={templatableFieldsOnly}
@@ -623,6 +626,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 value={item}
                 formValues={itemFormValues}
                 optionsResolvers={optionsResolvers}
+                resolversDependencyKey={resolversDependencyKey}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
                 templatableFieldsOnly={templatableFieldsOnly}
@@ -770,6 +774,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 isRequired={selectedVariant.required?.includes(key)}
                 formValues={formValues}
                 optionsResolvers={optionsResolvers}
+                resolversDependencyKey={resolversDependencyKey}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
                 templatableFieldsOnly={templatableFieldsOnly}

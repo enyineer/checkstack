@@ -313,6 +313,15 @@
       "path": "./core/status-page-frontend"
     },
     {
+      "path": "./core/telemetry-backend"
+    },
+    {
+      "path": "./core/telemetry-common"
+    },
+    {
+      "path": "./core/telemetry-frontend"
+    },
+    {
       "path": "./core/template-engine"
     },
     {
@@ -338,6 +347,15 @@
     },
     {
       "path": "./core/tips-frontend"
+    },
+    {
+      "path": "./core/tracestream-backend"
+    },
+    {
+      "path": "./core/tracestream-common"
+    },
+    {
+      "path": "./core/tracestream-frontend"
     },
     {
       "path": "./core/ui"
@@ -440,6 +458,12 @@
     },
     {
       "path": "./plugins/integration-webhook-backend"
+    },
+    {
+      "path": "./plugins/k8s-events-backend"
+    },
+    {
+      "path": "./plugins/k8s-events-common"
     },
     {
       "path": "./plugins/notification-backstage-backend"

@@ -1,0 +1,33 @@
+{
+  "name": "@checkstack/k8s-events-common",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "common",
+    "pluginId": "k8s-events"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin-metadata": "./src/plugin-metadata.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "eslint src --ext .ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "description": "Kubernetes events telemetry source: config schema, Event->log mapping, and the satellite pull executor",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
+}

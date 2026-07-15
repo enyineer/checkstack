@@ -28,16 +28,22 @@ export const KNOWN_SATELLITE_CAPABILITIES: readonly CapabilityMeta[] = [
       "Forwards logs and metrics from inside this satellite's network zone to the core over the satellite channel.",
   },
   {
-    id: "scrape",
-    label: "Scrape",
+    id: "telemetry-pull",
+    label: "Telemetry pull",
     description:
-      "Pulls Prometheus-format metric endpoints from inside this satellite's zone, so the core never opens a firewall hole to reach them.",
+      "Executes pull telemetry sources (Prometheus scrape, Kubernetes events) from inside this satellite's zone, so the core never opens a firewall hole to reach them.",
   },
   {
     id: "log-receivers",
     label: "Log receivers",
     description:
       "Runs local OTLP and native HTTP log receivers, so shippers in this zone send to the satellite instead of the core.",
+  },
+  {
+    id: "trace-receivers",
+    label: "Trace receivers",
+    description:
+      "Runs local OTLP and native HTTP trace receivers, so span exporters in this zone send to the satellite instead of the core.",
   },
   {
     id: "syslog",

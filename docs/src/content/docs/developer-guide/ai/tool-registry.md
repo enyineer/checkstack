@@ -99,6 +99,33 @@ env.getExtensionPoint(aiToolProjectionExtensionPoint).expose(
 
 `expose` throws at registration if `effect` is omitted, or if the value passed as `procedure` is not an oRPC contract procedure.
 
+### Output slimming with `projectResult`
+
+A projected read tool's raw output is often shaped for the UI, not for a
+model context. `projectResult` is the per-projection hook that maps the
+FULL router output to a lean, model-facing shape. Two rules govern it:
+
+- **It only affects the model.** The transport still re-enters the live
+  router and audits the FULL result; UI/RPC callers are untouched. Slimming
+  can therefore never hide anything from authorization or audit.
+- **Slim when the output is unbounded or echoes opaque data.** Drop
+  unbounded records (attributes, labels, resource maps), clamp free-text
+  fields, and remove ids the model would only echo back. Keep aggregates
+  and the fields a follow-up question needs. Write the mapper defensively
+  (`safeParse`; on shape mismatch return the output unchanged) - the
+  generic per-call result clamp is the last-resort backstop, not a license
+  to skip slimming.
+
+Precedents: `healthcheck.runHistory` (drops opaque ids, keeps
+timestamp/status/latency), `tracestream.getTraceSummary` (reduces every
+span to seven scalar fields - a raw waterfall with attribute records would
+blow the context), `logstream.searchLogs` (clamps bodies, drops
+attribute/resource records). Aggregate siblings with small bounded outputs
+(`healthcheck.runStats`, `tracestream.serviceStats`,
+`metricstream.metricBuckets`) project directly, and their raw-rows
+counterparts' descriptions steer the model toward them for "how often /
+how much" questions.
+
 ## The resolver
 
 The resolver maps a principal to the subset of registered tools it may see or call. A tool is allowed if and only if every entry in `requiredAccessRules` is satisfied by the principal's `accessRules`, with the `"*"` admin escape.

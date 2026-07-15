@@ -17,6 +17,10 @@ export * from "./token";
 // Schemas and inferred types
 export * from "./schemas";
 
+// Dashboard signal event-type set (shared by the backend status query + the
+// frontend signals deriver so they cannot drift).
+export * from "./signal-event-types";
+
 // Realtime signals
 export * from "./signals";
 
@@ -31,14 +35,16 @@ export {
 } from "./rpc-contract";
 
 // Satellite capability wire contracts (shared by the core handlers and the
-// satellite-side scraper/forwarder; browser-safe - see the guard test).
-export * from "./satellite/scrape-capability";
+// satellite-side forwarder; browser-safe - see the guard test). Only the
+// push-forward capability remains; scraping moved to the telemetry pull source.
+export * from "./satellite/forward-capability";
 
 // Pure ingest parsing / normalization (shared by the backend ingest area and
 // the satellite-side telemetry agent; browser-safe - see the guard test).
 export * from "./ingest/clamp";
 export * from "./sources/prometheus/text-parse";
 export * from "./sources/prometheus/scrape-shaping";
+export * from "./sources/prometheus/read-capped-text";
 export * from "./sources/otlp/decode";
 export * from "./sources/otlp/normalize";
 export * from "./sources/otlp/json";

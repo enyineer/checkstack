@@ -4,14 +4,14 @@ import type {
   PatternVariableWindow,
 } from "@checkstack/logstream-common";
 import {
-  computeWindowBounds,
-  computeSecondsSinceLastLog,
   buildWindowMetrics,
   buildPatternOccurrence,
   buildPatternMetric,
-  MIN_WINDOW_SECONDS,
 } from "./window";
 
+// The complete-minute window math + seconds-since-last helper are covered by
+// @checkstack/healthcheck-common's own health-window.test.ts; this file only
+// exercises the log-specific build* assembly over them.
 const zeroSeverity: StreamSeverityTotals = {
   trace: 0,
   debug: 0,
@@ -20,137 +20,6 @@ const zeroSeverity: StreamSeverityTotals = {
   error: 0,
   fatal: 0,
 };
-
-describe("computeWindowBounds", () => {
-  it("ends the complete-minute window at the last complete minute", () => {
-    // 12:03:45 -> last complete minute is 12:02, so the exclusive end is 12:03.
-    const now = new Date("2026-01-01T12:03:45.000Z");
-    const { from, to } = computeWindowBounds({
-      now,
-      windowSeconds: 300,
-      intervalSeconds: 60,
-    });
-    expect(to.toISOString()).toBe("2026-01-01T12:03:00.000Z");
-    // 5 whole minutes back from 12:03 -> 11:58.
-    expect(from.toISOString()).toBe("2026-01-01T11:58:00.000Z");
-  });
-
-  it("extends the read boundary through the in-progress minute", () => {
-    // 12:03:45 -> the count reads must include the [12:03, 12:04) partial minute
-    // so a burst at 12:03:05 is visible to an eval at 12:03:10, not deferred to
-    // the next tick.
-    const now = new Date("2026-01-01T12:03:45.000Z");
-    const { to, readTo } = computeWindowBounds({
-      now,
-      windowSeconds: 300,
-      intervalSeconds: 60,
-    });
-    expect(to.toISOString()).toBe("2026-01-01T12:03:00.000Z");
-    expect(readTo.toISOString()).toBe("2026-01-01T12:04:00.000Z");
-  });
-
-  it("makes a burst at :05 visible to a read at :10 (same minute)", () => {
-    // The stream floors a line at 12:03:05 into the 12:03 minute bucket. An eval
-    // at 12:03:10 reads `[from, readTo)`; readTo must cover 12:03 so the bucket
-    // is inside the read range.
-    const burstBucket = new Date("2026-01-01T12:03:00.000Z"); // floor(12:03:05)
-    const evalNow = new Date("2026-01-01T12:03:10.000Z");
-    const { from, readTo } = computeWindowBounds({
-      now: evalNow,
-      windowSeconds: 300,
-      intervalSeconds: 60,
-    });
-    // The burst's minute bucket falls inside the half-open read window.
-    expect(burstBucket.getTime()).toBeGreaterThanOrEqual(from.getTime());
-    expect(burstBucket.getTime()).toBeLessThan(readTo.getTime());
-  });
-
-  it("is minute-aligned even when now is exactly on a minute boundary", () => {
-    const now = new Date("2026-01-01T12:00:00.000Z");
-    const { from, to, windowMinutes } = computeWindowBounds({
-      now,
-      windowSeconds: 120,
-      intervalSeconds: 60,
-    });
-    expect(to.toISOString()).toBe("2026-01-01T12:00:00.000Z");
-    expect(from.toISOString()).toBe("2026-01-01T11:58:00.000Z");
-    expect(windowMinutes).toBe(2);
-  });
-
-  it("defaults the window to the check interval", () => {
-    const now = new Date("2026-01-01T12:03:30.000Z");
-    const { windowMinutes } = computeWindowBounds({
-      now,
-      windowSeconds: undefined,
-      intervalSeconds: 180,
-    });
-    expect(windowMinutes).toBe(3);
-  });
-
-  it("clamps below one minute up to the minimum and floors to whole minutes", () => {
-    const now = new Date("2026-01-01T12:03:30.000Z");
-    expect(
-      computeWindowBounds({ now, windowSeconds: 10, intervalSeconds: 5 })
-        .windowMinutes,
-    ).toBe(1);
-    expect(MIN_WINDOW_SECONDS).toBe(60);
-    // 200s floors to 3 minutes (180s), not 4.
-    expect(
-      computeWindowBounds({ now, windowSeconds: 200, intervalSeconds: 60 })
-        .windowMinutes,
-    ).toBe(3);
-  });
-
-  it("guards non-finite / non-positive requests", () => {
-    const now = new Date("2026-01-01T12:03:30.000Z");
-    expect(
-      computeWindowBounds({
-        now,
-        windowSeconds: Number.NaN,
-        intervalSeconds: 60,
-      }).windowMinutes,
-    ).toBe(1);
-    expect(
-      computeWindowBounds({ now, windowSeconds: -100, intervalSeconds: 60 })
-        .windowMinutes,
-    ).toBe(1);
-  });
-});
-
-describe("computeSecondsSinceLastLog", () => {
-  it("measures from the last received line", () => {
-    const now = new Date("2026-01-01T12:00:30.000Z");
-    expect(
-      computeSecondsSinceLastLog({
-        now,
-        lastReceivedAt: new Date("2026-01-01T12:00:00.000Z"),
-        streamCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      }),
-    ).toBe(30);
-  });
-
-  it("falls back to stream age when the stream never received a line", () => {
-    const now = new Date("2026-01-01T01:00:00.000Z");
-    expect(
-      computeSecondsSinceLastLog({
-        now,
-        lastReceivedAt: null,
-        streamCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      }),
-    ).toBe(3600);
-  });
-
-  it("clamps a future timestamp (clock skew) to 0", () => {
-    const now = new Date("2026-01-01T12:00:00.000Z");
-    expect(
-      computeSecondsSinceLastLog({
-        now,
-        lastReceivedAt: new Date("2026-01-01T12:00:05.000Z"),
-        streamCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      }),
-    ).toBe(0);
-  });
-});
 
 describe("buildWindowMetrics", () => {
   const now = new Date("2026-01-01T12:03:00.000Z");

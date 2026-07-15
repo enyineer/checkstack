@@ -4,8 +4,6 @@ import {
   DEFAULT_METRIC_STREAM_CONFIG,
   MetricWindowCollectorConfigSchema,
   NormalizedDatapointSchema,
-  CreateScrapeTargetSchema,
-  UpdateScrapeTargetSchema,
   MetricStreamSummarySchema,
   LabelFilterSchema,
 } from "./schemas";
@@ -89,50 +87,6 @@ describe("NormalizedDatapointSchema", () => {
       ts: new Date(),
     });
     expect(parsed.counterKind).toBe("cumulative");
-  });
-});
-
-describe("scrape target DTOs", () => {
-  it("defaults interval/timeout/enabled on create", () => {
-    const parsed = CreateScrapeTargetSchema.parse({
-      streamId: "s1",
-      name: "prod",
-      url: "https://example.com/metrics",
-    });
-    expect(parsed.intervalSeconds).toBe(60);
-    expect(parsed.timeoutMs).toBe(10_000);
-    expect(parsed.enabled).toBe(true);
-  });
-
-  it("rejects an interval below the floor", () => {
-    expect(
-      CreateScrapeTargetSchema.safeParse({
-        streamId: "s1",
-        name: "prod",
-        url: "https://example.com/metrics",
-        intervalSeconds: 1,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("distinguishes omit/null/string bearerToken on update", () => {
-    // omitted -> keep
-    const keep = UpdateScrapeTargetSchema.parse({ streamId: "s", targetId: "t" });
-    expect("bearerToken" in keep).toBe(false);
-    // null -> clear
-    const clear = UpdateScrapeTargetSchema.parse({
-      streamId: "s",
-      targetId: "t",
-      bearerToken: null,
-    });
-    expect(clear.bearerToken).toBeNull();
-    // string -> set
-    const set = UpdateScrapeTargetSchema.parse({
-      streamId: "s",
-      targetId: "t",
-      bearerToken: "secret",
-    });
-    expect(set.bearerToken).toBe("secret");
   });
 });
 

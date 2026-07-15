@@ -24,10 +24,11 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
 export const IncidentSignalsFiller: React.FC<Props> = ({
   systemIds,
   onSignals,
+  onLoadingChange,
 }) => {
   const incidentClient = usePluginClient(IncidentApi);
 
-  const { data } = incidentClient.getBulkIncidentsForSystems.useQuery(
+  const { data, isLoading } = incidentClient.getBulkIncidentsForSystems.useQuery(
     { systemIds },
     { enabled: systemIds.length > 0, staleTime: 30_000 },
   );
@@ -43,6 +44,13 @@ export const IncidentSignalsFiller: React.FC<Props> = ({
   useEffect(() => {
     onSignals(INCIDENT_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(INCIDENT_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

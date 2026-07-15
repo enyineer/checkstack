@@ -70,7 +70,7 @@ export function createCatalogDeleteGroupTool(): RegisteredAiTool<
     dryRun,
     async execute({ input, rpcClient }) {
       const catalogClient = rpcClient.forPlugin(CatalogApi);
-      await catalogClient.deleteGroup(input.id);
+      await catalogClient.deleteGroup({ id: input.id });
       return { id: input.id, deleted: true };
     },
   };

@@ -11,19 +11,28 @@
  * - SUMMARY is decomposed: the quantile samples (`<base>{quantile="..."}`) are
  *   DROPPED and `<base>_sum` / `<base>_count` are kept as cumulative counters.
  * - Label values are unescaped (`\\`, `\"`, `\n`); an optional trailing sample
- *   timestamp (epoch millis) is honored, else receive time is used; trailing
- *   OpenMetrics exemplars (` # ...`) are ignored.
+ *   timestamp (epoch millis) is honored, else receive time is used; a trailing
+ *   OpenMetrics exemplar (` # {trace_id="..."} <value> [<ts-seconds>]`) is
+ *   parsed into the datapoint's `exemplars` (the chart-to-trace bridge) when it
+ *   carries a valid 32-hex trace id - a malformed exemplar is ignored, never
+ *   fatal.
  * - Non-finite sample values (`NaN`, `+Inf`, `-Inf`) are skipped (they would
  *   corrupt min/max/sum aggregates) rather than persisted.
  *
  * Pure module: no IO. Malformed lines are skipped, not fatal.
  */
 
+import type { MetricExemplar } from "@checkstack/telemetry-common";
 import type {
   CounterKind,
   MetricType,
   NormalizedDatapoint,
 } from "../../schemas";
+
+const TRACE_ID_HEX = /^[0-9a-f]{32}$/;
+const SPAN_ID_HEX = /^[0-9a-f]{16}$/;
+const ZERO_TRACE_ID = "0".repeat(32);
+const ZERO_SPAN_ID = "0".repeat(16);
 
 /** A Prometheus metric TYPE. */
 export type PromMetricType =
@@ -39,12 +48,22 @@ export interface PromParseResult {
   seriesCount: number;
 }
 
+/** A raw OpenMetrics exemplar parsed off a sample line, before validation. */
+interface ParsedExemplar {
+  traceId: string;
+  spanId?: string;
+  value: number;
+  /** Exemplar timestamp in epoch millis (OpenMetrics exposes it in SECONDS). */
+  tsMillis?: number;
+}
+
 /** One parsed sample line, before type resolution. */
 interface ParsedSample {
   name: string;
   labels: Record<string, string>;
   value: number;
   tsMillis?: number;
+  exemplar?: ParsedExemplar;
 }
 
 export function parsePrometheusText({
@@ -74,18 +93,54 @@ export function parsePrometheusText({
     const resolved = resolveSampleType(sample, types);
     if (!resolved) continue; // dropped bucket / quantile
 
+    const ts = sample.tsMillis === undefined ? now : new Date(sample.tsMillis);
+    const exemplars = buildExemplar({ parsed: sample.exemplar, fallback: ts });
     datapoints.push({
       name: resolved.name,
       type: resolved.type,
       counterKind: resolved.counterKind,
       labels: sample.labels,
       value: sample.value,
-      ts: sample.tsMillis === undefined ? now : new Date(sample.tsMillis),
+      ts,
+      exemplars,
     });
     seriesSeen.add(seriesKey(resolved.name, sample.labels));
   }
 
   return { datapoints, seriesCount: seriesSeen.size };
+}
+
+/**
+ * Turn a raw parsed exemplar into the datapoint's `exemplars` array, keeping it
+ * ONLY when it carries a valid 32-hex (non-zero) trace id. A missing/zero span
+ * id is omitted; the exemplar's own timestamp wins, else the sample's `ts`.
+ * OpenMetrics allows at most one exemplar per sample line, so this yields 0-or-1.
+ */
+function buildExemplar({
+  parsed,
+  fallback,
+}: {
+  parsed: ParsedExemplar | undefined;
+  fallback: Date;
+}): MetricExemplar[] | undefined {
+  if (!parsed) return undefined;
+  if (!TRACE_ID_HEX.test(parsed.traceId) || parsed.traceId === ZERO_TRACE_ID) {
+    return undefined;
+  }
+  const spanId =
+    parsed.spanId !== undefined &&
+    SPAN_ID_HEX.test(parsed.spanId) &&
+    parsed.spanId !== ZERO_SPAN_ID
+      ? parsed.spanId
+      : undefined;
+  return [
+    {
+      traceId: parsed.traceId,
+      ...(spanId ? { spanId } : {}),
+      value: parsed.value,
+      ts: parsed.tsMillis === undefined ? fallback : new Date(parsed.tsMillis),
+    },
+  ];
 }
 
 /** Parse a `# TYPE <name> <type>` line (HELP and other comments are ignored). */
@@ -166,10 +221,11 @@ export function parseSampleLine(line: string): ParsedSample | null {
     pos = parsed.next;
   }
 
-  // Remainder: `<value> [<timestamp>] [# exemplar...]`.
+  // Remainder: `<value> [<timestamp>] [# {exemplar-labels} <value> [<ts>]]`.
   let rest = line.slice(pos);
   const hashIndex = rest.indexOf("#");
-  if (hashIndex !== -1) rest = rest.slice(0, hashIndex); // strip exemplar
+  const exemplarText = hashIndex === -1 ? null : rest.slice(hashIndex + 1);
+  if (hashIndex !== -1) rest = rest.slice(0, hashIndex); // sample tokens only
   const tokens = rest.trim().split(/\s+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return null;
 
@@ -182,7 +238,47 @@ export function parseSampleLine(line: string): ParsedSample | null {
     if (Number.isFinite(ts)) tsMillis = ts;
   }
 
-  return { name, labels, value, tsMillis };
+  const exemplar =
+    exemplarText === null ? undefined : parseExemplar(exemplarText);
+  return { name, labels, value, tsMillis, exemplar };
+}
+
+/**
+ * Parse an OpenMetrics exemplar segment (the part AFTER the `#`):
+ * `{trace_id="...",span_id="..."} <value> [<timestamp-seconds>]`. Returns the
+ * raw fields (trace/span id lowercased, timestamp converted from seconds to
+ * millis); trace-id validity is enforced later by {@link buildExemplar}. Any
+ * malformed part yields `undefined` (the exemplar is dropped, the line is not).
+ */
+function parseExemplar(text: string): ParsedExemplar | undefined {
+  const braceIndex = text.indexOf("{");
+  if (braceIndex === -1) return undefined;
+  const parsedLabels = parseLabels(text, braceIndex);
+  if (!parsedLabels) return undefined;
+  const traceId = (parsedLabels.labels["trace_id"] ?? "").toLowerCase();
+  if (traceId.length === 0) return undefined;
+  const spanIdRaw = parsedLabels.labels["span_id"];
+
+  const rest = text
+    .slice(parsedLabels.next)
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  if (rest.length === 0) return undefined;
+  const value = parseValue(rest[0]);
+  if (value === null || !Number.isFinite(value)) return undefined;
+
+  let tsMillis: number | undefined;
+  if (rest.length >= 2) {
+    const seconds = Number(rest[1]);
+    if (Number.isFinite(seconds)) tsMillis = Math.trunc(seconds * 1000);
+  }
+  return {
+    traceId,
+    ...(spanIdRaw ? { spanId: spanIdRaw.toLowerCase() } : {}),
+    value,
+    tsMillis,
+  };
 }
 
 /** Parse a `{ k="v", ... }` label block starting at `line[start] === "{"`. */

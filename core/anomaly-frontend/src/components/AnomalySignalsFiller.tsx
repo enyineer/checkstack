@@ -28,17 +28,20 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
 export const AnomalySignalsFiller: React.FC<Props> = ({
   systemIds,
   onSignals,
+  onLoadingChange,
 }) => {
   const anomalyClient = usePluginClient(AnomalyApi);
 
-  const { data: confirmed = [] } = anomalyClient.getAnomalies.useQuery(
-    { state: "anomaly", limit: 500 },
-    { staleTime: 30_000 },
-  );
-  const { data: suspicious = [] } = anomalyClient.getAnomalies.useQuery(
-    { state: "suspicious", limit: 500 },
-    { staleTime: 30_000 },
-  );
+  const { data: confirmed = [], isLoading: confirmedLoading } =
+    anomalyClient.getAnomalies.useQuery(
+      { state: "anomaly", limit: 500 },
+      { staleTime: 30_000 },
+    );
+  const { data: suspicious = [], isLoading: suspiciousLoading } =
+    anomalyClient.getAnomalies.useQuery(
+      { state: "suspicious", limit: 500 },
+      { staleTime: 30_000 },
+    );
 
   const signals = useMemo<SystemSignalsMap>(() => {
     const inOverview = new Set(systemIds);
@@ -70,6 +73,14 @@ export const AnomalySignalsFiller: React.FC<Props> = ({
   useEffect(() => {
     onSignals(ANOMALY_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  const isLoading = confirmedLoading || suspiciousLoading;
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(ANOMALY_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

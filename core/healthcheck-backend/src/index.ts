@@ -287,20 +287,12 @@ export default createBackendPlugin({
         };
         gitopsConfigSecrets = configSecrets;
 
-        // Move any pre-channel inline secrets out of stored rows (idempotent,
-        // advisory-locked, fail-open: a backfill failure must not block boot).
-        try {
-          await backfillConfigSecrets({
-            db: typedDb,
-            registry: healthCheckRegistry,
-            collectorRegistry,
-            internalSecrets,
-            advisoryLock,
-            logger,
-          });
-        } catch (error) {
-          logger.warn("Config-secrets backfill failed; continuing boot", error);
-        }
+        // NOTE: the config-secrets backfill runs in afterPluginsReady, NOT
+        // here. Strategies contributed by OTHER plugins (e.g. logstream's
+        // LogStreamHealthStrategy) register during THEIR init(), and init
+        // order follows the service-ref graph - it is NOT guaranteed that
+        // every contributor initialized before this plugin. Backfilling here
+        // would skip configs of not-yet-registered strategies with a warn.
 
         // Resolve/search health-check configurations by name for the Teams admin
         // UI (team grants are stored as opaque `<type>:<configId>` rows, where
@@ -643,6 +635,30 @@ export default createBackendPlugin({
       }) => {
         // Store emitHook for the queue worker (Closure-based Hook Getter pattern)
         storedEmitHook = emitHook;
+
+        // Move any pre-channel inline secrets out of stored rows (idempotent,
+        // advisory-locked, fail-open: a backfill failure must not block boot).
+        // Runs HERE - after every plugin's init() - because strategies are
+        // contributed by other plugins during their init (e.g. logstream's
+        // health strategy), and only afterPluginsReady guarantees the registry
+        // is complete; running in init raced contributor init order.
+        if (gitopsConfigSecrets && resolvedAdvisoryLock) {
+          try {
+            await backfillConfigSecrets({
+              db: database,
+              registry: healthCheckRegistry,
+              collectorRegistry,
+              internalSecrets: gitopsConfigSecrets.internalSecrets,
+              advisoryLock: resolvedAdvisoryLock,
+              logger,
+            });
+          } catch (error) {
+            logger.warn(
+              "Config-secrets backfill failed; continuing boot",
+              error,
+            );
+          }
+        }
 
         // No cross-pod status-cache broadcast: the status cache runs on the
         // platform CacheManager, so a distributed backend (Redis) makes every

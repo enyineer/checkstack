@@ -22,6 +22,8 @@
 
 import {
   BodyTooLargeError,
+  chunkTelemetryBatchItems,
+  estimateTelemetryItemBytes,
   readCappedBody,
 } from "@checkstack/ingest-utils";
 import {
@@ -56,19 +58,25 @@ interface Logger {
   debug: (msg: string) => void;
 }
 
+/** Approximate the heap/serialized bytes of one forwarded wire log line. */
+function wireLineBytes(line: SatelliteLogBatchItem["lines"][number]): number {
+  // Body length + a per-line overhead + any attribute/resource JSON size. Full
+  // JSON.stringify of the whole item would be exact but O(payload) on every push;
+  // a proportional budget is all the telemetry buffer needs.
+  let bytes = line.body.length + 64;
+  if (line.attributes) bytes += JSON.stringify(line.attributes).length;
+  if (line.resource) bytes += JSON.stringify(line.resource).length;
+  return bytes;
+}
+
 /** Approximate the heap/serialized bytes of one forwarded log item. */
 export function estimateLogItemBytes(item: unknown): number {
   const typed = item as SatelliteLogBatchItem;
-  // Cheap estimate: token + per-line body/attribute size. Full JSON.stringify
-  // would be exact but O(payload) on every push; the telemetry buffer only needs
-  // a proportional budget, so approximate from body lengths + a per-line overhead.
-  let bytes = typed.streamToken.length + 16;
-  for (const line of typed.lines) {
-    bytes += line.body.length + 64;
-    if (line.attributes) bytes += JSON.stringify(line.attributes).length;
-    if (line.resource) bytes += JSON.stringify(line.resource).length;
-  }
-  return bytes;
+  return estimateTelemetryItemBytes({
+    streamToken: typed.streamToken,
+    records: typed.lines,
+    perRecordBytes: wireLineBytes,
+  });
 }
 
 /** Chunk parsed lines into wire batch items of at most {@link MAX_LINES_PER_ITEM}. */
@@ -79,14 +87,15 @@ export function buildLogBatchItems({
   streamToken: string;
   lines: IngestedLine[];
 }): SatelliteLogBatchItem[] {
-  const items: SatelliteLogBatchItem[] = [];
-  for (let i = 0; i < lines.length; i += MAX_LINES_PER_ITEM) {
-    items.push({
-      streamToken,
-      lines: lines.slice(i, i + MAX_LINES_PER_ITEM).map((l) => toWireLogLine(l)),
-    });
-  }
-  return items;
+  return chunkTelemetryBatchItems({
+    streamToken,
+    records: lines,
+    maxPerItem: MAX_LINES_PER_ITEM,
+    toItem: ({ streamToken: token, records }) => ({
+      streamToken: token,
+      lines: records.map((l) => toWireLogLine(l)),
+    }),
+  });
 }
 
 // -- small Response builders (the receiver is not the core; keep it minimal) --

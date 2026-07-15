@@ -160,6 +160,32 @@ const testContracts = {
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(z.object({ id: z.string() })),
 
+  // Create endpoint whose create-capability is also satisfied by a `creator`
+  // grant on a SIBLING type (e.g. a group creatable by a system creator).
+  createWithSiblingEndpoint: proc({
+    userType: "authenticated",
+    operationType: "mutation",
+    access: [
+      accessPair(
+        "group",
+        {
+          read: { description: "View" },
+          manage: { description: "Manage" },
+        },
+        { pluginId: "test" },
+      ).manage,
+    ],
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        alsoAcceptCreatorOf: ["test.system"],
+      },
+    },
+  })
+    .input(z.object({ name: z.string(), teamId: z.string().optional() }))
+    .output(z.object({ id: z.string() })),
+
   // Type-scoped utility endpoint: no instance to scope on, gated by ANY grant of
   // the resource type (or the global rule). READ level.
   typeScopedReadEndpoint: proc({
@@ -1339,6 +1365,110 @@ describe("create-mode team ownership", () => {
       call(procedure, { systemIds: ["sys-1"] }, { context: ctx }),
     ).rejects.toThrow();
     expect(handlerRan).toBe(false);
+  });
+
+  it("sibling-gated: a caller holding a creator grant on the sibling type may create (no per-type capability needed)", async () => {
+    let handlerRan = false;
+    const hasCreateCapability = mock(
+      (p: { objectType: string }) =>
+        // Caller is a creator of test.system, not test.group.
+        Promise.resolve({ hasCapability: p.objectType === "test.system" }),
+    );
+    const procedure = implement(testContracts.createWithSiblingEndpoint)
+      .$context<RpcContext>()
+      .use(autoAuthMiddleware)
+      .handler(() => {
+        handlerRan = true;
+        return { id: "grp-1" };
+      });
+
+    const ctx = {
+      ...mockContext,
+      // No global manage and no create-capability for the group type itself.
+      user: { type: "user" as const, id: "u1", accessRules: [] },
+      auth: {
+        ...mockContext.auth,
+        hasCreateCapability,
+        // Without the sibling gate this would reject; assert the gate authorizes.
+        authorizeCreate: (p: { alreadyAuthorized?: boolean }) =>
+          p.alreadyAuthorized
+            ? Promise.resolve({ ownerTeamId: "team-1", isPrivate: false })
+            : Promise.reject(
+                new ORPCError("FORBIDDEN", { message: "no capability" }),
+              ),
+      },
+    };
+
+    const result = await call(
+      procedure,
+      { name: "Payments", teamId: "team-1" },
+      { context: ctx },
+    );
+    expect(result).toEqual({ id: "grp-1" });
+    expect(handlerRan).toBe(true);
+    expect(hasCreateCapability).toHaveBeenCalledWith({
+      userId: "u1",
+      userType: "user",
+      objectType: "test.system",
+    });
+  });
+
+  it("sibling-gated: a caller lacking the sibling creator grant is rejected", async () => {
+    let handlerRan = false;
+    const procedure = implement(testContracts.createWithSiblingEndpoint)
+      .$context<RpcContext>()
+      .use(autoAuthMiddleware)
+      .handler(() => {
+        handlerRan = true;
+        return { id: "grp-1" };
+      });
+
+    const ctx = {
+      ...mockContext,
+      user: { type: "user" as const, id: "u1", accessRules: [] },
+      auth: {
+        ...mockContext.auth,
+        // No creator grant on any sibling type.
+        hasCreateCapability: () => Promise.resolve({ hasCapability: false }),
+        authorizeCreate: (p: { alreadyAuthorized?: boolean }) =>
+          p.alreadyAuthorized
+            ? Promise.resolve({ ownerTeamId: "team-1", isPrivate: false })
+            : Promise.reject(
+                new ORPCError("FORBIDDEN", { message: "no capability" }),
+              ),
+      },
+    };
+
+    await expect(
+      call(procedure, { name: "Payments" }, { context: ctx }),
+    ).rejects.toThrow();
+    expect(handlerRan).toBe(false);
+  });
+
+  it("sibling-gated: a global-manage holder skips the sibling check entirely", async () => {
+    const hasCreateCapability = mock(() =>
+      Promise.resolve({ hasCapability: false }),
+    );
+    const procedure = implement(testContracts.createWithSiblingEndpoint)
+      .$context<RpcContext>()
+      .use(autoAuthMiddleware)
+      .handler(() => ({ id: "grp-1" }));
+
+    const ctx = {
+      ...mockContext,
+      // Global wildcard: hasGlobalManage is true, so the sibling gate is skipped.
+      user: { type: "user" as const, id: "admin", accessRules: ["*"] },
+      auth: {
+        ...mockContext.auth,
+        hasCreateCapability,
+        authorizeCreate: () =>
+          Promise.resolve({ ownerTeamId: null, isPrivate: false }),
+      },
+    };
+
+    const result = await call(procedure, { name: "x" }, { context: ctx });
+    expect(result).toEqual({ id: "grp-1" });
+    expect(hasCreateCapability).not.toHaveBeenCalled();
   });
 
   it("rejects the create (and never runs the handler) when authorization is denied", async () => {

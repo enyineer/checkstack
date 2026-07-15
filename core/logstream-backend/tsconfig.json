@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../ai-backend"
+    },
+    {
       "path": "../auth-common"
     },
     {
@@ -18,6 +21,9 @@
     },
     {
       "path": "../cache-utils"
+    },
+    {
+      "path": "../catalog-common"
     },
     {
       "path": "../common"
@@ -45,6 +51,12 @@
     },
     {
       "path": "../signal-common"
+    },
+    {
+      "path": "../telemetry-backend"
+    },
+    {
+      "path": "../telemetry-common"
     },
     {
       "path": "../test-utils-backend"

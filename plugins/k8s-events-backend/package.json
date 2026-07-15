@@ -1,0 +1,36 @@
+{
+  "name": "@checkstack/k8s-events-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend",
+    "pluginId": "k8s-events"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin-metadata": "./src/plugin-metadata.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "eslint src --ext .ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/k8s-events-common": "workspace:*",
+    "@checkstack/telemetry-backend": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "description": "Kubernetes events telemetry source type (pull, satellite-capable)",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
+}

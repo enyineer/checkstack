@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -16,6 +16,7 @@ import {
   AlertTitle,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import { Layers } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -72,16 +73,18 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
   const accessApi = useApi(accessApiRef);
   const { allowed: allowGlobal } = accessApi.useAccess(catalogAccess.system.manage);
 
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name || "");
-      setDescription(initialData?.description || "");
-      setOwnerTeamId(null);
-      setOwnerTeamError(null);
-      setFields(metadataToRows(initialData?.metadata));
-    }
-  }, [open, initialData]);
+  // Seed the form ONCE per open transition, not on every `initialData` change.
+  // The parent rebuilds `initialData` as a fresh object literal on every
+  // render, and realtime catalog invalidations refetch the underlying system
+  // while this dialog is open - a naive `useEffect([open, initialData])` would
+  // re-seed on those refetches and wipe the user's in-progress edits.
+  useSeedFormOnOpen(open, () => {
+    setName(initialData?.name || "");
+    setDescription(initialData?.description || "");
+    setOwnerTeamId(null);
+    setOwnerTeamError(null);
+    setFields(metadataToRows(initialData?.metadata));
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

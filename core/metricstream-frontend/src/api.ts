@@ -5,8 +5,6 @@ export type {
   MetricStream,
   CreateMetricStream,
   UpdateMetricStream,
-  MetricStreamToken,
-  MetricScrapeTarget,
   MetricNameInfo,
   MetricSeriesInfo,
   ImportantEvent,

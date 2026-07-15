@@ -11,19 +11,33 @@ describe("toCapabilityBadges", () => {
   });
 
   it("maps a known id to its label and description", () => {
-    const [badge] = toCapabilityBadges(["scrape"]);
+    const [badge] = toCapabilityBadges(["telemetry-pull"]);
     expect(badge).toEqual({
-      id: "scrape",
-      label: "Scrape",
-      description: KNOWN_SATELLITE_CAPABILITIES.find((c) => c.id === "scrape")!
+      id: "telemetry-pull",
+      label: "Telemetry pull",
+      description: KNOWN_SATELLITE_CAPABILITIES.find(
+        (c) => c.id === "telemetry-pull",
+      )!
         .description,
       known: true,
     });
   });
 
   it("orders known capabilities canonically regardless of advertised order", () => {
-    const badges = toCapabilityBadges(["syslog", "telemetry", "scrape"]);
-    expect(badges.map((b) => b.id)).toEqual(["telemetry", "scrape", "syslog"]);
+    const badges = toCapabilityBadges(["syslog", "telemetry", "telemetry-pull"]);
+    expect(badges.map((b) => b.id)).toEqual(["telemetry", "telemetry-pull", "syslog"]);
+  });
+
+  it("renders trace-receivers as a known labelled badge", () => {
+    const [badge] = toCapabilityBadges(["trace-receivers"]);
+    expect(badge).toEqual({
+      id: "trace-receivers",
+      label: "Trace receivers",
+      description: KNOWN_SATELLITE_CAPABILITIES.find(
+        (c) => c.id === "trace-receivers",
+      )!.description,
+      known: true,
+    });
   });
 
   it("renders an unknown id as its own badge with a null description", () => {
@@ -34,8 +48,8 @@ describe("toCapabilityBadges", () => {
   });
 
   it("places unknown ids after known ones, preserving advertised order", () => {
-    const badges = toCapabilityBadges(["zeta", "scrape", "alpha"]);
-    expect(badges.map((b) => b.id)).toEqual(["scrape", "zeta", "alpha"]);
+    const badges = toCapabilityBadges(["zeta", "telemetry-pull", "alpha"]);
+    expect(badges.map((b) => b.id)).toEqual(["telemetry-pull", "zeta", "alpha"]);
     expect(badges.find((b) => b.id === "zeta")?.known).toBe(false);
   });
 

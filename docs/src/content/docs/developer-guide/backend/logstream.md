@@ -13,9 +13,9 @@ The backend plugin is thin orchestration (`src/index.ts`): it builds the shared 
 
 - `src/storage/` builds the batch-insert, bucket-upsert, activity-touch, and windowed-read helpers used by ingest, health, and the API.
 - `src/drain/` is the pattern engine (masking, the fixed-depth parse tree, persistence sync).
-- `src/ingest/` owns the raw HTTP handlers, token auth, the per-pod buffer and flush worker, and the syslog listener.
+- `src/ingest/` owns the raw HTTP handlers, token auth, the per-pod buffer and flush worker, and the syslog listener source type.
 - `src/health/` registers the strategy and collectors, the fast-path hook, the silence detector, and the retention/rollup jobs.
-- `src/api/` is the oRPC router and service (CRUD, token lifecycle, viewer reads) plus the token-cache convention.
+- `src/api/` is the oRPC router and service (stream CRUD, viewer reads) plus the ingest-token-cache convention. Ingest tokens are no longer a logstream resource: they are platform-minted [push-source](/checkstack/developer-guide/backend/telemetry-sources/#push-sources) tokens.
 
 ## Ingestion pipeline
 
@@ -28,11 +28,14 @@ Raw handlers are registered with `rpc.registerHttpHandler(handler, path)` and mo
 
 Both read the body through a size-capped reader (`src/ingest/http/body.ts`) that enforces a 10 MB compressed cap and, for gzip, a 50 MB inflated cap via `zlib`'s `maxOutputLength` so a decompression bomb is refused before exhausting memory. Oversize yields `413`, a wholly-unparseable body yields `400`, buffer saturation or a soft rate-limit breach yields `429` with `Retry-After`.
 
-The syslog listener (`src/ingest/syslog/listener.ts`) is created only when `CHECKSTACK_LOGSTREAM_SYSLOG_PORT` is set. It binds a `Bun.listen` TCP socket (TLS when a cert and key are configured), frames RFC 5424 messages by octet-counting or LF, and resolves the source token from the `checkstack@50501` structured-data element or a `@ckls_...@ ` message prefix. Every pod binds its own socket on the same port behind a load balancer, so no cross-pod coordination is needed; to avoid a port clash the listener binds only on the default instance, not on preview instances.
+Syslog is no longer an env-gated listener baked into the ingest path. It is now the `logstream.syslog` [telemetry listener source type](/checkstack/developer-guide/backend/telemetry-sources/#listener-sources) (`src/ingest/syslog/source-type.ts`): an operator creates a syslog source, configures its `port`, `host`, `maxConnections`, and optional `tls: { certPath, keyPath }`, and binds it to one log stream. The platform's pod-local listener manager starts one `Bun.listen` TCP socket (TLS when cert and key paths are set) per enabled instance on every pod, frames RFC 5424 by octet-counting or LF, and emits each parsed line to the bound stream through the telemetry sink. The instance BINDING is the authorization and routing, so the core listener does NO per-message token handling - there is no `checkstack@50501` structured-data element or `@ckls_...@ ` prefix on this path. A shared-port bind that loses the race on a non-default pod records `EADDRINUSE` as the instance's `lastError` rather than crashing boot.
+
+> [!NOTE]
+> The satellite syslog receiver is a separate path that KEEPS the in-message `ckls_` token protocol, because it forwards to the core's stream-token-authorized push endpoint rather than binding directly to a stream. Only the core listener source type drops the token. See [satellite telemetry](/checkstack/developer-guide/backend/satellite-telemetry/).
 
 ### Auth
 
-The ingest handlers have no RBAC principal. The source token is the authorization, scoped to ingest for exactly one stream. `extractIngestToken` pulls a `ckls_`-shaped token from the `Authorization: Bearer` or `X-Checkstack-Token` header, and the authenticator hashes it with sha256 and looks the hash up. Verdicts are cached in the shared plugin-scoped cache under `ingest-token:<sha256hex>` (see [Token cache convention](#token-cache-convention)), so the hot path does no per-request database work. There is no bcrypt on this path. A token's `lastUsedAt` is updated at most once per flush cycle, never per request.
+The ingest handlers have no RBAC principal. The source token is the authorization, scoped to ingest for exactly the stream its push source is bound to. `extractIngestToken` pulls a `ckls_`-shaped token from the `Authorization: Bearer` or `X-Checkstack-Token` header, and the authenticator hashes it with sha256 and looks the hash up. The lookup is the PLATFORM's push-token verifier (`createPushTokenLookup({ verifier, sourceTypeId: "logstream.push", signal: "logs" })`), so logstream owns no token storage; the hash lives on `telemetry_sources.push_token_hash`. Verdicts are cached in the shared plugin-scoped cache under `ingest-token:<sha256hex>` (see [Token cache convention](#token-cache-convention)), so the hot path does no per-request database work. There is no bcrypt on this path. Push activity is stamped with the platform's throttled `recordPushSeen` (`lastRunAt`, at most once per source per pod per minute), never per request.
 
 ### Buffer and flush
 
@@ -40,7 +43,7 @@ Normalized lines are admitted into a bounded per-pod buffer (line and byte cappe
 
 1. Classify every line through the Drain engine to a `patternId` (with its wildcard values), and queue any new or refined pattern rows. Severity pattern overrides from the stream's severity rules are applied here, before anything downstream sees the band.
 2. Fold per-minute severity, pattern, and pattern-variable deltas in memory, then upsert them with `INSERT ... ON CONFLICT DO UPDATE` accumulation (a few rows, never per line). Numeric wildcard values fold into per-`(pattern, variable, minute)` count/sum/min/max buckets that back the pattern-metric collector.
-3. Select which raw lines to persist (the sampler; see below) and insert them in one multi-row statement, chunked.
+3. Select which raw lines to persist (the sampler; see below), apply the stream's optional trace-extraction rules to kept lines that don't already carry a trace/span id (`config.traceExtraction` - attribute paths, then a capture-group body regex; see [trace correlation](/checkstack/developer-guide/backend/trace-correlation/)), and insert them in one multi-row statement, chunked.
 4. Touch the one-row-per-stream activity record.
 
 The flush is split so a failed write can be retried without re-running the non-idempotent Drain classification: `prepareFlush` mutates the engine exactly once and produces a plan; `writeFlush` applies the plan in one transaction and is safe to retry. The classify loop yields to the event loop periodically so even a full-buffer flush cannot stall the pod. On a first write failure the flush retries once after a short backoff; on a second failure it drops the batch, increments a dropped counter, and logs, but never crashes the ingest path and never holds more than one in-flight flush. Error-spike detection runs after commit in its own read.
@@ -65,7 +68,7 @@ The sampler's per-minute counters span the roughly 120 flushes in a minute, so i
 
 ### Responsiveness load guard
 
-`src/ingest/load-guard.it.test.ts` is an integration guard that hammers the real end-to-end ingest path (native handler, auth, parse/normalize, buffer, flush worker, storage) against real Postgres and asserts that high ingest volume does not degrade the rest of the application. It runs in the standard integration lane alongside every other `*.it.test.ts`, in its own throwaway schema, and takes about 15 seconds.
+`src/ingest/load-guard.it.test.ts` is an integration guard that hammers the real end-to-end ingest path (native handler, auth, parse/normalize, buffer, flush worker, storage) against real Postgres and asserts that high ingest volume does not degrade the rest of the application. It runs ONLY in the explicit load-testing lane (`bun run test:load`, which sets `CHECKSTACK_LOAD_TESTS=1` on top of `CHECKSTACK_IT=1`), in its own throwaway schema, and takes about 15 seconds. It is deliberately excluded from the normal `bun test` and CI lanes - it saturates the machine by design and exists to diagnose performance regressions on demand, not to gate every run.
 
 The guard has two deliberately separated phases:
 
@@ -80,9 +83,9 @@ Run it locally against the dev-compose Postgres:
 
 ```bash
 docker compose -f docker-compose-dev.yml up -d postgres redis
-CHECKSTACK_IT=1 bun test load-guard
+bun run test:load
 # quicker local pass with a shorter Phase A window:
-CHECKSTACK_IT_LOAD_MS=3000 CHECKSTACK_IT=1 bun test load-guard
+CHECKSTACK_IT_LOAD_MS=3000 bun run test:load
 ```
 
 ## State and scale
@@ -149,20 +152,20 @@ The rollup uses `INSERT ... SELECT ... ON CONFLICT DO UPDATE` to sum minute rows
 
 ## API and RLAC
 
-The oRPC contract is `logstream-common/src/rpc-contract.ts`. The stream is the only team-scopable resource; tokens, events, patterns, and buckets are all scoped by their owning `streamId`.
+The oRPC contract is `logstream-common/src/rpc-contract.ts`. The stream is the only team-scopable resource; events, patterns, and buckets are all scoped by their owning `streamId`. Ingest tokens are not a logstream resource - they are minted and rotated on the platform's push source.
 
 The resource type and both access rules use the same noun, `stream`, so grants key on `logstream.stream` and the frontend gates check the same type (the keying rule in the [RLAC guide](/checkstack/developer-guide/security/)). Each write procedure declares exactly one `instanceAccess` mode:
 
 - `createStream` uses `create` (an owning team is written for the new id).
-- `updateStream`, `deleteStream`, and the token procedures use `idParam` on the stream id under the `manage` rule.
+- `updateStream` and `deleteStream` use `idParam` on the stream id under the `manage` rule.
 - `listStreams` and `listStreamSummaries` use `listKey` (each summary is keyed on `id`, the stream id, so the post-filter works for team-scoped callers).
 - The viewer reads (`searchEvents`, `getSeverityBuckets`, `getPatternBuckets`, `listPatterns`, `listImportantEvents`, `getStreamOverview`) use `idParam` under the `read` rule.
 - `listStreamsForPicker` uses `typeScoped`, so a team-scoped stream manager can populate the health-strategy stream dropdown without holding the global rule.
 
-The backend registers a `resourceResolverRegistry` entry under `logstream.stream` so the Teams UI can render grant names. Source tokens are a separate ingest-only authorization and are never RBAC principals.
+The backend registers a `resourceResolverRegistry` entry under `logstream.stream` so the Teams UI can render grant names. Push-source tokens are a separate ingest-only authorization (platform-minted) and are never RBAC principals.
 
 ## Token cache convention
 
-Both the ingest auth path and the API revoke/delete path build the same plugin-scoped cache with `createIngestTokenCache` and key token verdicts with `ingestTokenCacheKey(tokenHash)` (`ingest-token:<sha256hex>`). Sharing the builder and key means revoke and delete-stream invalidate the exact scope and key the ingest path caches under, event-driven and cross-pod (the cache is the shared platform cache), so a revoked token stops authenticating on the next HTTP request - the same weld-the-write-to-its-invalidation pattern the auth role cache uses. The 60 second TTL is only a backstop for a cache outage, not the revocation mechanism. Do not hand-roll a different key or a raw provider key that would miss the scope prefix.
+The ingest auth path builds a plugin-scoped cache with `createIngestTokenCache` and keys token verdicts with `ingestTokenCacheKey(tokenHash)` (`ingest-token:<sha256hex>`). Using the API-owned builder guarantees the platform's push-token invalidation converges the exact scope and key this path caches under: the pod subscribes to the `telemetry.push-token.invalidated` hook (broadcast mode, filtered to `logstream.push`) and, on each event, deletes the affected positive key + miss marker (`revoked`) or clears the negative entry (`minted`). This is event-driven and cross-pod (the cache is the shared platform cache), so a rotated or revoked token stops authenticating on the next HTTP request. The 60 second TTL is only a backstop for a lost event, not the revocation mechanism. Do not hand-roll a different key or a raw provider key that would miss the scope prefix.
 
-Two narrow windows remain TTL-bounded because they live in pod-local memory that a shared-cache invalidation cannot reach: a long-lived syslog connection re-verifies its per-connection verdict at most every 60 seconds (a revoked token can keep ingesting on an already-open connection for up to that long), and the per-pod negative cache for unknown token hashes expires within 30 seconds (only relevant to a token minted moments after its hash was probed, which mint also clears from the shared miss marker).
+One narrow window remains TTL-bounded because it lives in pod-local memory that a shared-cache invalidation cannot reach: the per-pod negative cache for unknown token hashes expires within 30 seconds (only relevant to a token minted moments after its hash was probed, which the `minted` event also clears from the shared miss marker). The syslog path no longer holds token verdicts at all - the core syslog listener authorizes by stream binding, not a per-message token.

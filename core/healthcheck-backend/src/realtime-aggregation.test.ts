@@ -1,12 +1,11 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { getHourBucketStart, incrementHourlyAggregate } from "./realtime-aggregation";
 import {
-  getHourBucketStart,
   serializeTDigest,
   deserializeTDigest,
-  incrementHourlyAggregate,
-} from "./realtime-aggregation";
+  createTDigest,
+} from "@checkstack/backend-api";
 import { computeAssertionKey } from "@checkstack/healthcheck-common";
-import { TDigest } from "tdigest";
 
 describe("getHourBucketStart", () => {
   it("floors timestamp to the hour", () => {
@@ -42,7 +41,7 @@ describe("getHourBucketStart", () => {
 
 describe("t-digest serialization", () => {
   it("serializes and deserializes empty t-digest", () => {
-    const original = new TDigest();
+    const original = createTDigest();
     const serialized = serializeTDigest(original);
     const restored = deserializeTDigest(serialized);
 
@@ -52,7 +51,7 @@ describe("t-digest serialization", () => {
   });
 
   it("serializes and deserializes t-digest with values", () => {
-    const original = new TDigest();
+    const original = createTDigest();
     original.push(100);
     original.push(200);
     original.push(300);
@@ -67,7 +66,7 @@ describe("t-digest serialization", () => {
   });
 
   it("preserves p95 accuracy after serialization", () => {
-    const original = new TDigest();
+    const original = createTDigest();
     // Add 100 values from 1 to 100
     for (let i = 1; i <= 100; i++) {
       original.push(i);
@@ -85,7 +84,7 @@ describe("t-digest serialization", () => {
 
   it("handles incremental updates correctly", () => {
     // First batch
-    const digest1 = new TDigest();
+    const digest1 = createTDigest();
     digest1.push(100);
     digest1.push(110);
 
@@ -254,7 +253,7 @@ describe("incrementHourlyAggregate", () => {
   it("updates min/max when existing aggregate has values", async () => {
     // Set up existing aggregate
     existingAggregate = {
-      tdigestState: serializeTDigest(new TDigest()),
+      tdigestState: serializeTDigest(createTDigest()),
       minLatencyMs: 100,
       maxLatencyMs: 200,
     };
@@ -309,7 +308,7 @@ describe("incrementHourlyAggregate", () => {
 
   it("updates max when new latency is higher", async () => {
     existingAggregate = {
-      tdigestState: serializeTDigest(new TDigest()),
+      tdigestState: serializeTDigest(createTDigest()),
       minLatencyMs: 100,
       maxLatencyMs: 200,
     };
@@ -361,7 +360,7 @@ describe("incrementHourlyAggregate", () => {
 
   it("accumulates t-digest state across multiple runs", async () => {
     // First run
-    const digest1 = new TDigest();
+    const digest1 = createTDigest();
     digest1.push(100);
     digest1.push(200);
     digest1.push(300);

@@ -9,11 +9,11 @@ A metric stream receives numeric metrics from your applications and infrastructu
 
 A stream accepts metrics from several source types at once, and more can be added by plugins:
 
-- **OTLP push**: applications and collectors send OpenTelemetry metrics to the stream's endpoint, authenticated by a source token.
-- **Prometheus scraping**: Checkstack pulls from exporter endpoints you configure as scrape targets (URL, interval, optional bearer token). Failing targets are surfaced on the stream and raise an important event when they stay down.
+- **OTLP push**: applications and collectors send OpenTelemetry metrics to the stream's endpoint, authenticated by a source token minted when you add a push source.
+- **Prometheus scraping**: add a Prometheus scrape source (URL, interval, optional bearer token) and Checkstack pulls the exporter on the interval and routes the series into the stream. A scrape that keeps failing is surfaced on the source. This is one of the platform's pluggable telemetry sources, managed on the stream's Sources tab and on the global Sources page.
 - **JSON push**: a minimal endpoint for scripts and custom apps without an SDK.
 
-Push sources authenticate with per-stream **source tokens** (`ckms_` prefix), shown once at mint time and revocable - the same model as log streams.
+Push sources authenticate with a **source token** (`ckms_` prefix) minted when you add a **Push (OTLP / native)** source on the stream's Sources tab. The token is shown once on create; rotate it from the source's rotate action and revoke it by disabling or deleting the source - the same model as log streams.
 
 ## Series, gauges, and counters
 

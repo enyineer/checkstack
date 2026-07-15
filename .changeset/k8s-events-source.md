@@ -1,0 +1,26 @@
+---
+"@checkstack/k8s-events-common": minor
+"@checkstack/k8s-events-backend": minor
+"@checkstack/satellite": minor
+---
+
+New Kubernetes events source (`k8s-events.k8s-events`): an interval-pull
+source that lists cluster events from the modern `events.k8s.io/v1` API
+(request shapes verified against the official Kubernetes API reference)
+and ingests them as log records - Warning events as warnings, with the
+event's reason/note as the body and the regarding-object identity,
+reporting controller, and a stable `k8s.event.uid` in the attributes.
+Auth is a service-account bearer token (encrypted at rest, resolved
+just-in-time on satellites); namespace, fieldSelector and labelSelector
+scope the pull. Time-window pulls overlap slightly by design
+(`lookbackSeconds`), so rare duplicates are possible and documented -
+the stable event identity enables future dedupe. Supports satellite
+execution via a statically-linked pull executor.
+
+`maxEventsPerPull` caps EMITTED in-window records (the list API returns
+events roughly oldest-first, so the scan pages past out-of-window
+backlog to reach recent events); the scan itself is bounded by a
+40-page budget, and a busy cluster that exhausts it yields a partial
+window with an operator warning (core and satellite) recommending a
+namespace or fieldSelector, while a server that pages forever without
+items fails as a transport error.

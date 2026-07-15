@@ -1,46 +1,6 @@
 import { createHook } from "@checkstack/backend-api";
 
 /**
- * Cross-pod token lifecycle notification, emitted by the API area after a
- * token mutation commits and consumed (broadcast mode) by every pod's ingest
- * area.
- *
- * WHY THIS EXISTS: the shared-cache invalidation the API already performs
- * reaches every pod's HTTP auth path immediately (the verdict cache IS the
- * shared cache), but it cannot reach state held in another pod's process
- * memory. Two such states exist:
- *
- * - a long-lived syslog connection's per-connection verdict (re-verified only
- *   every 60s) - without this event, a REVOKED token keeps ingesting on an
- *   already-open connection until that TTL expires;
- * - the per-pod negative (unknown-token) cache - without this event, a token
- *   MINTED moments after its hash was probed could be rejected for up to the
- *   negative TTL on that pod.
- *
- * Both emitter and consumers live in this plugin, so the hook contract stays
- * backend-internal. Delivery is at-least-once and asynchronous; the TTLs on
- * both pod-local caches remain as the backstop if the bus is delayed or down.
- */
-export interface LogstreamTokensInvalidatedPayload {
-  streamId: string;
-  /**
-   * Why the tokens changed. `revoked` and `stream_deleted` mean the tokens
-   * must STOP authenticating (evict positive per-connection verdicts);
-   * `minted` means a NEW token exists (clear negative caches so it starts
-   * authenticating immediately).
-   */
-  reason: "revoked" | "stream_deleted" | "minted";
-  tokenIds: string[];
-  /** sha256 hex hashes, matching the ingest auth cache keys. */
-  tokenHashes: string[];
-}
-
-export const logstreamTokensInvalidatedHook =
-  createHook<LogstreamTokensInvalidatedPayload>(
-    "logstream.tokens.invalidated",
-  );
-
-/**
  * Cross-pod user-pattern sync, emitted by the API area after a `createPattern` /
  * `deletePattern` commits and consumed (broadcast mode) by every pod's ingest
  * area, which calls `DrainEngine.upsertUserPattern` / `removeUserPattern` to

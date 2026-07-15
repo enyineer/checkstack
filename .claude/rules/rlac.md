@@ -55,6 +55,15 @@ scoped elsewhere.
 - `idParam: "id"` - authorize against the caller's grant on THIS resource id.
 - `create: { teamIdParam, idField }` - a create-capability grant (or a parent
   gate) authorizes creation; the owning-team grant is written for the new id.
+  - `create.parent: { resourceType, idParam }` - also authorize by MANAGE on a
+    parent INSTANCE named in the payload (e.g. an incident "for" a system).
+  - `create.alsoAcceptCreatorOf: [type, ...]` - also authorize by a `creator`
+    (create-capability) grant on a SIBLING TYPE, no instance needed. Type-scoped,
+    strictly the `creator` grant (an instance editor/owner grant does NOT count -
+    that is what `parent` is for). Use for sibling self-service, e.g. a
+    `catalog.system` creator may also create `catalog.group` / `catalog.environment`.
+    Each listed type must itself be team-scoped (the conformance test enforces
+    this). The owning team is still resolved from `teamIdParam`/membership.
 - `parentScope: { resourceType, action, idParam }` - authorize by MANAGE on a
   PARENT (e.g. an incident "for" a `catalog.system`). The parent type must itself
   be team-scoped.

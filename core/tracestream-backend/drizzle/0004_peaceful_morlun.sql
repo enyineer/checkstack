@@ -1,0 +1,12 @@
+-- Drop the legacy per-stream push-token table. Push-token management moved to
+-- the telemetry platform (`tracestream.push` source instances on
+-- `telemetry_sources`), so this table is no longer read or written.
+--
+-- ORDERING DEPENDENCY (safe by construction): telemetry migration
+-- `0002_lean_warlock` PROMOTES every non-revoked `trace_stream_tokens` row into
+-- a `tracestream.push` source instance (id + token hash reused verbatim) so
+-- existing shippers keep authenticating without a re-mint. tracestream-backend
+-- depends on @checkstack/telemetry-backend, and plugin migrations run in
+-- topological dependency order (deps first), so that promotion is GUARANTEED to
+-- have run before this DROP in the same boot. Never reorder or edit this pair.
+DROP TABLE "trace_stream_tokens" CASCADE;

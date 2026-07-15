@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -37,36 +38,6 @@ export const logStreams = pgTable("log_streams", {
 });
 
 /**
- * Per-stream source tokens. Only the sha256 hash and an 8-char display prefix
- * are stored; the full secret is shown once at mint. `tokenHash` is uniquely
- * indexed - it is the ingest auth lookup key.
- */
-export const logStreamTokens = pgTable(
-  "log_stream_tokens",
-  {
-    id: text("id").primaryKey(),
-    // No FK to log_streams: like every other stream-scoped table here
-    // (events/buckets/patterns), cleanup on stream delete is done explicitly in
-    // deleteStream. This keeps the schema uniform and avoids drizzle-kit
-    // emitting a `public`-qualified FK target, which breaks the plugin's
-    // schema-scoped migration (plugins do not run in the `public` schema).
-    streamId: text("stream_id").notNull(),
-    name: text("name").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    tokenPrefix: text("token_prefix").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  },
-  (t) => [
-    index("log_stream_tokens_hash_uq").on(t.tokenHash),
-    index("log_stream_tokens_stream_idx").on(t.streamId),
-  ],
-);
-
-/**
  * Capped raw log lines. `id` is a bigint identity (cheap, monotonic) used as
  * the keyset tiebreak in `(ts, id)` search pagination. Indexes are kept to the
  * minimum needed for search + retention delete to keep write cost low.
@@ -98,6 +69,13 @@ export const logEvents = pgTable(
       t.ts.desc(),
     ),
     index("log_events_ts_idx").on(t.ts),
+    // Trace correlation lookup: `findEventsByTraceId` and the `searchEvents`
+    // trace filter both key on `trace_id`, newest-first. PARTIAL (only rows that
+    // carry a trace id) so it stays small - most lines have no trace id, and an
+    // index entry for every NULL would bloat it for no query benefit.
+    index("log_events_trace_ts_idx")
+      .on(t.traceId, t.ts.desc(), t.id.desc())
+      .where(sql`${t.traceId} IS NOT NULL`),
   ],
 );
 
@@ -267,6 +245,34 @@ export const logImportantEvents = pgTable(
       .notNull(),
   },
   (t) => [index("log_important_events_stream_ts_idx").on(t.streamId, t.ts.desc())],
+);
+
+/**
+ * Explicit stream -> catalog-system links. A human links a stream to the systems
+ * it produces logs for; the UI SUGGESTS candidates from observed `service.name`
+ * values but never auto-links. Full-replacement editor: `setSystemLinks` clears
+ * and re-inserts a stream's rows in one transaction.
+ *
+ * `streamId` carries no FK to `log_streams` for the SAME reason as
+ * `log_stream_tokens` (uniform schema, no `public`-qualified FK target that would
+ * break the schema-scoped migration); cleanup on stream delete is explicit in
+ * `deleteStream`. `systemId` is a BARE catalog id with no FK across the plugin
+ * boundary - mirrors `incident_systems` / `system_health_checks`, which document
+ * that a domain plugin never FKs into catalog's tables (a deleted system simply
+ * leaves a dangling link that the read joins tolerate / a future sweep prunes).
+ */
+export const logStreamSystemLinks = pgTable(
+  "log_stream_system_links",
+  {
+    streamId: text("stream_id").notNull(),
+    systemId: text("system_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.streamId, t.systemId] }),
+    // Reverse lookup for the system-page direction (`listStreamsForSystem`,
+    // `listLinkedStreamStatuses`): given a system, find its linked streams.
+    index("log_stream_system_links_system_idx").on(t.systemId),
+  ],
 );
 
 /**

@@ -11,13 +11,17 @@ import { pluginMetadata } from "./plugin-metadata";
 export const catalogResourceTypes = {
   system: resourceType(pluginMetadata, "system"),
   group: resourceType(pluginMetadata, "group"),
+  environment: resourceType(pluginMetadata, "environment"),
 };
 
 /**
  * Access rules for the Catalog plugin.
  *
- * Systems have instance-level access control (team-based filtering).
- * Groups and views are global (no team-based filtering).
+ * Systems, groups, and environments are team-manageable: their WRITES
+ * (create/update/delete) are team-scoped, and a caller who may create systems
+ * may also create groups/environments (see the create procs'
+ * `alsoAcceptCreatorOf` sibling gate). Their READS stay public - groups and
+ * environments are shared browse facets everyone can see. Views remain global.
  */
 export const catalogAccess = {
   /**
@@ -43,7 +47,9 @@ export const catalogAccess = {
   ),
 
   /**
-   * Group access (global, no team-based filtering).
+   * Group access. Reads are public (shared browse facet); writes are
+   * team-scoped (create-mode owner grant + per-instance manage). A system
+   * creator may also create groups (create proc's `alsoAcceptCreatorOf`).
    */
   group: accessPair(
     "group",
@@ -63,11 +69,11 @@ export const catalogAccess = {
   ),
 
   /**
-   * Environment access (global, no team-based filtering).
-   *
-   * Environments are an instance-wide catalog primitive (a sibling of
-   * groups): a free-form set of custom fields that any system can belong
-   * to many-to-many.
+   * Environment access. A sibling of groups: a free-form set of custom fields
+   * that any system can belong to many-to-many. Reads are public (shared browse
+   * facet); writes are team-scoped (create-mode owner grant + per-instance
+   * manage). A system creator may also create environments (create proc's
+   * `alsoAcceptCreatorOf`).
    */
   environment: accessPair(
     "environment",

@@ -1,76 +1,15 @@
 import { describe, it, expect } from "bun:test";
 import type { SeriesCumulativePoint, SeriesWindowAggregate } from "../storage";
 import {
-  computeWindowBounds,
-  computeSecondsSinceLastSample,
   sumCumulativeIncrease,
   computeCounterRate,
   buildMetricWindowResult,
-  MIN_WINDOW_SECONDS,
 } from "./window";
 
+// The complete-minute window math + seconds-since-last helper are covered by
+// @checkstack/healthcheck-common's own health-window.test.ts; this file only
+// exercises the metric-specific folds + result assembly over them.
 const MINUTE = 60_000;
-
-describe("computeWindowBounds", () => {
-  it("defaults the window to the check interval, floored to whole minutes", () => {
-    // now = 10:00:30; interval 180s (3 min).
-    const now = new Date("2026-01-01T10:00:30Z");
-    const b = computeWindowBounds({ now, windowSeconds: undefined, intervalSeconds: 180 });
-    expect(b.windowMinutes).toBe(3);
-    expect(b.to.toISOString()).toBe("2026-01-01T10:00:00.000Z"); // last complete minute
-    expect(b.from.toISOString()).toBe("2026-01-01T09:57:00.000Z");
-    // readTo includes the in-progress minute.
-    expect(b.readTo.toISOString()).toBe("2026-01-01T10:01:00.000Z");
-  });
-
-  it("clamps sub-minute windows to one whole minute", () => {
-    const now = new Date("2026-01-01T10:00:30Z");
-    const b = computeWindowBounds({ now, windowSeconds: 10, intervalSeconds: 30 });
-    expect(b.windowMinutes).toBe(1);
-    expect(b.to.getTime() - b.from.getTime()).toBe(MINUTE);
-  });
-
-  it("honours an explicit windowSeconds over the interval", () => {
-    const now = new Date("2026-01-01T10:05:00Z");
-    const b = computeWindowBounds({ now, windowSeconds: 600, intervalSeconds: 60 });
-    expect(b.windowMinutes).toBe(10);
-  });
-
-  it("falls back to the minimum window on a non-finite interval", () => {
-    const now = new Date("2026-01-01T10:00:30Z");
-    const b = computeWindowBounds({
-      now,
-      windowSeconds: undefined,
-      intervalSeconds: Number.NaN,
-    });
-    expect(b.windowMinutes).toBe(MIN_WINDOW_SECONDS / 60);
-  });
-});
-
-describe("computeSecondsSinceLastSample", () => {
-  const now = new Date("2026-01-01T10:00:00.000Z");
-  const created = new Date("2026-01-01T09:00:00Z");
-
-  it("counts from the last sample when present", () => {
-    const last = new Date("2026-01-01T09:59:30Z");
-    expect(
-      computeSecondsSinceLastSample({ now, lastSampleAt: last, streamCreatedAt: created }),
-    ).toBe(30);
-  });
-
-  it("falls back to stream age when never seen (not a sentinel)", () => {
-    expect(
-      computeSecondsSinceLastSample({ now, lastSampleAt: null, streamCreatedAt: created }),
-    ).toBe(3600);
-  });
-
-  it("clamps a future last-sample (clock skew) to 0", () => {
-    const future = new Date("2026-01-01T10:00:05Z");
-    expect(
-      computeSecondsSinceLastSample({ now, lastSampleAt: future, streamCreatedAt: created }),
-    ).toBe(0);
-  });
-});
 
 describe("sumCumulativeIncrease (reset detection)", () => {
   const p = (

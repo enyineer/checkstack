@@ -1,0 +1,12 @@
+-- Drop the legacy per-stream source-token table. Push-token management moved to
+-- the telemetry platform's PUSH source mode: a `logstream.push` telemetry source
+-- instance now owns each shipper token (hash-only, platform-minted).
+--
+-- PROMOTION DEPENDENCY: this DROP is safe ONLY because telemetry migration 0002
+-- already PROMOTED every non-revoked `log_stream_tokens` row into a
+-- `telemetry_sources` row of type `logstream.push` (same id, hash copied
+-- verbatim), so no live shipper token is lost by dropping this table. Migrations
+-- run in TOPOLOGICAL dependency order and logstream-backend depends on
+-- telemetry-backend, so telemetry 0002 is guaranteed to run BEFORE this
+-- migration. Do NOT reorder these or drop this table before the promotion.
+DROP TABLE "log_stream_tokens" CASCADE;

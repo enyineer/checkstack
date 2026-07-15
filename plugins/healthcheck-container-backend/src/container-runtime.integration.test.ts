@@ -21,6 +21,16 @@ import {
 // in the fast lane: it owns a loopback server, needs no external service, and
 // runs unchanged in CI.
 
+// Transport timeout for the success-path probes below. It is deliberately
+// generous: the server is an in-process loopback (microsecond responses), so
+// the ONLY thing that can make a request approach this bound is event-loop /
+// scheduler starvation under the parallel suite. Sizing it well above realistic
+// contention latency means a COMPLETED request (a 2xx, or a completed 404) is
+// never turned into a spurious transport failure — the actual thing under test.
+// A genuine transport failure (connection refused) still fails fast on its own
+// short timeout below.
+const TRANSPORT_TIMEOUT_MS = 20_000;
+
 /** The subset of the Docker Engine / Podman libpod REST API we depend on. */
 function dockerApiHandler(req: Request): Response {
   const { pathname } = new URL(req.url);
@@ -94,7 +104,7 @@ describe("container transport integration (real HTTP)", () => {
     const connected = await strategy.createClient({
       endpoint,
       container: "web",
-      timeout: 2000,
+      timeout: TRANSPORT_TIMEOUT_MS,
     });
     try {
       const { result, error } = await new ContainerStatusCollector().execute({
@@ -122,7 +132,7 @@ describe("container transport integration (real HTTP)", () => {
     const connected = await strategy.createClient({
       endpoint,
       container: "web",
-      timeout: 2000,
+      timeout: TRANSPORT_TIMEOUT_MS,
     });
     try {
       const { result, error } = await new ContainerStatsCollector().execute({
@@ -144,7 +154,7 @@ describe("container transport integration (real HTTP)", () => {
     const connected = await strategy.createClient({
       endpoint,
       container: "db",
-      timeout: 2000,
+      timeout: TRANSPORT_TIMEOUT_MS,
     });
     try {
       const { result, error } = await new ContainerStatusCollector().execute({
@@ -170,7 +180,7 @@ describe("container transport integration (real HTTP)", () => {
     const connected = await strategy.createClient({
       endpoint,
       container: "does-not-exist",
-      timeout: 2000,
+      timeout: TRANSPORT_TIMEOUT_MS,
     });
     try {
       const { result, error } = await new ContainerStatusCollector().execute({
@@ -220,7 +230,7 @@ describe("container transport integration (real unix socket)", () => {
     const connected = await strategy.createClient({
       endpoint: `unix://${socketPath}`,
       container: "web",
-      timeout: 2000,
+      timeout: TRANSPORT_TIMEOUT_MS,
     });
     try {
       const { result, error } = await new ContainerStatusCollector().execute({

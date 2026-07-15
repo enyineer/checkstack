@@ -91,6 +91,9 @@ const anonymousAuth: AuthService = {
   async hasAnyTypeGrant() {
     return { hasGrant: false };
   },
+  async hasCreateCapability() {
+    return { hasCapability: false };
+  },
   async authorizeCreate() {
     return { ownerTeamId: null, isPrivate: false };
   },

@@ -1,0 +1,61 @@
+{
+  "name": "@checkstack/tracestream-backend",
+  "version": "0.0.1",
+  "description": "Distributed tracing streams: OTLP trace ingestion, tail-based sampling, trace search and waterfalls",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "checkstack": {
+    "type": "backend",
+    "pluginId": "tracestream",
+    "bundle": [
+      "@checkstack/tracestream-common",
+      "@checkstack/tracestream-frontend"
+    ]
+  },
+  "scripts": {
+    "dev": "checkstack-dev",
+    "pack": "checkstack-scripts plugin-pack",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@checkstack/ai-backend": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
+    "@checkstack/cache-utils": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/ingest-utils": "workspace:*",
+    "@checkstack/queue-api": "workspace:*",
+    "@checkstack/satellite-backend": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-backend": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@checkstack/tracestream-common": "workspace:*",
+    "@orpc/server": "^1.14.4",
+    "drizzle-orm": "^0.45.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/dev-server": "workspace:*",
+    "@checkstack/backend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.2"
+  }
+}

@@ -18,6 +18,12 @@ export interface ExploreFilters {
   severityBands: SeverityBand[];
   /** Restrict to a single Drain pattern, or null for all. */
   patternId: string | null;
+  /**
+   * Exact trace-id match (empty = none). Kept as a raw string like `text` so the
+   * toolbar input and the `?traceId=` deep link share one code path; trimmed and
+   * omitted when blank before it reaches the query.
+   */
+  traceId: string;
   from: Date | null;
   to: Date | null;
 }
@@ -26,6 +32,7 @@ export const EMPTY_EXPLORE_FILTERS: ExploreFilters = {
   text: "",
   severityBands: [],
   patternId: null,
+  traceId: "",
   from: null,
   to: null,
 };
@@ -46,6 +53,7 @@ export function hasActiveFilters(filters: ExploreFilters): boolean {
     filters.text.trim().length > 0 ||
     filters.severityBands.length > 0 ||
     filters.patternId !== null ||
+    filters.traceId.trim().length > 0 ||
     filters.from !== null ||
     filters.to !== null
   );
@@ -112,6 +120,7 @@ export function toSearchInput({
   limit,
 }: ToSearchInput): SearchEvents {
   const text = filters.text.trim();
+  const traceId = filters.traceId.trim();
   return {
     streamId,
     ...(text.length > 0 ? { text } : {}),
@@ -119,6 +128,7 @@ export function toSearchInput({
       ? { severityBands: filters.severityBands }
       : {}),
     ...(filters.patternId === null ? {} : { patternId: filters.patternId }),
+    ...(traceId.length > 0 ? { traceId } : {}),
     ...(filters.from === null ? {} : { from: filters.from }),
     ...(filters.to === null ? {} : { to: filters.to }),
     ...(cursor ? { cursor } : {}),

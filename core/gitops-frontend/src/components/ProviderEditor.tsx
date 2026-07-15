@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 
 interface ProviderEditorProps {
@@ -56,18 +57,19 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
     initialData?.deletionPolicy ?? "orphan",
   );
 
-  useEffect(() => {
-    if (open) {
-      setType(initialData?.type ?? "github");
-      setTarget(initialData?.target ?? "");
-      setPathPattern(initialData?.pathPattern ?? ".checkstack/**/*.yaml");
-      setBaseUrl(initialData?.baseUrl ?? "");
-      setAuthToken("");
-      setClearToken(false);
-      setSyncInterval(String(initialData?.syncInterval ?? 300));
-      setDeletionPolicy(initialData?.deletionPolicy ?? "orphan");
-    }
-  }, [open, initialData]);
+  // One-shot seed from initialData each time the dialog opens - a plain
+  // effect keyed on `initialData` would re-fire (and wipe edits) on every
+  // background refetch of the provider list.
+  useSeedFormOnOpen(open, () => {
+    setType(initialData?.type ?? "github");
+    setTarget(initialData?.target ?? "");
+    setPathPattern(initialData?.pathPattern ?? ".checkstack/**/*.yaml");
+    setBaseUrl(initialData?.baseUrl ?? "");
+    setAuthToken("");
+    setClearToken(false);
+    setSyncInterval(String(initialData?.syncInterval ?? 300));
+    setDeletionPolicy(initialData?.deletionPolicy ?? "orphan");
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

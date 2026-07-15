@@ -31,6 +31,8 @@ import {
 import {
   healthResultNumber,
   healthResultSchema,
+  computeWindowBounds,
+  MIN_WINDOW_SECONDS,
 } from "@checkstack/healthcheck-common";
 import {
   pluginMetadata,
@@ -38,12 +40,7 @@ import {
   LOGSTREAM_VARIABLE_OPTIONS_RESOLVER,
 } from "@checkstack/logstream-common";
 import type { LogStreamHealthClient } from "./strategy";
-import {
-  computeWindowBounds,
-  buildPatternMetric,
-  MIN_WINDOW_SECONDS,
-  type PatternMetricResult,
-} from "./window";
+import { buildPatternMetric, type PatternMetricResult } from "./window";
 
 export const PATTERN_METRIC_COLLECTOR_ID = "pattern-metric";
 

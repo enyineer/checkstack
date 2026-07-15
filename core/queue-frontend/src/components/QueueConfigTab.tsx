@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   QueuePluginDto,
@@ -17,6 +17,7 @@ import {
   PluginConfigForm,
   useToast,
   toastError,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import { AlertTriangle, Save, Info, Gauge, Activity } from "lucide-react";
 import { QueueLagAlert } from "./QueueLagAlert";
@@ -34,22 +35,28 @@ export const QueueConfigTab = ({ canUpdate }: { canUpdate: boolean }) => {
   const queueClient = usePluginClient(QueueApi);
   const toast = useToast();
 
-  // Fetch plugins and configuration
+  // Fetch plugins and configuration. `gcTime: 0` is load-bearing: the form
+  // is seeded from this query exactly once via `useInitOnceForKey` below,
+  // so a stale-while-revalidate cache hit can never race the one-shot init.
   const { data: pluginsList } = queueClient.getPlugins.useQuery();
   const { data: configuration, refetch: refetchConfig } =
-    queueClient.getConfiguration.useQuery();
+    queueClient.getConfiguration.useQuery(undefined, { gcTime: 0 });
   const updateConfigMutation = queueClient.updateConfiguration.useMutation();
 
   const [selectedPluginId, setSelectedPluginId] = useState<string>("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
 
-  // Sync state with fetched data
-  useEffect(() => {
-    if (configuration) {
-      setSelectedPluginId(configuration.pluginId);
-      setConfig(configuration.config);
-    }
-  }, [configuration]);
+  // Seed form state from the fetched configuration exactly once - a
+  // naive `[configuration]` effect would re-fire (and wipe in-progress
+  // edits) on any background refetch of this singleton config.
+  useInitOnceForKey(
+    configuration,
+    configuration ? "queue-config-loaded" : null,
+    (loadedConfig) => {
+      setSelectedPluginId(loadedConfig.pluginId);
+      setConfig(loadedConfig.config);
+    },
+  );
 
   const handleSave = async () => {
     if (!selectedPluginId) return;

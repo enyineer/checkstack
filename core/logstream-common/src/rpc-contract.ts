@@ -1,17 +1,24 @@
 import { createClientDefinition, proc } from "@checkstack/common";
 import { z } from "zod";
+import {
+  ListLinkedStreamStatusesResultSchema,
+  ListLinkedStreamStatusesSchema,
+  ListStreamsForSystemResultSchema,
+  ListStreamsForSystemSchema,
+  ListSystemLinksResultSchema,
+  ListSystemLinksSchema,
+  SetSystemLinksSchema,
+} from "@checkstack/telemetry-common";
 import { logstreamAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   LogStreamSchema,
   CreateLogStreamSchema,
   UpdateLogStreamSchema,
-  LogStreamTokenSchema,
-  MintTokenSchema,
-  MintTokenResultSchema,
-  RevokeTokenSchema,
   SearchEventsSchema,
   SearchEventsResultSchema,
+  FindEventsByTraceIdSchema,
+  FindEventsByTraceIdResultSchema,
   GetBucketsSchema,
   SeverityBucketsResultSchema,
   PatternBucketsResultSchema,
@@ -28,6 +35,8 @@ import {
   ListPatternVariablesResultSchema,
   ListImportantEventsSchema,
   ListImportantEventsResultSchema,
+  ListServiceNamesSchema,
+  ListServiceNamesResultSchema,
   StreamOverviewSchema,
   StreamForPickerSchema,
   ListStreamSummariesResultSchema,
@@ -37,8 +46,9 @@ import {
  * Log stream RPC contract (oRPC contract-first). Every write proc declares
  * exactly one `instanceAccess` mode so team-scoping stays coherent with the
  * frontend gates (see `.claude/rules/rlac.md`). Streams are the only
- * team-scopable resource; tokens/events/patterns/buckets are all scoped by
- * their owning `streamId`.
+ * team-scopable resource; events/patterns/buckets are all scoped by their
+ * owning `streamId`. Push-token management is owned by the telemetry platform
+ * (the `logstream.push` source type), not by this contract.
  */
 export const logstreamContract = {
   // ==========================================================================
@@ -123,37 +133,78 @@ export const logstreamContract = {
   }).output(z.array(StreamForPickerSchema)),
 
   // ==========================================================================
-  // SOURCE TOKENS (manage; scoped by the owning stream id)
+  // SYSTEM LINKS (explicit stream -> catalog-system mapping; shared schemas
+  // live in @checkstack/telemetry-common - see system-links.ts there)
   // ==========================================================================
 
-  listTokens: proc({
+  /** Systems this stream is explicitly linked to. */
+  listSystemLinks: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [logstreamAccess.manage],
+    access: [logstreamAccess.read],
     instanceAccess: { idParam: "streamId" },
   })
-    .input(z.object({ streamId: z.string() }))
-    .output(z.array(LogStreamTokenSchema)),
+    .input(ListSystemLinksSchema)
+    .output(ListSystemLinksResultSchema),
 
-  /** Mint a token; returns the full secret ONCE plus the persisted row. */
-  mintToken: proc({
+  /**
+   * Replace the stream's linked-system set. The handler MUST verify the
+   * caller can READ every NEWLY ADDED system (the diff against the persisted
+   * set; retained/removed ids need no readability) via a USER-scoped catalog
+   * `getSystems` membership pass BEFORE persisting - a stream manager cannot
+   * expose a system they cannot see, but is never dead-locked by a link
+   * someone else authorized.
+   */
+  setSystemLinks: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [logstreamAccess.manage],
     instanceAccess: { idParam: "streamId" },
   })
-    .input(MintTokenSchema)
-    .output(MintTokenResultSchema),
-
-  /** Revoke a token. The handler MUST invalidate the ingest auth cache entry. */
-  revokeToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [logstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(RevokeTokenSchema)
+    .input(SetSystemLinksSchema)
     .output(z.void()),
+
+  /**
+   * Streams linked to one system (the catalog system page direction),
+   * post-filtered to the caller's readable streams (`listKey` - each
+   * stream's `id` is the key).
+   */
+  listStreamsForSystem: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "streams" },
+  })
+    .input(ListStreamsForSystemSchema)
+    .output(ListStreamsForSystemResultSchema),
+
+  /**
+   * Bulk signal-state lookup for the dashboard's system signals: the newest
+   * recent important event per linked stream, for all requested systems in
+   * one call. Post-filtered to readable streams (`listKey`).
+   */
+  listLinkedStreamStatuses: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "matches" },
+  })
+    .input(ListLinkedStreamStatusesSchema)
+    .output(ListLinkedStreamStatusesResultSchema),
+
+  /**
+   * Distinct `service.name` resource values observed in the stream's stored
+   * events (bounded, newest-biased) - the suggestion source for the
+   * system-link editor. Suggestions are never auto-applied.
+   */
+  listServiceNames: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { idParam: "streamId" },
+  })
+    .input(ListServiceNamesSchema)
+    .output(ListServiceNamesResultSchema),
 
   // ==========================================================================
   // VIEWER READS (read; scoped by the owning stream id)
@@ -167,6 +218,21 @@ export const logstreamContract = {
   })
     .input(SearchEventsSchema)
     .output(SearchEventsResultSchema),
+
+  /**
+   * Cross-stream "which logs belong to this trace" lookup (no stream id in
+   * the input): returns per-stream match groups, post-filtered to the
+   * caller's readable streams via `listKey` (each match's `id` IS the stream
+   * id). Powers the trace-view correlations panel.
+   */
+  findEventsByTraceId: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "matches" },
+  })
+    .input(FindEventsByTraceIdSchema)
+    .output(FindEventsByTraceIdResultSchema),
 
   getSeverityBuckets: proc({
     operationType: "query",

@@ -6,7 +6,7 @@ import {
 } from "@checkstack/backend-api";
 import { metricstreamContract } from "@checkstack/metricstream-common";
 import type { MetricstreamService } from "./service";
-import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
+import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
  * The metricstream oRPC router. Deliberately thin: every handler passes straight
@@ -14,18 +14,22 @@ import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
  * create / typeScoped) are enforced by `autoAuthMiddleware` from the contract's
  * `instanceAccess`, so handlers never re-check grants (see `.claude/rules/rlac.md`).
  *
- * The ONE thing instanceAccess cannot express is authorizing the caller-supplied
- * `satelliteId` on a scrape target (the stream gate does not prove the caller may
- * use a satellite). `assertSatelliteBindable` closes that (SAT-C SSRF fix) and is
- * REQUIRED - never optional - so a scrape target can never bind to a satellite the
- * caller cannot read + scrape. See `../satellite/binding-auth.ts`.
+ * The ONE thing instanceAccess cannot express is the system-links "cannot expose
+ * what you cannot see" gate: the stream `manage` gate does not prove the caller
+ * may READ the systems being linked. `assertLinkedSystemsReadable` closes that.
  */
 export function createMetricstreamRouter({
   service,
-  assertSatelliteBindable,
+  assertLinkedSystemsReadable,
 }: {
   service: MetricstreamService;
-  assertSatelliteBindable: SatelliteBindingAuthorizer;
+  /**
+   * The system-links "cannot expose what you cannot see" gate. instanceAccess
+   * cannot express it: the stream `manage` gate does not prove the caller can
+   * READ the systems being linked. Injected so tests substitute a deterministic
+   * authorizer (no HTTP re-entry).
+   */
+  assertLinkedSystemsReadable: SystemLinksReadableAuthorizer;
 }) {
   const os = implement(metricstreamContract)
     .$context<RpcContext>()
@@ -64,58 +68,6 @@ export function createMetricstreamRouter({
       service.listStreamsForPicker(),
     ),
 
-    // ── Source tokens ───────────────────────────────────────────────────
-    listTokens: os.listTokens.handler(async ({ input }) =>
-      service.listTokens({ streamId: input.streamId }),
-    ),
-
-    mintToken: os.mintToken.handler(async ({ input }) =>
-      service.mintToken({ streamId: input.streamId, name: input.name }),
-    ),
-
-    revokeToken: os.revokeToken.handler(async ({ input }) => {
-      await service.revokeToken({
-        streamId: input.streamId,
-        tokenId: input.tokenId,
-      });
-    }),
-
-    // ── Scrape targets ──────────────────────────────────────────────────
-    listScrapeTargets: os.listScrapeTargets.handler(async ({ input }) =>
-      service.listScrapeTargets({ streamId: input.streamId }),
-    ),
-
-    createScrapeTarget: os.createScrapeTarget.handler(async ({ input, context }) => {
-      // Authorize the binding BEFORE persisting: a non-null satelliteId must be a
-      // satellite the caller can READ and that advertises `scrape` (SAT-C fix).
-      if (typeof input.satelliteId === "string") {
-        await assertSatelliteBindable({
-          satelliteId: input.satelliteId,
-          requestHeaders: context.requestHeaders,
-        });
-      }
-      return service.createScrapeTarget(input);
-    }),
-
-    updateScrapeTarget: os.updateScrapeTarget.handler(async ({ input, context }) => {
-      // Same gate on the rebind path (null->sat, sat->other-sat). A null unbind
-      // (back to core) or an omitted field (keep) needs no satellite authorization.
-      if (typeof input.satelliteId === "string") {
-        await assertSatelliteBindable({
-          satelliteId: input.satelliteId,
-          requestHeaders: context.requestHeaders,
-        });
-      }
-      return service.updateScrapeTarget(input);
-    }),
-
-    deleteScrapeTarget: os.deleteScrapeTarget.handler(async ({ input }) => {
-      await service.deleteScrapeTarget({
-        streamId: input.streamId,
-        targetId: input.targetId,
-      });
-    }),
-
     // ── Autocomplete + viewer reads ─────────────────────────────────────
     listMetricNames: os.listMetricNames.handler(async ({ input }) =>
       service.listMetricNames(input),
@@ -143,6 +95,38 @@ export function createMetricstreamRouter({
 
     getStreamOverview: os.getStreamOverview.handler(async ({ input }) =>
       service.getStreamOverview({ streamId: input.streamId }),
+    ),
+
+    // ── System links (explicit stream -> catalog-system mapping) ────────
+    listSystemLinks: os.listSystemLinks.handler(async ({ input }) =>
+      service.listSystemLinks({ streamId: input.streamId }),
+    ),
+
+    setSystemLinks: os.setSystemLinks.handler(async ({ input, context }) => {
+      // The service checks existence FIRST, diffs the requested set against the
+      // persisted one, and gates ONLY the NEWLY ADDED systems via this callback
+      // (re-enters catalog AS the caller). The stream `manage` gate the
+      // middleware enforced only proves the caller may manage the stream, not
+      // that they may SEE the systems - so a manager can never EXPOSE a system
+      // they cannot read, but is never dead-locked by a link someone else added.
+      await service.setSystemLinks({
+        streamId: input.streamId,
+        systemIds: input.systemIds,
+        assertAddedReadable: (addedSystemIds) =>
+          assertLinkedSystemsReadable({
+            addedSystemIds,
+            requestHeaders: context.requestHeaders,
+          }),
+      });
+    }),
+
+    listStreamsForSystem: os.listStreamsForSystem.handler(async ({ input }) =>
+      service.listStreamsForSystem({ systemId: input.systemId }),
+    ),
+
+    listLinkedStreamStatuses: os.listLinkedStreamStatuses.handler(
+      async ({ input }) =>
+        service.listLinkedStreamStatuses({ systemIds: input.systemIds }),
     ),
   });
 }

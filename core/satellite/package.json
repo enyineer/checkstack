@@ -15,12 +15,15 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/ingest-utils": "workspace:*",
+    "@checkstack/k8s-events-common": "workspace:*",
     "@checkstack/logstream-common": "workspace:*",
     "@checkstack/metricstream-common": "workspace:*",
     "@checkstack/otlp-wire": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@checkstack/tracestream-common": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {

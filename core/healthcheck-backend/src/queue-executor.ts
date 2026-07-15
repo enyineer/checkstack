@@ -32,6 +32,15 @@ import {
   ENVIRONMENT_RESOLUTION_FAILED,
   type HealthCheckStatus,
   stripEphemeralFields,
+  HEALTH_CHECK_QUEUE,
+  type HealthCheckJobPayload,
+} from "@checkstack/healthcheck-common";
+// The run-queue contract (queue name + payload) now lives in the common leaf so
+// every fast-path enqueuer shares one shape; re-exported from the owner here
+// because this file's many internal importers reference these names.
+export {
+  HEALTH_CHECK_QUEUE,
+  type HealthCheckJobPayload,
 } from "@checkstack/healthcheck-common";
 import {
   CatalogApi,
@@ -244,12 +253,6 @@ async function emitCheckCompletedHook({
  * The scheduling reconciler owns which (config, system, env) jobs exist; the
  * `run_now` action enqueues one job per effective environment.
  */
-export interface HealthCheckJobPayload {
-  configId: string;
-  systemId: string;
-  environmentId: string | null;
-}
-
 /** Prefix every health-check recurring jobId shares (used for orphan scans). */
 export const HEALTH_CHECK_JOB_PREFIX = "healthcheck:";
 
@@ -267,13 +270,6 @@ export function encodeHealthCheckJobId(props: {
   const base = `${HEALTH_CHECK_JOB_PREFIX}${configId}:${systemId}`;
   return environmentId === null ? base : `${base}:${environmentId}`;
 }
-
-/**
- * Queue name for health check execution. Exported so consumers like
- * the `healthcheck.run_now` automation action can enqueue a one-off
- * job without re-importing the recurring-job factory.
- */
-export const HEALTH_CHECK_QUEUE = "health-checks";
 
 /**
  * Worker group for health check execution (work-queue mode)

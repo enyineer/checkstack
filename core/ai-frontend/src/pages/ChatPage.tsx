@@ -333,6 +333,7 @@ export function ChatPage() {
   );
 
   // Default the picker to the first integration + its defaultModel (§14.6).
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- one-time default selection guarded by `!connectionId`, not editable form state; nothing to clobber once the user (or the load seed) picks a connection.
   useEffect(() => {
     if (!connectionId && integrations.length > 0) {
       setConnectionId(integrations[0].connectionId);
@@ -341,9 +342,13 @@ export function ChatPage() {
   }, [integrations, connectionId]);
 
   // When the integration changes, default the model to its defaultModel.
-  useEffect(() => {
-    if (selectedIntegration) setModel(selectedIntegration.defaultModel);
-  }, [selectedIntegration]);
+  // Keyed on connectionId (not the derived `selectedIntegration` object) via
+  // useInitOnceForKey so a background refetch of `integrations` - which
+  // recomputes `selectedIntegration` as a new object for the SAME connection -
+  // does not clobber a model the user has since picked manually.
+  useInitOnceForKey(selectedIntegration, connectionId, (integration) => {
+    setModel(integration.defaultModel);
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -31,11 +31,15 @@ import {
   type NormalizedDatapoint,
 } from "@checkstack/metricstream-common";
 import * as schema from "../schema";
+import type { StoredExemplar } from "../schema";
 import {
   computeSeriesId,
   floorToMinute,
+  mergeExemplars,
   partitionNewSeries,
+  toStoredExemplar,
   type MinuteBucketDelta,
+  type SeriesExemplarUpdate,
   type Storage,
 } from "../storage";
 import type { ImportantEventRecorder } from "../events/recorder";
@@ -61,6 +65,11 @@ export interface SeriesFoldEntry {
   unit: string | null;
   /** Datapoints in THIS flush for this series (drives dropped-datapoint math). */
   datapointCount: number;
+  /**
+   * Newest exemplars folded for this series in THIS flush (deduped by trace id,
+   * capped), or empty when none arrived. Persisted only for surviving series.
+   */
+  exemplars: StoredExemplar[];
 }
 
 /** Latest observed registry info for one metric name in this flush. */
@@ -119,12 +128,19 @@ export async function foldDatapoints({
       labels: dp.labels,
     });
 
+    const incomingExemplars =
+      dp.exemplars?.map((e) => toStoredExemplar(e)) ?? [];
     const existing = series.get(seriesId);
     if (existing) {
       existing.datapointCount += 1;
       existing.type = dp.type;
       existing.counterKind = counterKind;
       existing.unit = unit;
+      if (incomingExemplars.length > 0) {
+        existing.exemplars = mergeExemplars({
+          parts: [...existing.exemplars, ...incomingExemplars],
+        });
+      }
     } else {
       series.set(seriesId, {
         seriesId,
@@ -134,6 +150,7 @@ export async function foldDatapoints({
         counterKind,
         unit,
         datapointCount: 1,
+        exemplars: mergeExemplars({ parts: incomingExemplars }),
       });
     }
 
@@ -185,6 +202,7 @@ export type FlushStorage = Pick<
   | "upsertMetricNames"
   | "upsertMinuteBuckets"
   | "touchStreamActivity"
+  | "updateSeriesExemplars"
 >;
 
 /** What one flush transaction admitted / dropped (post-commit effects read this). */
@@ -246,6 +264,9 @@ export async function writeFlushPlan({
       counterKind: s.counterKind,
       firstSeenAt: flushAt,
       lastSeenAt: flushAt,
+      // Seed exemplars on the admitting insert so a brand-new series' first
+      // jump-off is not lost until the next flush.
+      ...(s.exemplars.length > 0 ? { lastExemplars: s.exemplars } : {}),
     };
   });
   // `insertedIds` are the series ACTUALLY inserted here - excluding any that a
@@ -260,6 +281,18 @@ export async function writeFlushPlan({
     seriesIds: existingIds,
     lastSeenAt: flushAt,
   });
+
+  // Overwrite `last_exemplars` for EXISTING series that carried new exemplars
+  // this flush (admitted-new series already got theirs in the insert). Skip
+  // series with none so a quiet flush keeps the last known jump-off.
+  const exemplarUpdates: SeriesExemplarUpdate[] = [];
+  for (const id of existingIds) {
+    const s = fold.series.get(id)!;
+    if (s.exemplars.length > 0) {
+      exemplarUpdates.push({ seriesId: id, exemplars: s.exemplars });
+    }
+  }
+  await storage.updateSeriesExemplars({ runner, updates: exemplarUpdates });
 
   // Metric-name registry: seriesCountDelta = ACTUALLY-inserted new series per
   // name; only upsert names that have at least one SURVIVING series (a name whose

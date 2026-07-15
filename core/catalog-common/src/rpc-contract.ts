@@ -12,7 +12,7 @@ import {
   CreateEnvironmentSchema,
   UpdateEnvironmentSchema,
 } from "./types";
-import { catalogAccess } from "./access";
+import { catalogAccess, catalogResourceTypes } from "./access";
 
 // Shared catalog display-name validation. Bare `z.string()` previously let
 // empty, whitespace-only, and unbounded (100KB+) names through to the DB - the
@@ -50,6 +50,10 @@ const UpdateSystemInputSchema = z.object({
 const CreateGroupInputSchema = z.object({
   name: NameSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // Optional requested owning-team id, consumed by the create-mode middleware
+  // (instanceAccess.create.teamIdParam) - NOT by the handler, which destructures
+  // it out before the service call (the `groups` table has no `teamId` column).
+  teamId: z.string().optional(),
 });
 
 const UpdateGroupInputSchema = z.object({
@@ -106,6 +110,12 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.group.read],
+    // Groups are a SHARED browse facet: reads stay public (everyone sees every
+    // group), only writes are team-scoped. `global: true` is the deliberate
+    // "this read is not team-filtered" marker (the group WRITE procs mark
+    // catalog.group scopable, so the boot validator requires an explicit
+    // decision here).
+    instanceAccess: { global: true },
   }).output(z.array(GroupSchema)),
 
   /**
@@ -294,39 +304,60 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.group.manage],
+    // Create-mode team ownership (mirror of createSystem): the middleware
+    // resolves the owning team from `input.teamId` and writes a `catalog.group`
+    // owner grant for the created id. `alsoAcceptCreatorOf: ["catalog.system"]`
+    // lets a caller who may create SYSTEMS also create groups (sibling
+    // self-service) without a separate group creator grant.
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        alsoAcceptCreatorOf: [catalogResourceTypes.system],
+      },
+    },
   })
     .input(CreateGroupInputSchema)
     .output(GroupSchema),
 
+  // Per-instance manage: scoped to the target group's own `catalog.group` grant.
   updateGroup: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.group.manage],
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "PATCH" })
     .input(UpdateGroupInputSchema)
     .output(GroupSchema),
 
+  // Input reshaped from a bare `z.string()` to `{ id }` so the per-group manage
+  // check can resolve the target id by field name (`idParam` reads a named
+  // object field; a bare string has no field to point at). Mirrors the
+  // deleteSystem G9 reshape.
   deleteGroup: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.group.manage],
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "DELETE" })
-    .input(z.string())
+    .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /**
    * Persist a new browse order for groups. `orderedIds` lists group ids in the
-   * desired order; each is assigned a `sortOrder` equal to its index. Groups
-   * are GLOBAL (no team scoping), so this follows the sibling group mutations
-   * and declares no instanceAccess - the caller must hold the global group
-   * manage rule.
+   * desired order; each is assigned a `sortOrder` equal to its index. Reorder
+   * rewrites the SINGLE global `sortOrder` column for ALL groups at once - there
+   * is no per-team ordering to scope to - so it stays a global-admin operation:
+   * `global: true` requires the global group manage rule. (Per-instance
+   * create/edit/delete are team-scoped; only this cross-cutting reorder is not.)
    */
   reorderGroups: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.group.manage],
+    instanceAccess: { global: true },
   })
     .route({ method: "PATCH" })
     .input(z.object({ orderedIds: z.array(z.string()) }))
@@ -378,7 +409,9 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.environment.read],
-    // Environments are instance-wide global primitives — no team-based scoping.
+    // Reads stay public (shared browse facet, everyone sees every environment);
+    // only WRITES are team-scoped. `global: true` is the deliberate
+    // "not team-filtered" marker.
     instanceAccess: { global: true },
   }).output(z.array(EnvironmentSchema)),
 
@@ -386,7 +419,7 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.environment.read],
-    // Environments are instance-wide global primitives — no team-based scoping.
+    // Read stays public (see listEnvironments).
     instanceAccess: { global: true },
   })
     .input(z.object({ environmentId: z.string() }))
@@ -396,18 +429,28 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
-    // Environments are instance-wide global primitives — no team-based scoping.
-    instanceAccess: { global: true },
+    // Create-mode team ownership (mirror of createSystem). `teamId` is added at
+    // the input level (not on the shared CreateEnvironmentSchema, so
+    // UpdateEnvironmentSchema's `.partial()` stays clean) and destructured out in
+    // the handler. `alsoAcceptCreatorOf: ["catalog.system"]` lets a system
+    // creator also create environments.
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        alsoAcceptCreatorOf: [catalogResourceTypes.system],
+      },
+    },
   })
-    .input(CreateEnvironmentSchema)
+    .input(CreateEnvironmentSchema.extend({ teamId: z.string().optional() }))
     .output(EnvironmentSchema),
 
+  // Per-instance manage: scoped to the target environment's own grant.
   updateEnvironment: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
-    // Environments are instance-wide global primitives — no team-based scoping.
-    instanceAccess: { global: true },
+    instanceAccess: { idParam: "environmentId" },
   })
     .route({ method: "PATCH" })
     .input(
@@ -422,8 +465,7 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
-    // Environments are instance-wide global primitives — no team-based scoping.
-    instanceAccess: { global: true },
+    instanceAccess: { idParam: "environmentId" },
   })
     .route({ method: "DELETE" })
     .input(z.object({ environmentId: z.string() }))
@@ -439,8 +481,9 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
     // This is a system-scoped operation (mutating a system's env memberships),
-    // not an environment-scoped one. Scope by the parent system's manage grant
-    // so catalog.environment stays non-scopable.
+    // not an environment-scoped one: attaching an environment to a system is
+    // authorized by MANAGE on the parent SYSTEM (a system creator/manager may
+    // attach any environment), independent of who owns the environment.
     instanceAccess: {
       parentScope: {
         resourceType: "catalog.system",
@@ -467,8 +510,8 @@ export const catalogContract = {
     userType: "public",
     access: [catalogAccess.environment.read],
     // This is a system-scoped read (a system's env memberships), not an
-    // environment-scoped one. Scope by the parent system's read grant so
-    // catalog.environment stays non-scopable.
+    // environment-scoped one. Scope by the parent system's read grant,
+    // independent of who owns the environment.
     instanceAccess: {
       parentScope: {
         resourceType: "catalog.system",

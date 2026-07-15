@@ -52,6 +52,24 @@ moments ago** - add a NEW migration:
    Editing the **newly generated** file's body to add data SQL is fine; editing
    an **older, already-listed** migration is not.
 
+## Cross-plugin ordering (promotions and drops)
+
+Plugin migration chains run in **topological dependency order** (deps first;
+`core/backend/src/plugin-manager/plugin-loader.ts` iterates `sortedIds` for the
+migration pass). So a data **promotion** that copies rows from plugin A's table
+into plugin B's table is guaranteed to run before A's own chain **only when A
+depends on B**. Consequences:
+
+- A same-release `DROP` of a promoted-away table is SAFE in the OWNING plugin's
+  chain when the promotion lives in one of its dependencies (e.g. the stream
+  plugins' token/scrape tables promoted by telemetry-backend, which they all
+  depend on). State the ordering dependency in a comment in the DROP migration.
+- Do NOT rely on any ordering between plugins with no dependency relation.
+- NOTE: `core/telemetry-backend/drizzle/0001_promote_scrape_targets.sql`'s
+  comment claims "plugin migration order is not guaranteed" - that predates
+  this clarification and is overly conservative; it cannot be edited
+  (append-only rule), so this section is the authoritative statement.
+
 ## Notes
 
 - A migration must apply cleanly both on a fresh database (full chain) and on a

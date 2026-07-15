@@ -25,6 +25,8 @@ import {
   SEVERITY_BAND_RANK,
   SEVERITY_NUMBER_FOR_BAND,
   worstBand as worseOf,
+  applyTraceExtraction,
+  compileTraceExtraction,
   type IngestedLine,
   type LogStreamConfig,
   type RecordImportantEventInput,
@@ -129,6 +131,13 @@ export async function prepareFlush({
     overrideBands.set(override.patternId, override.band);
   }
 
+  // Trace-id / span-id extraction rules, compiled ONCE per flush (never per
+  // line). Every ingest source (native HTTP, syslog, OTLP, telemetry sink,
+  // satellite relay) converges here, so this one seam fills correlation ids for
+  // sources that could not emit W3C ids natively. Only applied to STORED (raw)
+  // rows below, and only where the line does not already carry the id.
+  const traceExtraction = compileTraceExtraction(config.traceExtraction);
+
   let worst: SeverityBand = "trace";
   let errorDelta = 0;
   let maxObservedMs = 0;
@@ -216,9 +225,25 @@ export async function prepareFlush({
     config,
     now,
   });
-  const eventRows = kept.map((item) =>
-    toEventRow(streamId, item.line, item.patternId, item.band),
-  );
+  const eventRows = kept.map((item) => {
+    // Fill correlation ids from the stream's extraction rules (no-op when the
+    // line already carries them, e.g. OTLP or native reserved keys).
+    const { traceId, spanId } = applyTraceExtraction({
+      compiled: traceExtraction,
+      attributes: item.line.attributes,
+      body: item.line.body,
+      traceId: item.line.traceId,
+      spanId: item.line.spanId,
+    });
+    return toEventRow({
+      streamId,
+      line: item.line,
+      patternId: item.patternId,
+      band: item.band,
+      traceId,
+      spanId,
+    });
+  });
 
   return {
     streamId,
@@ -419,12 +444,21 @@ function parsePlainFiniteNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function toEventRow(
-  streamId: string,
-  line: IngestedLine,
-  patternId: string,
-  band: SeverityBand,
-): NewLogEvent {
+function toEventRow({
+  streamId,
+  line,
+  patternId,
+  band,
+  traceId,
+  spanId,
+}: {
+  streamId: string;
+  line: IngestedLine;
+  patternId: string;
+  band: SeverityBand;
+  traceId: string | undefined;
+  spanId: string | undefined;
+}): NewLogEvent {
   return {
     streamId,
     ts: line.ts,
@@ -436,7 +470,7 @@ function toEventRow(
     attributes: line.attributes ?? null,
     resource: line.resource ?? null,
     patternId,
-    traceId: line.traceId ?? null,
-    spanId: line.spanId ?? null,
+    traceId: traceId ?? null,
+    spanId: spanId ?? null,
   };
 }

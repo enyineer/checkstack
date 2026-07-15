@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   type CachePluginDto,
@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
   PluginConfigForm,
+  useInitOnceForKey,
   useToast,
   toastError,
 } from "@checkstack/ui";
@@ -67,22 +68,26 @@ export const CacheConfigTab = ({ canUpdate }: { canUpdate: boolean }) => {
   const cacheClient = usePluginClient(CacheApi);
   const toast = useToast();
 
-  // Fetch plugins and configuration
+  // Fetch plugins and configuration. gcTime: 0 so a stale cached value can't
+  // race the one-shot seed below when this tab remounts.
   const { data: pluginsList } = cacheClient.getPlugins.useQuery();
   const { data: configuration, refetch: refetchConfig } =
-    cacheClient.getConfiguration.useQuery();
+    cacheClient.getConfiguration.useQuery(undefined, { gcTime: 0 });
   const updateConfigMutation = cacheClient.updateConfiguration.useMutation();
 
   const [selectedPluginId, setSelectedPluginId] = useState<string>("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
 
-  // Sync state with fetched data
-  useEffect(() => {
-    if (configuration) {
-      setSelectedPluginId(configuration.pluginId);
-      setConfig(configuration.config);
-    }
-  }, [configuration]);
+  // Seed the editable form once when the configuration loads; ignores
+  // background refetches so in-progress edits are never wiped mid-session.
+  useInitOnceForKey(
+    configuration,
+    configuration ? "cache-config-loaded" : null,
+    (cfg) => {
+      setSelectedPluginId(cfg.pluginId);
+      setConfig(cfg.config);
+    },
+  );
 
   const handleSave = async () => {
     if (!selectedPluginId) return;

@@ -5,12 +5,14 @@ import type { RpcContext } from "@checkstack/backend-api";
 import {
   DEFAULT_LOG_STREAM_CONFIG,
   bandFromSeverityNumber,
+  FindEventsByTraceIdSchema,
   type LogStream,
-  type LogStreamToken,
   type LogPattern,
+  type LogEvent,
 } from "@checkstack/logstream-common";
 import { createLogstreamRouter } from "./router";
 import type { LogstreamService } from "./service";
+import type { SystemLinkAuthorizer } from "./system-links-auth";
 
 /**
  * RLAC partitioning tests. These exercise the FULL auth middleware (via `call`,
@@ -50,14 +52,20 @@ const userPattern = (id: string, streamId: string): LogPattern => ({
   hidden: false,
 });
 
-const token = (id: string, streamId: string): LogStreamToken => ({
+const event = (id: string, streamId: string): LogEvent => ({
   id,
   streamId,
-  name: "shipper",
-  tokenPrefix: "ckls_abc",
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  lastUsedAt: null,
-  revokedAt: null,
+  ts: new Date("2026-01-01T00:00:00Z"),
+  observedAt: new Date("2026-01-01T00:00:00Z"),
+  severityNumber: 9,
+  severityText: null,
+  band: "info",
+  body: "correlated line",
+  attributes: null,
+  resource: null,
+  patternId: null,
+  traceId: "trace-x",
+  spanId: null,
 });
 
 /** A LogstreamService stub: canned reads, overridable per test. */
@@ -93,13 +101,21 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
       { id: STREAM_1.id, name: STREAM_1.name },
       { id: STREAM_2.id, name: STREAM_2.name },
     ],
-    listTokens: async ({ streamId }) => [token("tok-1", streamId)],
-    mintToken: async ({ streamId }) => ({
-      secret: "ckls_secret_value",
-      token: token("tok-1", streamId),
-    }),
-    revokeToken: async () => {},
     searchEvents: async () => ({ events: [], nextCursor: null }),
+    findEventsByTraceId: async () => ({
+      matches: [
+        {
+          id: STREAM_1.id,
+          streamName: STREAM_1.name,
+          events: [event("1", STREAM_1.id)],
+        },
+        {
+          id: STREAM_2.id,
+          streamName: STREAM_2.name,
+          events: [event("2", STREAM_2.id)],
+        },
+      ],
+    }),
     getSeverityBuckets: notImplemented("getSeverityBuckets"),
     getPatternBuckets: notImplemented("getPatternBuckets"),
     listPatterns: async () => [],
@@ -118,14 +134,48 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
       variables: [],
       summaryWindowSeconds: 86_400,
     }),
-    listImportantEvents: async () => ({ events: [], nextBefore: null }),
+    listImportantEvents: async () => ({ events: [], nextCursor: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
+    listSystemLinks: async () => ({ systemIds: ["system-1"] }),
+    // The write path reads persisted links (for the added-only computation);
+    // canned to one already-linked system so tests can assert "adds only".
+    getSystemLinksForUpdate: async () => ({ systemIds: ["system-1"] }),
+    setSystemLinks: async () => {},
+    listStreamsForSystem: async () => ({
+      streams: [
+        { id: STREAM_1.id, name: STREAM_1.name },
+        { id: STREAM_2.id, name: STREAM_2.name },
+      ],
+    }),
+    listLinkedStreamStatuses: async () => ({
+      matches: [
+        {
+          id: STREAM_1.id,
+          name: STREAM_1.name,
+          systemIds: ["system-1"],
+          lastImportantEvent: { type: "spike", ts: new Date("2026-01-01T00:00:00Z") },
+        },
+        {
+          id: STREAM_2.id,
+          name: STREAM_2.name,
+          systemIds: ["system-1"],
+          lastImportantEvent: null,
+        },
+      ],
+    }),
+    listServiceNames: async () => ({ serviceNames: ["checkout-api"] }),
     ...overrides,
   };
 }
 
-const buildRouter = (overrides?: Partial<LogstreamService>) =>
-  createLogstreamRouter({ service: stubService(overrides) });
+const buildRouter = (
+  overrides?: Partial<LogstreamService>,
+  authorizeSystemLinks: SystemLinkAuthorizer = async () => {},
+) =>
+  createLogstreamRouter({
+    service: stubService(overrides),
+    authorizeSystemLinks,
+  });
 
 /** A team-scoped principal holding only the grants an override resolves. */
 const teamUser = { type: "user" as const, id: "team-user", accessRules: [] as string[] };
@@ -248,64 +298,52 @@ describe("searchEvents (idParam read) authorization", () => {
   });
 });
 
-describe("token mint/revoke gated on manage", () => {
-  it("a manage grant on the stream may mint", async () => {
+describe("findEventsByTraceId (listKey 'matches') post-filter", () => {
+  // from/to are REQUIRED by the contract; the stub ignores them but they must
+  // be present for the input to validate.
+  const WINDOW = {
+    from: new Date("2026-01-01T00:00:00Z"),
+    to: new Date("2026-01-01T01:00:00Z"),
+  };
+
+  it("a team-scoped caller sees only matches on granted streams (keyed on item id)", async () => {
     const context = createMockRpcContext({
       user: teamUser,
-      ...grantAuth(["stream-1"]),
+      ...grantAuth(["stream-2"]),
     });
     const result = await call(
-      buildRouter().mintToken,
-      { streamId: "stream-1", name: "shipper" },
+      buildRouter().findEventsByTraceId,
+      { traceId: "trace-x", ...WINDOW, limitPerStream: 50 },
       { context },
     );
-    expect(result.secret).toBe("ckls_secret_value");
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-2"]);
   });
 
-  it("no grant on the stream is FORBIDDEN for mint", async () => {
+  it("a global read-rule holder sees every stream the trace appears in", async () => {
     const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth([]),
-    });
-    await expect(
-      call(
-        buildRouter().mintToken,
-        { streamId: "stream-1", name: "shipper" },
-        { context },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-
-  it("no grant on the stream is FORBIDDEN for revoke", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth([]),
-    });
-    await expect(
-      call(
-        buildRouter().revokeToken,
-        { streamId: "stream-1", tokenId: "tok-1" },
-        { context },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-});
-
-describe("listTokens never leaks the secret/hash", () => {
-  it("a manage grant lists tokens without any secret material", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
     });
     const result = await call(
-      buildRouter().listTokens,
-      { streamId: "stream-1" },
+      buildRouter().findEventsByTraceId,
+      { traceId: "trace-x", ...WINDOW, limitPerStream: 50 },
       { context },
     );
-    for (const t of result) {
-      expect(t).not.toHaveProperty("secret");
-      expect(t).not.toHaveProperty("tokenHash");
-    }
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1", "stream-2"]);
+  });
+
+  it("the contract REQUIRES the time window (from/to) - a missing window is rejected", () => {
+    // The required window is what keeps every scan ts-bounded (DoS guard); the
+    // schema must reject an input without it.
+    expect(
+      FindEventsByTraceIdSchema.safeParse({ traceId: "trace-x" }).success,
+    ).toBe(false);
+    expect(
+      FindEventsByTraceIdSchema.safeParse({
+        traceId: "trace-x",
+        from: new Date(),
+        to: new Date(),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -459,6 +497,186 @@ describe("createPattern/deletePattern gated on manage (idParam streamId)", () =>
         { streamId: "stream-1", patternId: "p-1", hidden: true },
         { context },
       ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+  });
+});
+
+describe("system links: read/write gating + listKey post-filter", () => {
+  it("listSystemLinks: a read grant on the stream may read its links", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().listSystemLinks,
+      { streamId: "stream-1" },
+      { context },
+    );
+    expect(result.systemIds).toEqual(["system-1"]);
+  });
+
+  it("listSystemLinks: a grant on another stream is FORBIDDEN (cross-stream)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    await expect(
+      call(buildRouter().listSystemLinks, { streamId: "stream-1" }, { context }),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+  });
+
+  it("setSystemLinks: a manage grant on the stream may replace links", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await expect(
+      call(
+        buildRouter().setSystemLinks,
+        { streamId: "stream-1", systemIds: ["system-1"] },
+        { context },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("setSystemLinks: an ungranted stream is FORBIDDEN BEFORE the authorizer runs", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth([]),
+    });
+    await expect(
+      call(
+        buildRouter(undefined, authorize).setSystemLinks,
+        { streamId: "stream-1", systemIds: ["system-9"] },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+    // The stream manage gate rejects first, so the catalog authorizer never runs.
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("setSystemLinks: the authorizer runs for ONLY the newly-added systems", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    // Persisted = ["system-1"] (stub). Requested adds system-2 and keeps
+    // system-1, so only system-2 is authorized (added-only).
+    await call(
+      buildRouter(undefined, authorize).setSystemLinks,
+      { streamId: "stream-1", systemIds: ["system-1", "system-2"] },
+      { context },
+    );
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize.mock.calls[0]![0]!.systemIds).toEqual(["system-2"]);
+  });
+
+  it("setSystemLinks: the authorizer is SKIPPED when nothing is added (unlink / no-op)", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    // Persisted = ["system-1"]; requesting the empty set only REMOVES - no adds,
+    // so no readability check is needed.
+    await call(
+      buildRouter(undefined, authorize).setSystemLinks,
+      { streamId: "stream-1", systemIds: [] },
+      { context },
+    );
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("setSystemLinks: an authorizer rejection (unreadable added system) propagates", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {
+      throw new Error("You can only link systems you can access.");
+    });
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await expect(
+      call(
+        buildRouter(undefined, authorize).setSystemLinks,
+        { streamId: "stream-1", systemIds: ["system-1", "system-forbidden"] },
+        { context },
+      ),
+    ).rejects.toThrow(/only link systems you can access/i);
+  });
+
+  it("listStreamsForSystem (listKey 'streams'): team caller sees only granted streams", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "system-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-2"]);
+  });
+
+  it("listStreamsForSystem: a global read-rule holder sees every linked stream", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "system-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-1", "stream-2"]);
+  });
+
+  it("listLinkedStreamStatuses (listKey 'matches'): team caller sees only granted streams", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().listLinkedStreamStatuses,
+      { systemIds: ["system-1"] },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1"]);
+    expect(result.matches[0]!.lastImportantEvent?.type).toBe("spike");
+  });
+
+  it("listLinkedStreamStatuses: a global read-rule holder sees every match", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().listLinkedStreamStatuses,
+      { systemIds: ["system-1"] },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1", "stream-2"]);
+  });
+
+  it("listServiceNames: a read grant on the stream may read its service names", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().listServiceNames,
+      { streamId: "stream-1" },
+      { context },
+    );
+    expect(result.serviceNames).toEqual(["checkout-api"]);
+  });
+
+  it("listServiceNames: a grant on another stream is FORBIDDEN (cross-stream)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    await expect(
+      call(buildRouter().listServiceNames, { streamId: "stream-1" }, { context }),
     ).rejects.toThrow(/FORBIDDEN|Access denied/i);
   });
 });

@@ -14,14 +14,24 @@ export * from "./plugin-metadata";
 // Severity banding helpers
 export * from "./severity";
 
+// Backtracking-safety analysis for user-authored ingest regexes
+export * from "./regex-safety";
+
 // Source token helpers
 export * from "./token";
 
 // Schemas and inferred types
 export * from "./schemas";
 
+// Dashboard signal event-type set (shared by the backend status query + the
+// frontend signals deriver so they cannot drift).
+export * from "./signal-event-types";
+
 // Realtime signals
 export * from "./signals";
+
+// Frontend slots (fillable by other plugins)
+export * from "./slots";
 
 // Health-check dropdown resolver names (shared by backend annotations + frontend)
 export * from "./health-resolvers";

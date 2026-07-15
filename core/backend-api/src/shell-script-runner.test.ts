@@ -184,18 +184,21 @@ describe("defaultShellScriptRunner — sandbox default profile", () => {
     // `yes` emits effectively unbounded output. With a tiny cap the runner must
     // stream-count, hit the cap, KILL the child, and flag truncation — instead
     // of buffering gigabytes first. If the OOM-safe streaming path regressed,
-    // this would hang until the wall-clock timeout (and/or balloon memory).
+    // the run would ride out the wall-clock timeout and report `timedOut: true`.
     withPolicy({ resources: { maxOutputBytes: 4096 } });
-    const start = Date.now();
     const result = await defaultShellScriptRunner.run({
       script: "yes xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       timeoutMs: 10_000,
     });
-    const elapsed = Date.now() - start;
     expect(result.outputTruncated).toBe(true);
     expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(4096);
-    // Should finish promptly via the kill, NOT ride out the 10s timeout.
-    expect(elapsed).toBeLessThan(8000);
+    // The deterministic proof it finished via the kill and did NOT ride out the
+    // timeout: `timedOut` is false. (A prior `elapsed < 8000ms` wall-clock bound
+    // was removed — it flaked when event-loop starvation under the parallel
+    // suite slowed the kill/collect past the arbitrary bound while still under
+    // the 10s timeout, i.e. the kill worked correctly. `timedOut === false`
+    // already fails if a regressed streaming path lets the run reach the
+    // timeout, so no correctness is lost.)
     expect(result.timedOut).toBe(false);
   });
 

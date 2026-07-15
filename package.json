@@ -28,6 +28,7 @@
     "lint": "bun run lint:code",
     "lint:code": "eslint .",
     "test": "bun run scripts/run-tests.ts",
+    "test:load": "CHECKSTACK_LOAD_TESTS=1 CHECKSTACK_IT=1 bun test load-guard",
     "deps:check": "syncpack lint",
     "deps:fix": "syncpack fix",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",

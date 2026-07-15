@@ -7,6 +7,7 @@
  * Pure module: no IO (the TCP/TLS listener and framing live elsewhere).
  */
 
+import type { NormalizedLogRecord } from "@checkstack/telemetry-common";
 import type { IngestedLine, LogStreamConfig } from "../../schemas";
 import {
   bandFromSyslogPri,
@@ -118,6 +119,59 @@ export function syslogToIngestedLine({
     band,
     body: truncateBody({ body: parsed.message, maxBytes: config.maxLineBytes }),
     attributes: capAttributes({ attributes }),
+  };
+}
+
+/**
+ * Convert a parsed syslog message into a normalized telemetry log record - the
+ * lingua franca a telemetry SOURCE hands the platform, which routes it through
+ * the logstream SINK (`createLogstreamTelemetrySink`) into the SAME ingest
+ * pipeline the push endpoints use.
+ *
+ * This is the deliberate INVERSE of {@link syslogToIngestedLine}: instead of
+ * banding, truncating, capping and clamping here (the old direct-to-pipeline
+ * path), it emits ONLY the source facts and lets the sink apply the identical
+ * normalization. Two facts are load-bearing for parity with the old path:
+ *
+ * - `severityNumber` carries the PRI-derived OTel number, so the sink's
+ *   `resolveSeverity` reproduces the same band and number.
+ * - `severityText` carries the RFC 5424 severity KEYWORD (e.g. `"err"`), the
+ *   source-native value a stream's `severityRules.valueMap` keys on. The old
+ *   mapper passed this keyword straight into `applySeverityValueMap` and then
+ *   DISCARDED it; the sink keys on `record.severityText`, so preserving it here
+ *   keeps the keyword-based band override working AND (as a strict enrichment)
+ *   surfaces the keyword on the stored line.
+ *
+ * No token handling and no `resource`: on the platform path the source instance
+ * BINDING is the authorization and routing, and syslog carries no service
+ * identity (the host lives in `attributes["host.name"]`, exactly as before).
+ */
+export function syslogToNormalizedLogRecord({
+  parsed,
+  now = new Date(),
+}: {
+  parsed: ParsedSyslog;
+  /** Fallback event time when the source sent the nil timestamp `-`. */
+  now?: Date;
+}): NormalizedLogRecord {
+  const attributes: Record<string, unknown> = {};
+  if (parsed.hostname) attributes["host.name"] = parsed.hostname;
+  if (parsed.appName) attributes["app.name"] = parsed.appName;
+  if (parsed.procId) attributes["proc.id"] = parsed.procId;
+  if (parsed.msgId) attributes["msg.id"] = parsed.msgId;
+  for (const [sdId, params] of Object.entries(parsed.structuredData)) {
+    if (sdId.startsWith(CHECKSTACK_SD_ID_PREFIX)) continue;
+    for (const [key, value] of Object.entries(params)) {
+      attributes[`sd.${sdId}.${key}`] = value;
+    }
+  }
+
+  return {
+    ts: parsed.ts ?? now,
+    severityNumber: parsed.severityNumber,
+    severityText: syslogSeverityName(parsed.pri),
+    body: parsed.message,
+    attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
   };
 }
 

@@ -116,6 +116,9 @@ const realAuth: AuthService = {
   async hasAnyTypeGrant() {
     return { hasGrant: true };
   },
+  async hasCreateCapability() {
+    return { hasCapability: true };
+  },
   async authorizeCreate() {
     return { ownerTeamId: null, isPrivate: false };
   },

@@ -24,6 +24,16 @@ export interface DataTableColumn<TData> {
    * columns with no meaningful text to match.
    */
   searchValue?: (row: TData) => string;
+  /**
+   * Let this column absorb the table's spare width and ELLIPSIZE overflowing
+   * content instead of letting one long value force the whole table to scroll
+   * horizontally. The `<td>`/`<th>` get `max-width: 0`, so with the table at
+   * `w-full` the column shrinks to the space the other columns leave, and its
+   * content clips. The cell's own text must still carry `truncate` (single
+   * line) inside a `min-w-0` box for the ellipsis to show. Use for a free-text
+   * column (a name / description) that can be arbitrarily long.
+   */
+  truncate?: boolean;
   /** Extra class names for the `<th>` (e.g. width, text alignment). */
   headClassName?: string;
   /** Extra class names for the `<td>`. */

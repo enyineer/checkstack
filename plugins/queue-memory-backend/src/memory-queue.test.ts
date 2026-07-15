@@ -15,6 +15,18 @@ import type { Logger } from "@checkstack/backend-api";
 // full repo suite saturates the machine. Generous ceiling; assertions unchanged.
 setDefaultTimeout(30_000);
 
+// Poll deadline for the retry tests' terminal-signal loops. This is only a
+// safety net so a broken impl fails its assertion instead of hanging to the
+// test timeout — a correct impl exits the loop the moment the signal lands.
+// Sized like the suite's other starvation ceilings (~2x worst observed): an
+// 8s net expired at 8.3s under full-suite load because the nominal ~10ms
+// retry timers fired seconds late. Starvation only delays the terminal
+// signal; it cannot change the asserted counts, so a large net is safe.
+const RETRY_POLL_CEILING_MS = 60_000;
+// Per-test timeout for the polling tests: must exceed the poll ceiling so the
+// deadline (and its diagnostic assertion) fires before bun kills the test.
+const RETRY_TEST_TIMEOUT_MS = 70_000;
+
 // Suppress console.error output during tests for failed jobs
 const testLogger: Logger = {
   debug: () => {},
@@ -186,60 +198,64 @@ describe("InMemoryQueue Consumer Groups", () => {
   });
 
   describe("Retry Logic", () => {
-    it("should retry failed jobs with exponential backoff", async () => {
-      let attempts = 0;
-      const attemptTimestamps: number[] = [];
+    it(
+      "should retry failed jobs with exponential backoff",
+      async () => {
+        let attempts = 0;
+        const attemptTimestamps: number[] = [];
 
-      await queue.consume(
-        async (job) => {
-          attemptTimestamps.push(Date.now());
-          attempts++;
-          if (attempts < 3) {
-            throw new Error("Simulated failure");
-          }
-        },
-        { consumerGroup: "retry-group", maxRetries: 3 },
-      );
+        await queue.consume(
+          async (job) => {
+            attemptTimestamps.push(Date.now());
+            attempts++;
+            if (attempts < 3) {
+              throw new Error("Simulated failure");
+            }
+          },
+          { consumerGroup: "retry-group", maxRetries: 3 },
+        );
 
-      await queue.enqueue("test");
+        await queue.enqueue("test");
 
-      // Wait for all three attempts by POLLING instead of a fixed sleep.
-      // Nominal schedule (delayMultiplier=0.01) is 20ms + 40ms = 60ms, but
-      // under full-suite machine load timers fire late (observed >5s when a
-      // dev stack runs alongside the suite), so a fixed window flaked. The
-      // generous deadline still guards a broken multiplier: full-scale
-      // delays (2s + 4s + more retries) exhaust it.
-      const deadline = Date.now() + 15_000;
-      while (attempts < 3 && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+        // Wait for all three attempts by POLLING instead of a fixed sleep.
+        // Nominal schedule (delayMultiplier=0.01) is 20ms + 40ms = 60ms, but
+        // under full-suite machine load timers fire late (observed >8s in the
+        // sibling test), so a fixed window flaked. The generous deadline still
+        // guards a broken multiplier: full-scale delays (2s + 4s + more
+        // retries) exhaust it.
+        const deadline = Date.now() + RETRY_POLL_CEILING_MS;
+        while (attempts < 3 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
 
-      // Should have tried 3 times (initial + 2 retries)
-      expect(attempts).toBe(3);
+        // Should have tried 3 times (initial + 2 retries)
+        expect(attempts).toBe(3);
 
-      // Check the exponential backoff SCHEDULE via lower bounds only.
-      // Measured delays can only ever EXCEED the scheduled delay (late
-      // timers), so lower bounds are load-immune: delay2 >= 35 proves the
-      // second retry was scheduled at ~40ms (2^2), not at the first retry's
-      // ~20ms (2^1). Upper bounds / direct delay2 > delay1 comparisons were
-      // scheduler-jitter noise, not backoff-logic guards, and flaked under
-      // parallel-suite load.
-      if (attemptTimestamps.length >= 3) {
-        const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
-        const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
+        // Check the exponential backoff SCHEDULE via lower bounds only.
+        // Measured delays can only ever EXCEED the scheduled delay (late
+        // timers), so lower bounds are load-immune: delay2 >= 35 proves the
+        // second retry was scheduled at ~40ms (2^2), not at the first retry's
+        // ~20ms (2^1). Upper bounds / direct delay2 > delay1 comparisons were
+        // scheduler-jitter noise, not backoff-logic guards, and flaked under
+        // parallel-suite load.
+        if (attemptTimestamps.length >= 3) {
+          const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
+          const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
 
-        // First retry scheduled after 2^1 * 1000 * 0.01 = 20ms
-        expect(delay1).toBeGreaterThanOrEqual(15); // Allow tolerance
-        // Second retry scheduled after 2^2 * 1000 * 0.01 = 40ms
-        expect(delay2).toBeGreaterThanOrEqual(35);
-        // NO upper bound on measured delays: wall-clock ceilings cannot
-        // distinguish a delayMultiplier regression (seconds) from timer
-        // lateness under machine load (also seconds), so any ceiling is
-        // either a flake or a no-op. The multiplier being APPLIED is
-        // guarded by the delayed-enqueue test below, which fails if a
-        // 2s-configured delay does not become ~20ms.
-      }
-    });
+          // First retry scheduled after 2^1 * 1000 * 0.01 = 20ms
+          expect(delay1).toBeGreaterThanOrEqual(15); // Allow tolerance
+          // Second retry scheduled after 2^2 * 1000 * 0.01 = 40ms
+          expect(delay2).toBeGreaterThanOrEqual(35);
+          // NO upper bound on measured delays: wall-clock ceilings cannot
+          // distinguish a delayMultiplier regression (seconds) from timer
+          // lateness under machine load (also seconds), so any ceiling is
+          // either a flake or a no-op. The multiplier being APPLIED is
+          // guarded by the delayed-enqueue test below, which fails if a
+          // 2s-configured delay does not become ~20ms.
+        }
+      },
+      RETRY_TEST_TIMEOUT_MS,
+    );
 
     it(
       "should not retry beyond maxRetries",
@@ -256,22 +272,32 @@ describe("InMemoryQueue Consumer Groups", () => {
 
         await queue.enqueue("test");
 
-        // Poll instead of a fixed sleep: the retries take ~60ms nominally
-        // (delayMultiplier=0.01), but under full-suite load the event loop
-        // can starve the retry timers well past that.
-        const deadline = Date.now() + 5000;
-        while (attempts < 3 && Date.now() < deadline) {
+        // Poll on the TERMINAL signal, not a fixed sleep or a wall-clock
+        // window. The job fails permanently only after the retry loop gives up
+        // (attempts === maxRetries + 1), and ONLY then does the queue take its
+        // else-branch: it increments `failed` and schedules NO further retry.
+        // So `getStats().failed === 1` is a definitive "no retry is pending"
+        // signal, and it is load-immune — starved retry timers merely delay it,
+        // they cannot change the terminal count. This replaces the old
+        // fixed-200ms "wait for a would-be 4th retry" tail, which under the
+        // parallel suite's starvation could fire late and flake. The deadline
+        // is only a safety net so a broken impl fails the assertion below
+        // instead of hanging to the test timeout (an 8s net proved too small:
+        // it expired at 8.3s under full-suite load with the second retry
+        // timer still pending).
+        const deadline = Date.now() + RETRY_POLL_CEILING_MS;
+        while ((await queue.getStats()).failed < 1 && Date.now() < deadline) {
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
 
-        // Should try 3 times total (initial + 2 retries)...
+        // Exactly 3 attempts (initial + 2 retries). The handler increments
+        // `attempts` BEFORE it throws and `failed` ticks AFTER, so once the
+        // terminal signal is observed attempts is already 3 and a 4th retry is
+        // structurally impossible (the else-branch does not re-enqueue).
         expect(attempts).toBe(3);
-
-        // ...and never a 4th: give a would-be extra retry ample time to fire.
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        expect(attempts).toBe(3);
+        expect((await queue.getStats()).failed).toBe(1);
       },
-      10_000,
+      RETRY_TEST_TIMEOUT_MS,
     );
   });
 
@@ -666,9 +692,9 @@ describe("InMemoryQueue Consumer Groups", () => {
       expect(completed.items.length).toBe(2);
       expect(completed.total).toBe(2);
       // Newest first
-      expect(
-        completed.items[0].finishedAt!.getTime(),
-      ).toBeGreaterThanOrEqual(completed.items[1].finishedAt!.getTime());
+      expect(completed.items[0].finishedAt!.getTime()).toBeGreaterThanOrEqual(
+        completed.items[1].finishedAt!.getTime(),
+      );
       expect(completed.items[0].state).toBe("completed");
     });
 

@@ -1,0 +1,53 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../catalog-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dev-server"
+    },
+    {
+      "path": "../frontend"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../healthcheck-frontend"
+    },
+    {
+      "path": "../logstream-common"
+    },
+    {
+      "path": "../telemetry-common"
+    },
+    {
+      "path": "../telemetry-frontend"
+    },
+    {
+      "path": "../test-utils-frontend"
+    },
+    {
+      "path": "../tracestream-common"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

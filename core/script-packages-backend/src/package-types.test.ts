@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -49,26 +49,32 @@ describe("extractReferences", () => {
 });
 
 describe("resolvePackageTypeClosure", () => {
+  // ONE shared node_modules fixture, built once for the whole describe.
+  //
+  // Every test resolves a DISTINCT package specifier and resolution is
+  // read-only (keyed by specifier), so a single shared tree returns exactly
+  // the same closure per test as an isolated one would. Building it once
+  // instead of per-test collapses this FS-syscall-heavy setup (mkdtemp +
+  // dozens of mkdir/writeFile, and their teardown) from ~8x to 1x — that
+  // starvation-amplifying setup is what let a ~300ms test balloon past the
+  // 30s suite timeout under the parallel suite's tmpdir I/O contention.
   let nm: string;
-  beforeEach(async () => {
-    nm = path.join(
-      await mkdtemp(path.join(tmpdir(), "cs-types-")),
-      "node_modules",
-    );
-    await mkdir(nm, { recursive: true });
-  });
-  afterEach(async () => {
-    await rm(path.dirname(nm), { recursive: true, force: true });
-  });
 
-  /** Write a file under node_modules at the given relative path. */
+  /** Write a file under the shared node_modules at the given relative path. */
   async function file(rel: string, content: string): Promise<void> {
     const full = path.join(nm, rel);
     await mkdir(path.dirname(full), { recursive: true });
     await writeFile(full, content);
   }
 
-  test("lodash-like: own types absent, @types present, multi-file /// <reference> closure, unwrapped", async () => {
+  beforeAll(async () => {
+    nm = path.join(
+      await mkdtemp(path.join(tmpdir(), "cs-types-")),
+      "node_modules",
+    );
+    await mkdir(nm, { recursive: true });
+
+    // lodash-like: own types absent, @types present, multi-file /// <reference>.
     // lodash itself ships NO own types.
     await file(
       "lodash/package.json",
@@ -95,6 +101,97 @@ describe("resolvePackageTypeClosure", () => {
       `import _ = require("../index");\ndeclare module "../index" { interface LoDashStatic { debounce(): void; } }`,
     );
 
+    // bundled-types (zod-like): own index.d.ts present, no @types.
+    await file(
+      "zod/package.json",
+      JSON.stringify({ name: "zod", types: "index.d.ts", main: "index.js" }),
+    );
+    await file("zod/index.d.ts", `export declare function parse(): unknown;`);
+    await file("zod/index.js", "module.exports = {};");
+
+    // bundled-types via exports map `types` condition (dayjs-like).
+    await file(
+      "dayjs/package.json",
+      JSON.stringify({
+        name: "dayjs",
+        exports: {
+          ".": { types: "./esm/index.d.ts", import: "./esm/index.js" },
+        },
+      }),
+    );
+    await file(
+      "dayjs/esm/index.d.ts",
+      `export declare function dayjs(): unknown;`,
+    );
+
+    // scoped: @babel/core resolves to @types/babel__core.
+    await file(
+      "@babel/core/package.json",
+      JSON.stringify({ name: "@babel/core", main: "lib/index.js" }),
+    );
+    await file("@babel/core/lib/index.js", "module.exports = {};");
+    await file(
+      "@types/babel__core/package.json",
+      JSON.stringify({ name: "@types/babel__core", types: "index.d.ts" }),
+    );
+    await file(
+      "@types/babel__core/index.d.ts",
+      `export declare function transform(): unknown;`,
+    );
+
+    // both own types AND @types present.
+    await file(
+      "thing/package.json",
+      JSON.stringify({ name: "thing", types: "index.d.ts" }),
+    );
+    await file("thing/index.d.ts", `export const own: number;`);
+    await file(
+      "@types/thing/package.json",
+      JSON.stringify({ name: "@types/thing", types: "index.d.ts" }),
+    );
+    await file("@types/thing/index.d.ts", `export const fromTypes: string;`);
+
+    // neither own types nor @types.
+    await file(
+      "notyped/package.json",
+      JSON.stringify({ name: "notyped", main: "index.js" }),
+    );
+    await file("notyped/index.js", "module.exports = 1;");
+
+    // cross-package /// <reference types> into another @types.
+    await file(
+      "@types/needsnode/package.json",
+      JSON.stringify({ name: "@types/needsnode", types: "index.d.ts" }),
+    );
+    await file(
+      "@types/needsnode/index.d.ts",
+      `/// <reference types="node" />\nexport declare const x: number;`,
+    );
+    await file(
+      "@types/node/package.json",
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+    );
+    await file("@types/node/index.d.ts", `declare const process: unknown;`);
+    await file("needsnode/package.json", JSON.stringify({ name: "needsnode" }));
+
+    // truncation fixture (@types/huge with a large referenced file).
+    const big = "x".repeat(2000);
+    await file(
+      "@types/huge/package.json",
+      JSON.stringify({ name: "@types/huge", types: "index.d.ts" }),
+    );
+    await file(
+      "@types/huge/index.d.ts",
+      `/// <reference path="./a.d.ts" />\nexport const a: 1;`,
+    );
+    await file("@types/huge/a.d.ts", `export const big = "${big}";`);
+    await file("huge/package.json", JSON.stringify({ name: "huge" }));
+  });
+  afterAll(async () => {
+    await rm(path.dirname(nm), { recursive: true, force: true });
+  });
+
+  test("lodash-like: own types absent, @types present, multi-file /// <reference> closure, unwrapped", async () => {
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "lodash",
@@ -118,14 +215,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("bundled-types (zod/dayjs-like): own index.d.ts present, no @types, returns bundled files (not a 404)", async () => {
-    await file(
-      "zod/package.json",
-      JSON.stringify({ name: "zod", types: "index.d.ts", main: "index.js" }),
-    );
-    await file("zod/index.d.ts", `export declare function parse(): unknown;`);
-    await file("zod/index.js", "module.exports = {};");
-    // No @types/zod on purpose.
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "zod",
@@ -140,20 +229,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("bundled-types via exports map `types` condition", async () => {
-    await file(
-      "dayjs/package.json",
-      JSON.stringify({
-        name: "dayjs",
-        exports: {
-          ".": { types: "./esm/index.d.ts", import: "./esm/index.js" },
-        },
-      }),
-    );
-    await file(
-      "dayjs/esm/index.d.ts",
-      `export declare function dayjs(): unknown;`,
-    );
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "dayjs",
@@ -166,20 +241,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("scoped: @scope/name resolves to @types/scope__name", async () => {
-    await file(
-      "@babel/core/package.json",
-      JSON.stringify({ name: "@babel/core", main: "lib/index.js" }),
-    );
-    await file("@babel/core/lib/index.js", "module.exports = {};");
-    await file(
-      "@types/babel__core/package.json",
-      JSON.stringify({ name: "@types/babel__core", types: "index.d.ts" }),
-    );
-    await file(
-      "@types/babel__core/index.d.ts",
-      `export declare function transform(): unknown;`,
-    );
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "@babel/core",
@@ -192,17 +253,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("both own types AND @types present -> both included", async () => {
-    await file(
-      "thing/package.json",
-      JSON.stringify({ name: "thing", types: "index.d.ts" }),
-    );
-    await file("thing/index.d.ts", `export const own: number;`);
-    await file(
-      "@types/thing/package.json",
-      JSON.stringify({ name: "@types/thing", types: "index.d.ts" }),
-    );
-    await file("@types/thing/index.d.ts", `export const fromTypes: string;`);
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "thing",
@@ -216,12 +266,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("neither own types nor @types -> graceful empty closure, no throw", async () => {
-    await file(
-      "notyped/package.json",
-      JSON.stringify({ name: "notyped", main: "index.js" }),
-    );
-    await file("notyped/index.js", "module.exports = 1;");
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "notyped",
@@ -244,21 +288,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("follows cross-package /// <reference types> into another @types", async () => {
-    await file(
-      "@types/needsnode/package.json",
-      JSON.stringify({ name: "@types/needsnode", types: "index.d.ts" }),
-    );
-    await file(
-      "@types/needsnode/index.d.ts",
-      `/// <reference types="node" />\nexport declare const x: number;`,
-    );
-    await file(
-      "@types/node/package.json",
-      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
-    );
-    await file("@types/node/index.d.ts", `declare const process: unknown;`);
-    await file("needsnode/package.json", JSON.stringify({ name: "needsnode" }));
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "needsnode",
@@ -270,18 +299,6 @@ describe("resolvePackageTypeClosure", () => {
   });
 
   test("truncated flag set (not silent) when the closure exceeds the ceiling", async () => {
-    const big = "x".repeat(2000);
-    await file(
-      "@types/huge/package.json",
-      JSON.stringify({ name: "@types/huge", types: "index.d.ts" }),
-    );
-    await file(
-      "@types/huge/index.d.ts",
-      `/// <reference path="./a.d.ts" />\nexport const a: 1;`,
-    );
-    await file("@types/huge/a.d.ts", `export const big = "${big}";`);
-    await file("huge/package.json", JSON.stringify({ name: "huge" }));
-
     const closure = await resolvePackageTypeClosure({
       nodeModulesDir: nm,
       specifier: "huge",

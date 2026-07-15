@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -11,7 +11,14 @@ import {
   DialogFooter,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
+import {
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+} from "@checkstack/auth-frontend";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { catalogAccess } from "@checkstack/catalog-common";
 import {
   metadataToRows,
   rowsToMetadata,
@@ -32,6 +39,7 @@ interface EnvironmentEditorProps {
   onSave: (data: {
     name: string;
     description?: string;
+    teamId?: string;
     metadata?: Record<string, string>;
   }) => Promise<void>;
   initialData?: EnvironmentEditorInitialData;
@@ -56,16 +64,29 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
   const [fields, setFields] = useState<CustomFieldRow[]>(() =>
     metadataToRows(initialData?.metadata),
   );
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name ?? "");
-      setDescription(initialData?.description ?? "");
-      setFields(metadataToRows(initialData?.metadata));
-    }
-  }, [open, initialData]);
+  // Global manage holders may create a team-less (global) environment;
+  // team-scoped creators must pick an owning team.
+  const accessApi = useApi(accessApiRef);
+  const { allowed: allowGlobal } = accessApi.useAccess(
+    catalogAccess.environment.manage,
+  );
+
+  // Seed the form ONCE per open transition. The parent passes `initialData` as
+  // a fresh object literal each render and realtime invalidations refetch the
+  // environment while open, so a `useEffect([open, initialData])` would re-seed
+  // on refetch and wipe in-progress edits.
+  useSeedFormOnOpen(open, () => {
+    setName(initialData?.name ?? "");
+    setDescription(initialData?.description ?? "");
+    setFields(metadataToRows(initialData?.metadata));
+    setOwnerTeamId(null);
+    setOwnerTeamError(null);
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,15 +97,22 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
     }
 
     setLoading(true);
+    setOwnerTeamError(null);
     try {
       await onSave({
         name: name.trim(),
         description: description.trim() || undefined,
         metadata: rowsToMetadata(fields),
+        ...(initialData ? {} : { teamId: ownerTeamId ?? undefined }),
       });
       onClose();
     } catch (error) {
-      toastError(toast, "Failed to save environment", error);
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+      } else {
+        toastError(toast, "Failed to save environment", error);
+      }
     } finally {
       setLoading(false);
     }
@@ -134,6 +162,21 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
               onChange={setFields}
               description="Free-form key/value pairs (baseUrl, region, tier, ...). These surface to checks assigned to systems in this environment."
             />
+
+            {/* Owning team picker - only when creating a new environment. */}
+            {!initialData && (
+              <div className="space-y-2">
+                <TeamOwnershipPicker
+                  value={ownerTeamId}
+                  onChange={(id) => {
+                    setOwnerTeamId(id);
+                    setOwnerTeamError(null);
+                  }}
+                  allowGlobal={allowGlobal}
+                  error={ownerTeamError}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>

@@ -23,7 +23,7 @@ import {
 } from "@checkstack/metricstream-common";
 import type { SatelliteCapabilityHandler } from "@checkstack/satellite-backend";
 import * as schema from "../schema";
-import type { MetricIngestSink } from "../sources/extension-point";
+import type { MetricIngestSink } from "../sources/ingest-sink";
 import { addInTransitDrops } from "../storage/activity";
 
 type Db = SafeDatabase<typeof schema>;
@@ -32,6 +32,7 @@ export function createMetricstreamForwardHandler({
   db,
   sink,
   auth,
+  recordPushSeen,
   logger,
   now = () => new Date(),
 }: {
@@ -39,6 +40,12 @@ export function createMetricstreamForwardHandler({
   sink: MetricIngestSink;
   /** ckms_ source-token authenticator (the same one the push endpoints use). */
   auth: IngestAuthenticator;
+  /**
+   * Fire-and-forget last-seen stamp for a verified push instance (the platform
+   * throttles it). Called per verified forwarded group so a stream fed only over
+   * the satellite channel still stamps activity. `tokenId` is the source id.
+   */
+  recordPushSeen?: (tokenId: string) => void;
   logger: Logger;
   now?: () => Date;
 }): SatelliteCapabilityHandler {
@@ -88,6 +95,9 @@ export function createMetricstreamForwardHandler({
         );
         continue;
       }
+      // Stamp the verified push instance's last-seen (fire-and-forget; the
+      // platform throttles the write). `tokenId` is the source id.
+      recordPushSeen?.(verdict.tokenId);
       const outcome = sink.ingest({
         streamId: verdict.resourceId,
         datapoints: group.datapoints.map((d) => wireDatapointToNormalized(d)),

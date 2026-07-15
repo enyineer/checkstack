@@ -92,6 +92,14 @@ describe("CLI Template Scaffolding", () => {
         expect(existsSync(path.join(targetDir, "tsconfig.json"))).toBe(true);
       });
 
+      // The SUBPROCESS budget (execSync timeout: 60s) is the real enforcement
+      // for these two; the bun-test timeout must sit ABOVE it or the test
+      // kills itself while its child is still inside its own budget (a cold
+      // eslint run over a scaffold took 48.5s under the parallel suite -
+      // legal per the exec budget, past a 30s test timeout). 90s = exec
+      // budget + teardown headroom; a genuinely hung child still dies at 60s.
+      const SUBPROCESS_TEST_CEILING_MS = 90_000;
+
       it(
         "should pass typecheck",
         () => {
@@ -113,7 +121,7 @@ describe("CLI Template Scaffolding", () => {
             );
           }
         },
-        { timeout: 30_000 }
+        { timeout: SUBPROCESS_TEST_CEILING_MS }
       );
 
       it(
@@ -134,7 +142,7 @@ describe("CLI Template Scaffolding", () => {
             );
           }
         },
-        { timeout: 30_000 }
+        { timeout: SUBPROCESS_TEST_CEILING_MS }
       );
 
       // ────────────────────────────────────────────────────────────

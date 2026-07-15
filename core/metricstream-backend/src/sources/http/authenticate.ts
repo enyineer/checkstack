@@ -43,11 +43,19 @@ function clientIpOf(request: Request): string {
 export async function authenticateRequest({
   request,
   auth,
+  recordPushSeen,
   preAuthLimiter = sharedPreAuthLimiter,
   now = () => new Date(),
 }: {
   request: Request;
   auth: IngestAuthenticator;
+  /**
+   * Fire-and-forget last-seen stamp for the verified push instance (the platform
+   * throttles it). `tokenId` is the source instance id for push tokens. Called
+   * only on a verified ingest; a throw here must never affect the response, so
+   * the caller passes a callback that swallows its own errors.
+   */
+  recordPushSeen?: (tokenId: string) => void;
   preAuthLimiter?: PreAuthRateLimiter;
   now?: () => Date;
 }): Promise<AuthenticatedSource | Response> {
@@ -71,7 +79,8 @@ export async function authenticateRequest({
     preAuthLimiter.recordFailure({ ip, now: at });
     return unauthorized(unauthorizedMessage(verdict.reason));
   }
-  // `resourceId` is the stream id for metricstream source tokens.
+  // `resourceId` is the stream id, `tokenId` the push source instance id.
+  recordPushSeen?.(verdict.tokenId);
   return { streamId: verdict.resourceId, tokenId: verdict.tokenId };
 }
 

@@ -795,6 +795,38 @@ export const authContract = {
       }),
     ),
 
+  // Batched variant of listObjectRelations: owning team(s) + privacy for MANY
+  // objects of one type in a single call, so a table can render an owner
+  // indicator per row without an N+1. Every requested id gets an entry back.
+  listObjectRelationsBulk: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
+    .input(
+      z.object({
+        objectType: z.string(),
+        objectIds: z.array(z.string()),
+      }),
+    )
+    .output(
+      z.object({
+        objects: z.array(
+          z.object({
+            objectId: z.string(),
+            teams: z.array(
+              z.object({
+                teamId: z.string(),
+                teamName: z.string(),
+                relation: z.enum(["viewer", "editor", "owner"]),
+              }),
+            ),
+            isPublic: z.boolean(),
+          }),
+        ),
+      }),
+    ),
+
   // Set a team's access relation on an object (replaces its existing relation
   // there). Replaces setResourceTeamAccess.
   writeRelation: proc({
@@ -967,6 +999,11 @@ export const authContract = {
       z.object({
         objectType: z.string(),
         parentType: z.string().optional(),
+        // Sibling self-service: also allow when the caller holds a `creator`
+        // grant on any of these types (mirrors the backend
+        // `instanceAccess.create.alsoAcceptCreatorOf`). Supplied by the caller
+        // from the plugin's own contract so auth stays domain-agnostic.
+        alsoAcceptCreatorOf: z.array(z.string()).optional(),
       }),
     )
     .output(z.object({ allowed: z.boolean() })),
@@ -1114,6 +1151,24 @@ export const authContract = {
         isPrivate: z.boolean(),
       }),
     ),
+
+  // Does the caller hold a type-level `creator` capability on `objectType` for
+  // any of their teams? Strictly the `creator` grant - an instance editor/owner
+  // grant does NOT count. Backs the `create.alsoAcceptCreatorOf` sibling gate so
+  // a caller who may create type A is authorized to create type B.
+  hasCreateCapability: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        userId: z.string(),
+        userType: z.enum(["user", "application"]),
+        objectType: z.string(),
+      }),
+    )
+    .output(z.object({ hasCapability: z.boolean() })),
 
   // Record ownership of a freshly-created object: the team gets the `owner`
   // relation and, unless isPrivate, the `public` viewer marker. Called by create

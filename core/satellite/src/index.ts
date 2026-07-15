@@ -22,8 +22,13 @@ import {
 import { SatelliteScriptPackages } from "./satellite-script-packages";
 import { TelemetryClient } from "./telemetry-client";
 import { AgentCapabilityRegistry } from "./capability-config-registry";
-import { computeCapabilities, isTelemetryEnabled } from "./capabilities";
+import {
+  computeCapabilities,
+  isTelemetryEnabled,
+  removedScrapeEnvWarning,
+} from "./capabilities";
 import { startTelemetryReceivers } from "./telemetry/receivers";
+import { registerBuiltinPullExecutors } from "./telemetry/pull/executors";
 
 // =============================================================================
 // Environment validation — fail fast if required vars are missing
@@ -377,11 +382,17 @@ logger.info(`Client ID: ${CLIENT_ID}`);
 // path). Capabilities are advertised from env flags; the telemetry client +
 // capability registry are instantiated only when at least one capability is
 // enabled. SAT-B wires the concrete receivers/scrapers into these instances.
+// Statically-linked telemetry-pull executors (prometheus-scrape, k8s-events)
+// must be registered before the pull scheduler resolves any pushed config.
+registerBuiltinPullExecutors();
+
 const capabilities = computeCapabilities(process.env);
 const telemetryEnabled = isTelemetryEnabled(capabilities);
 if (capabilities.length > 0) {
   logger.info(`Advertising capabilities: ${capabilities.join(", ")}`);
 }
+const removedScrapeWarning = removedScrapeEnvWarning(process.env);
+if (removedScrapeWarning) logger.warn(removedScrapeWarning);
 
 const client = new SatelliteClient({
   coreUrl: CORE_URL,

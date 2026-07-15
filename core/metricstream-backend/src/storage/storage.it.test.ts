@@ -5,6 +5,7 @@ import {
   isIntegrationEnabled,
   type TestDb,
 } from "@checkstack/test-utils-backend";
+import { MAX_EXEMPLARS_PER_POINT } from "@checkstack/telemetry-common";
 import * as schema from "../schema";
 import {
   countStreamSeries,
@@ -24,6 +25,10 @@ import {
   type MinuteBucketDelta,
 } from "./buckets";
 import { touchStreamActivity, readStreamActivity } from "./activity";
+import {
+  updateSeriesExemplars,
+  readSeriesExemplars,
+} from "./exemplars";
 import { floorToMinute } from "./time";
 import { computeSeriesId } from "./series-id";
 
@@ -282,6 +287,160 @@ describe.skipIf(!isIntegrationEnabled())(
       expect(activity?.droppedSeriesCount).toBe(5);
       expect(activity?.droppedDatapointsCount).toBe(50);
       expect(activity?.approxDatapointsPerMinute).toBe(130);
+    });
+
+    it("persists + reads series exemplars, windowed, deduped, capped newest-first", async () => {
+      const runner = test.db;
+      const seenAt = new Date("2026-07-12T12:00:00.000Z");
+      const from = new Date("2026-07-12T12:00:00.000Z");
+      const to = new Date("2026-07-12T13:00:00.000Z");
+      const tA = new Date("2026-07-12T12:10:00.000Z").getTime();
+      const tB = new Date("2026-07-12T12:20:00.000Z").getTime();
+      const tBefore = new Date("2026-07-12T11:00:00.000Z").getTime();
+
+      const a = newSeries("s-ex", "m", { host: "a" }, seenAt);
+      const b = newSeries("s-ex", "m", { host: "b" }, seenAt);
+      // Series c is admitted WITH exemplars seeded on the insert row.
+      const c: NewSeriesRow = {
+        ...newSeries("s-ex", "m", { host: "c" }, seenAt),
+        lastExemplars: [
+          { traceId: "c".repeat(32), value: 3, tsMs: new Date("2026-07-12T12:30:00.000Z").getTime() },
+        ],
+      };
+      await insertNewSeries({ runner, rows: [a, b, c] });
+
+      // a: two in-window exemplars; b: one BEFORE the window (must be excluded).
+      await updateSeriesExemplars({
+        runner,
+        updates: [
+          {
+            seriesId: a.id,
+            exemplars: [
+              { traceId: "a".repeat(32), value: 1, tsMs: tA },
+              { traceId: "b".repeat(32), value: 2, tsMs: tB },
+            ],
+          },
+          {
+            seriesId: b.id,
+            exemplars: [{ traceId: "d".repeat(32), value: 9, tsMs: tBefore }],
+          },
+        ],
+      });
+
+      const seriesIds = [a.id, b.id, c.id];
+      const all = await readSeriesExemplars({ runner, seriesIds, from, to, limit: 12 });
+      // Newest-first union across a + c, the out-of-window b exemplar excluded.
+      expect(all.map((e) => e.traceId)).toEqual([
+        "c".repeat(32), // 12:30
+        "b".repeat(32), // 12:20
+        "a".repeat(32), // 12:10
+      ]);
+
+      const capped = await readSeriesExemplars({ runner, seriesIds, from, to, limit: 2 });
+      expect(capped.map((e) => e.traceId)).toEqual(["c".repeat(32), "b".repeat(32)]);
+    });
+
+    it("MERGES exemplars across flushes (union kept, batched over series)", async () => {
+      const runner = test.db;
+      const seenAt = new Date("2026-07-10T12:00:00.000Z");
+      const from = new Date("2026-07-10T12:00:00.000Z");
+      const to = new Date("2026-07-10T13:00:00.000Z");
+      const at = (min: number) =>
+        new Date(
+          `2026-07-10T12:${String(min).padStart(2, "0")}:00.000Z`,
+        ).getTime();
+      const id = (label: string) => label.padEnd(32, "0");
+
+      const a = newSeries("s-merge", "m", { host: "a" }, seenAt);
+      const b = newSeries("s-merge", "m", { host: "b" }, seenAt);
+      await insertNewSeries({ runner, rows: [a, b] });
+
+      // Flush 1: a and b each get one exemplar (a multi-series batch).
+      await updateSeriesExemplars({
+        runner,
+        updates: [
+          { seriesId: a.id, exemplars: [{ traceId: id("a1"), value: 1, tsMs: at(10) }] },
+          { seriesId: b.id, exemplars: [{ traceId: id("b1"), value: 1, tsMs: at(10) }] },
+        ],
+      });
+      // Flush 2: a gets a NEWER exemplar. It must UNION with flush 1's, not
+      // overwrite it - the regression this fix targets.
+      await updateSeriesExemplars({
+        runner,
+        updates: [
+          { seriesId: a.id, exemplars: [{ traceId: id("a2"), value: 2, tsMs: at(20) }] },
+        ],
+      });
+
+      const mergedA = await readSeriesExemplars({
+        runner,
+        seriesIds: [a.id],
+        from,
+        to,
+        limit: 12,
+      });
+      expect(mergedA.map((e) => e.traceId)).toEqual([id("a2"), id("a1")]);
+
+      // b was in flush 1's batch but not flush 2's - its exemplar is untouched.
+      const keptB = await readSeriesExemplars({
+        runner,
+        seriesIds: [b.id],
+        from,
+        to,
+        limit: 12,
+      });
+      expect(keptB.map((e) => e.traceId)).toEqual([id("b1")]);
+    });
+
+    it("dedupes by traceId and caps the persisted set when merging", async () => {
+      const runner = test.db;
+      const seenAt = new Date("2026-07-11T12:00:00.000Z");
+      const from = new Date("2026-07-11T12:00:00.000Z");
+      const to = new Date("2026-07-11T13:00:00.000Z");
+      const at = (min: number) =>
+        new Date(
+          `2026-07-11T12:${String(min).padStart(2, "0")}:00.000Z`,
+        ).getTime();
+      const id = (label: string) => label.padEnd(32, "0");
+
+      const s = newSeries("s-cap", "m", { host: "x" }, seenAt);
+      await insertNewSeries({ runner, rows: [s] });
+
+      await updateSeriesExemplars({
+        runner,
+        updates: [
+          { seriesId: s.id, exemplars: [{ traceId: id("dup"), value: 1, tsMs: at(5) }] },
+        ],
+      });
+      // A newer occurrence of the SAME trace plus three fresh ones: after the
+      // union the same trace must appear ONCE and only the newest few survive.
+      await updateSeriesExemplars({
+        runner,
+        updates: [
+          {
+            seriesId: s.id,
+            exemplars: [
+              { traceId: id("dup"), value: 2, tsMs: at(50) },
+              { traceId: id("n1"), value: 3, tsMs: at(40) },
+              { traceId: id("n2"), value: 4, tsMs: at(30) },
+              { traceId: id("n3"), value: 5, tsMs: at(20) },
+            ],
+          },
+        ],
+      });
+
+      const stored = await readSeriesExemplars({
+        runner,
+        seriesIds: [s.id],
+        from,
+        to,
+        limit: 100,
+      });
+      expect(stored.length).toBe(MAX_EXEMPLARS_PER_POINT);
+      const ids = stored.map((e) => e.traceId);
+      expect(ids.filter((t) => t === id("dup"))).toHaveLength(1);
+      // Newest-first: dup@50, n1@40, n2@30, n3@20 (the older dup@5 is dropped).
+      expect(ids).toEqual([id("dup"), id("n1"), id("n2"), id("n3")]);
     });
   },
 );

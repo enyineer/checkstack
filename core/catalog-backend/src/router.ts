@@ -526,23 +526,24 @@ export const createCatalogRouter = ({
   });
 
   const deleteGroup = os.deleteGroup.handler(async ({ input }) => {
-    await enforceNotGitOpsLocked("Group", input);
+    const groupId = input.id;
+    await enforceNotGitOpsLocked("Group", groupId);
 
     // Drive the delete through the reactive `catalog-group` entity tombstone
     // (§10.4). The REAL delete runs INSIDE `apply`; the deriver fires
     // `catalog.group.deleted` from the tombstone.
     await removeCatalogEntity({
       handle: getGroupEntity?.(),
-      id: input,
+      id: groupId,
       apply: async () => {
-        await entityService.deleteGroup(input);
+        await entityService.deleteGroup(groupId);
       },
     });
 
-    await removeGroupResource(input);
+    await removeGroupResource(groupId);
 
     await cache.invalidateTopology();
-    await broadcastChanged({ entity: "group", action: "deleted", id: input });
+    await broadcastChanged({ entity: "group", action: "deleted", id: groupId });
 
     return { success: true };
   });
@@ -789,7 +790,10 @@ export const createCatalogRouter = ({
   });
 
   const createEnvironment = os.createEnvironment.handler(async ({ input }) => {
-    const created = await entityService.createEnvironment(input);
+    // Strip `teamId` — consumed by the create-mode middleware (ownership grant),
+    // never reaches the service layer (the `environments` table has no teamId).
+    const { teamId: _teamId, ...environmentInput } = input;
+    const created = await entityService.createEnvironment(environmentInput);
     await broadcastChanged({
       entity: "environment",
       action: "created",

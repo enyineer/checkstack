@@ -22,6 +22,7 @@
     "@checkstack/logstream-common": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-frontend": "workspace:*",
+    "@checkstack/tracestream-common": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@playwright/test": "^1.60.0",
     "@testcontainers/postgresql": "^12.0.3",

@@ -15,6 +15,7 @@ import { catalogContract } from "./rpc-contract";
 interface InstanceAccessCreateMode {
   teamIdParam?: string;
   idField?: string;
+  alsoAcceptCreatorOf?: string[];
 }
 
 interface InstanceAccessParentScope {
@@ -247,48 +248,82 @@ describe("catalog system-scoped mutations carry the right instanceAccess", () =>
     ).toBe(false);
   });
 
-  test("createGroup does NOT carry instanceAccess.create (groups are global)", () => {
-    const meta = metaFor("createGroup");
-    expect(meta.instanceAccess?.create).toBeUndefined();
-  });
+  // Groups and environments are now team-manageable: create carries create-mode
+  // with `alsoAcceptCreatorOf: ["catalog.system"]` so a system creator may also
+  // create them.
+  for (const procName of ["createGroup", "createEnvironment"] as const) {
+    test(`${procName} carries create-mode with the catalog.system sibling gate`, () => {
+      expect(metaFor(procName).instanceAccess?.create).toEqual({
+        teamIdParam: "teamId",
+        idField: "id",
+        alsoAcceptCreatorOf: ["catalog.system"],
+      });
+    });
+
+    test(`${procName} input accepts an optional teamId field`, () => {
+      const schema = inputSchemaFor(procName);
+      expect(schema.safeParse({ name: "X", teamId: "team-1" }).success).toBe(
+        true,
+      );
+      expect(schema.safeParse({ name: "X" }).success).toBe(true);
+      expect(schema.safeParse({ name: "X", teamId: 42 }).success).toBe(false);
+    });
+  }
 });
 
 /**
- * Global resources (groups, environments, views) must NOT gain per-system
- * scoping. getEntities additionally returns a `groups` array that is global by
- * design and must never be filtered. These guards stop an over-correction.
+ * Groups and environments became team-manageable: their WRITES are team-scoped
+ * (create-mode owner grant + per-instance manage), while their READS stay public
+ * (shared browse facets). These guards pin the new wiring so it cannot regress to
+ * global-only. Views remain global.
  */
-describe("catalog global resources stay unscoped", () => {
-  // Groups and views carry no instanceAccess at all (no team-based scoping).
-  const noAccessProcs: Array<keyof typeof catalogContract> = [
-    "getGroups",
-    "createGroup",
-    "updateGroup",
-    "deleteGroup",
-    "getViews",
-    "createView",
-  ];
+describe("catalog group & environment writes are team-scoped, reads stay public", () => {
+  // Per-instance manage: update/delete key on the resource's own id.
+  test("updateGroup keys the per-group manage on its `id` field", () => {
+    expect(metaFor("updateGroup").instanceAccess).toEqual({ idParam: "id" });
+  });
 
-  for (const procName of noAccessProcs) {
-    test(`${String(procName)} carries no instanceAccess override`, () => {
-      expect(metaFor(procName).instanceAccess).toBeUndefined();
+  test("deleteGroup keys the per-group manage on `id` and takes a named { id } input", () => {
+    expect(metaFor("deleteGroup").instanceAccess).toEqual({ idParam: "id" });
+    expect(inputSchemaFor("deleteGroup").safeParse({ id: "g1" }).success).toBe(
+      true,
+    );
+    // Reshaped from a bare string so `idParam` has a field to read.
+    expect(inputSchemaFor("deleteGroup").safeParse("g1").success).toBe(false);
+  });
+
+  test("updateEnvironment / deleteEnvironment key the per-env manage on `environmentId`", () => {
+    expect(metaFor("updateEnvironment").instanceAccess).toEqual({
+      idParam: "environmentId",
+    });
+    expect(metaFor("deleteEnvironment").instanceAccess).toEqual({
+      idParam: "environmentId",
+    });
+  });
+
+  // Reads stay public: the list/get facets carry `global: true` (the deliberate
+  // "not team-filtered" marker) so team-scoped users still see every group/env.
+  const publicReadProcs: Array<keyof typeof catalogContract> = [
+    "getGroups",
+    "listEnvironments",
+    "getEnvironment",
+  ];
+  for (const procName of publicReadProcs) {
+    test(`${String(procName)} read stays public (global: true, not team-filtered)`, () => {
+      expect(metaFor(procName).instanceAccess).toEqual({ global: true });
     });
   }
 
-  // Environments are instance-wide global primitives — they carry
-  // `instanceAccess: { global: true }` to signal to the middleware that
-  // no team-based scoping applies (as opposed to simply being absent).
-  const globalTrueProcs: Array<keyof typeof catalogContract> = [
-    "listEnvironments",
-    "getEnvironment",
-    "createEnvironment",
-    "updateEnvironment",
-    "deleteEnvironment",
-  ];
+  // reorderGroups rewrites the single global sort column, so it stays a
+  // global-admin op (global: true), NOT a per-instance write.
+  test("reorderGroups stays global-admin (global: true)", () => {
+    expect(metaFor("reorderGroups").instanceAccess).toEqual({ global: true });
+  });
 
-  for (const procName of globalTrueProcs) {
-    test(`${String(procName)} carries instanceAccess { global: true }`, () => {
-      expect(metaFor(procName).instanceAccess).toEqual({ global: true });
+  // Views remain global (no team scoping) — no instanceAccess override.
+  for (const procName of ["getViews", "createView"] as const) {
+    test(`${procName} stays global (no instanceAccess override)`, () => {
+      expect(metaFor(procName).instanceAccess).toBeUndefined();
     });
   }
 });

@@ -9,6 +9,7 @@ import {
   ListEmptyState,
   RowAction,
   RowActions,
+  Skeleton,
 } from "@checkstack/ui";
 import { ExtensionSlot, useApi, accessApiRef } from "@checkstack/frontend-api";
 import {
@@ -23,10 +24,11 @@ import {
   GitOpsSourceBadge,
   type ProvenanceLock,
 } from "@checkstack/gitops-frontend";
-import { Plus, Server, Edit, Trash2, X, Trash } from "lucide-react";
+import { Plus, Server, Pencil, Trash2, Trash } from "lucide-react";
 import type { Environment, Group, System } from "../../api";
 import { CatalogApi } from "../../api";
 import { AssignMenu } from "./AssignMenu";
+import { MembershipChips } from "./MembershipChips";
 import { CatalogBrowseDataBoundary } from "../browse/CatalogBrowseDataBoundary";
 
 /** Stable empty group-id list: the manage systems table has no group rows. */
@@ -37,6 +39,9 @@ export interface SystemsTabProps {
   systems: System[];
   /** Total systems before filtering (distinguishes empty-catalog vs no-matches). */
   totalCount: number;
+  /** Whether the shared health filler is still bulk-fetching (shows a Health
+   * column placeholder instead of badges popping in onto an empty cell). */
+  healthLoading: boolean;
   allGroups: Group[];
   allEnvironments: Environment[];
   /** systemId -> the group ids it belongs to. */
@@ -160,6 +165,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     {
       id: "name",
       header: "Name",
+      truncate: true,
       sortValue: (system) => system.name,
       cell: (system) => {
         const { isLocked, provenance } = getLock({
@@ -169,11 +175,17 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
         return (
           <div className="flex items-center gap-2">
             <div className="min-w-0">
-              <p className="font-medium leading-snug text-foreground">
+              <p
+                title={system.name}
+                className="truncate font-medium leading-snug text-foreground"
+              >
                 {system.name}
               </p>
               {system.description && (
-                <p className="truncate text-xs text-muted-foreground">
+                <p
+                  title={system.description}
+                  className="truncate text-xs text-muted-foreground"
+                >
                   {system.description}
                 </p>
               )}
@@ -188,12 +200,20 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     {
       id: "health",
       header: "Health",
-      headClassName: "w-44",
-      cell: (system) => (
-        <div className="flex flex-wrap items-center gap-1">
-          <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
-        </div>
-      ),
+      // Keep the state badges on ONE row (side by side), matching the browse and
+      // detail views - `flex-wrap` in a fixed-narrow column made a second badge
+      // wrap onto its own line and look stacked. Let the column size to content.
+      headClassName: "whitespace-nowrap",
+      cell: (system) =>
+        // Hold a placeholder until the shared health fetch settles, so the
+        // status badges swap in instead of popping onto an empty cell.
+        props.healthLoading ? (
+          <Skeleton className="h-5 w-16 rounded-full" />
+        ) : (
+          <div className="flex items-center gap-1">
+            <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+          </div>
+        ),
     },
     {
       id: "groups",
@@ -217,6 +237,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
         <EnvChips
           system={system}
           canManage={canAccess(system.id)}
+          isLocked={getLock({ kind: "System", entityId: system.id }).isLocked}
           allEnvironments={allEnvironments}
           assignedEnvIds={systemEnvMap.get(system.id) ?? []}
           onAddToEnvironment={onAddToEnvironment}
@@ -386,46 +407,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
   );
 }
 
-/**
- * A membership chip. Renders a removable "x" only when `canRemove` is true;
- * otherwise it's a plain read-only pill (removing a membership requires MANAGE
- * on the system, which the backend enforces).
- */
-function Chip({
-  label,
-  onRemove,
-  removeLabel,
-  canRemove,
-  disabled,
-  disabledTitle,
-}: {
-  label: string;
-  onRemove: () => void;
-  removeLabel: string;
-  canRemove: boolean;
-  disabled?: boolean;
-  disabledTitle?: string;
-}): React.ReactElement {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-      {label}
-      {canRemove && (
-        <button
-          type="button"
-          disabled={disabled}
-          title={disabled ? disabledTitle : removeLabel}
-          aria-label={removeLabel}
-          onClick={onRemove}
-          className="text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
-    </span>
-  );
-}
-
-/** Group membership chips + assign menu, shared by the desktop cell and mobile card. */
+/** A system's group memberships as a compact count-pill + add menu. */
 function GroupChips({
   system,
   canManage,
@@ -443,49 +425,35 @@ function GroupChips({
   onAddToGroup: (systemId: string, groupId: string) => void;
   onRemoveFromGroup: (groupId: string, systemId: string) => void;
 }): React.ReactElement {
-  const assignedGroups = allGroups.filter((g) =>
-    assignedGroupIds.includes(g.id),
-  );
-  const availableGroups = allGroups.filter(
-    (g) => !assignedGroupIds.includes(g.id),
-  );
-  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
+  const assigned = allGroups
+    .filter((g) => assignedGroupIds.includes(g.id))
+    .map((g) => ({ id: g.id, label: g.name }));
+  const available = allGroups
+    .filter((g) => !assignedGroupIds.includes(g.id))
+    .map((g) => ({ id: g.id, label: g.name }));
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {assignedGroups.map((group) => (
-        <Chip
-          key={group.id}
-          label={group.name}
-          removeLabel={`Remove ${system.name} from ${group.name}`}
-          canRemove={canManage}
-          disabled={isLocked}
-          disabledTitle={lockTitle}
-          onRemove={() => onRemoveFromGroup(group.id, system.id)}
-        />
-      ))}
-      {canManage && (
-        <AssignMenu
-          disabled={isLocked || availableGroups.length === 0}
-          triggerLabel={lockTitle ?? `Add ${system.name} to a group`}
-          trigger={
-            <>
-              <Plus className="h-3 w-3" />
-              Group
-            </>
-          }
-          items={availableGroups.map((g) => ({ id: g.id, label: g.name }))}
-          emptyLabel="No more groups"
-          onSelect={(groupId) => onAddToGroup(system.id, groupId)}
-        />
-      )}
-    </div>
+    <MembershipChips
+      noun={{ one: "group", many: "groups" }}
+      assigned={assigned}
+      available={available}
+      canAdd={canManage}
+      canRemove={() => canManage}
+      isLocked={isLocked}
+      lockReason="Managed by GitOps"
+      onAdd={(groupId) => onAddToGroup(system.id, groupId)}
+      onRemove={(groupId) => onRemoveFromGroup(groupId, system.id)}
+      removeLabel={(item) => `Remove ${system.name} from ${item.label}`}
+      addLabel={`Add ${system.name} to a group`}
+      emptyAddLabel="No more groups"
+    />
   );
 }
 
-/** Environment membership chips + attach menu, shared by the desktop cell and mobile card. */
+/** A system's environment memberships as a compact count-pill + attach menu. */
 function EnvChips({
   system,
   canManage,
+  isLocked,
   allEnvironments,
   assignedEnvIds,
   onAddToEnvironment,
@@ -493,44 +461,34 @@ function EnvChips({
 }: {
   system: System;
   canManage: boolean;
+  /** The system's GitOps lock also freezes its environment memberships. */
+  isLocked: boolean;
   allEnvironments: Environment[];
   assignedEnvIds: string[];
   onAddToEnvironment: (systemId: string, environmentId: string) => void;
   onRemoveFromEnvironment: (systemId: string, environmentId: string) => void;
 }): React.ReactElement {
-  const assignedEnvs = allEnvironments.filter((e) =>
-    assignedEnvIds.includes(e.id),
-  );
-  const availableEnvs = allEnvironments.filter(
-    (e) => !assignedEnvIds.includes(e.id),
-  );
+  const assigned = allEnvironments
+    .filter((e) => assignedEnvIds.includes(e.id))
+    .map((e) => ({ id: e.id, label: e.name }));
+  const available = allEnvironments
+    .filter((e) => !assignedEnvIds.includes(e.id))
+    .map((e) => ({ id: e.id, label: e.name }));
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {assignedEnvs.map((env) => (
-        <Chip
-          key={env.id}
-          label={env.name}
-          removeLabel={`Remove ${system.name} from ${env.name}`}
-          canRemove={canManage}
-          onRemove={() => onRemoveFromEnvironment(system.id, env.id)}
-        />
-      ))}
-      {canManage && (
-        <AssignMenu
-          disabled={availableEnvs.length === 0}
-          triggerLabel={`Attach ${system.name} to an environment`}
-          trigger={
-            <>
-              <Plus className="h-3 w-3" />
-              Environment
-            </>
-          }
-          items={availableEnvs.map((e) => ({ id: e.id, label: e.name }))}
-          emptyLabel="No more environments"
-          onSelect={(envId) => onAddToEnvironment(system.id, envId)}
-        />
-      )}
-    </div>
+    <MembershipChips
+      noun={{ one: "environment", many: "environments" }}
+      assigned={assigned}
+      available={available}
+      canAdd={canManage}
+      canRemove={() => canManage}
+      isLocked={isLocked}
+      lockReason="Managed by GitOps"
+      onAdd={(envId) => onAddToEnvironment(system.id, envId)}
+      onRemove={(envId) => onRemoveFromEnvironment(system.id, envId)}
+      removeLabel={(item) => `Remove ${system.name} from ${item.label}`}
+      addLabel={`Attach ${system.name} to an environment`}
+      emptyAddLabel="No more environments"
+    />
   );
 }
 
@@ -567,7 +525,7 @@ function SystemActions({
       />
       {canManage && (
         <RowAction
-          icon={Edit}
+          icon={Pencil}
           label={`Edit ${system.name}`}
           disabled={isLocked}
           title={lockTitle}
@@ -639,11 +597,17 @@ function SystemMobileCard({
             aria-label={`Select ${system.name}`}
           />
           <div className="min-w-0">
-            <p className="font-medium leading-snug text-foreground">
+            <p
+              title={system.name}
+              className="truncate font-medium leading-snug text-foreground"
+            >
               {system.name}
             </p>
             {system.description && (
-              <p className="truncate text-xs text-muted-foreground">
+              <p
+                title={system.description}
+                className="truncate text-xs text-muted-foreground"
+              >
                 {system.description}
               </p>
             )}
@@ -673,6 +637,7 @@ function SystemMobileCard({
         <EnvChips
           system={system}
           canManage={canManage}
+          isLocked={isLocked}
           allEnvironments={allEnvironments}
           assignedEnvIds={assignedEnvIds}
           onAddToEnvironment={onAddToEnvironment}

@@ -1,0 +1,47 @@
+{
+  "name": "@checkstack/telemetry-frontend",
+  "version": "0.0.1",
+  "description": "Platform-level telemetry source/sink abstraction (pluggable sources for logs, metrics and traces)",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.tsx",
+  "exports": {
+    ".": {
+      "import": "./src/index.tsx"
+    }
+  },
+  "checkstack": {
+    "type": "frontend",
+    "pluginId": "telemetry"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "@tanstack/react-query": "^5.100.14",
+    "lucide-react": "^0.469.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "^7.16.0",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/test-utils-frontend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.2"
+  }
+}

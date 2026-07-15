@@ -8,6 +8,12 @@
       "path": "../auth-frontend"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../catalog-frontend"
+    },
+    {
       "path": "../common"
     },
     {
@@ -20,10 +26,16 @@
       "path": "../metricstream-common"
     },
     {
-      "path": "../satellite-common"
+      "path": "../signal-common"
     },
     {
-      "path": "../signal-common"
+      "path": "../telemetry-common"
+    },
+    {
+      "path": "../telemetry-frontend"
+    },
+    {
+      "path": "../tracestream-common"
     },
     {
       "path": "../ui"

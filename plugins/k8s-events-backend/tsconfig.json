@@ -1,0 +1,20 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/telemetry-backend"
+    },
+    {
+      "path": "../../core/telemetry-common"
+    },
+    {
+      "path": "../k8s-events-common"
+    }
+  ]
+}

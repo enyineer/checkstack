@@ -1,38 +1,36 @@
 /**
- * Source-token lookup against `metric_stream_tokens`, adapting the row to the
- * shared {@link IngestTokenRow} shape the ingest authenticator expects
- * (`resourceId` = the stream id). Keyed on the uniquely-indexed `tokenHash`.
+ * Push-token lookup for the ingest authenticator. Delegates to the telemetry
+ * platform's push-token verifier (resolved cross-plugin through
+ * `telemetryPushTokenVerifierRef`): the plugin no longer owns a token table, so
+ * a presented `ckms_` token is resolved against `telemetry_sources` scoped to the
+ * `metricstream.push` source type and the `metrics` signal.
+ *
+ * Verdicts (see {@link createPushTokenLookup}): an unknown hash (or a token of a
+ * different push type) -> null (cached negative); a disabled instance, or one
+ * without a `metrics` binding -> a revoked row; an enabled `metrics`-bound
+ * instance -> a row whose `resourceId` is the bound stream id and whose `tokenId`
+ * is the source id.
  */
 
-import type { SafeDatabase } from "@checkstack/backend-api";
-import { eq } from "drizzle-orm";
-import type { IngestTokenRow } from "@checkstack/ingest-utils";
-import * as schema from "../schema";
-import { metricStreamTokens } from "../schema";
+import {
+  createPushTokenLookup,
+  type PushTokenVerifier,
+} from "@checkstack/telemetry-backend";
+import type { IngestTokenLookup } from "@checkstack/ingest-utils";
+import { METRICSTREAM_PUSH_QUALIFIED_ID } from "../sources/push/source-type";
 
-/** Look up a metricstream source token by its sha256 hex hash, or null when unknown. */
-export async function lookupTokenByHash({
-  db,
-  tokenHash,
+/**
+ * Build the ingest-token lookup for metricstream push tokens, backed by the
+ * platform verifier. Feed the returned lookup to `createIngestAuthenticator`.
+ */
+export function createMetricstreamPushTokenLookup({
+  verifier,
 }: {
-  db: SafeDatabase<typeof schema>;
-  tokenHash: string;
-}): Promise<IngestTokenRow | null> {
-  const [row] = await db
-    .select({
-      tokenId: metricStreamTokens.id,
-      streamId: metricStreamTokens.streamId,
-      tokenHash: metricStreamTokens.tokenHash,
-      revokedAt: metricStreamTokens.revokedAt,
-    })
-    .from(metricStreamTokens)
-    .where(eq(metricStreamTokens.tokenHash, tokenHash))
-    .limit(1);
-  if (!row) return null;
-  return {
-    tokenId: row.tokenId,
-    resourceId: row.streamId,
-    tokenHash: row.tokenHash,
-    revokedAt: row.revokedAt,
-  };
+  verifier: PushTokenVerifier;
+}): IngestTokenLookup {
+  return createPushTokenLookup({
+    verifier,
+    sourceTypeId: METRICSTREAM_PUSH_QUALIFIED_ID,
+    signal: "metrics",
+  });
 }

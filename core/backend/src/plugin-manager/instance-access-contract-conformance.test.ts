@@ -34,7 +34,10 @@ interface InstanceAccess {
   idParam?: string;
   listKey?: string;
   recordKey?: string;
-  create?: { parent?: { resourceType?: string } };
+  create?: {
+    parent?: { resourceType?: string };
+    alsoAcceptCreatorOf?: string[];
+  };
   parentScope?: { resourceType?: string };
 }
 interface ProcMeta {
@@ -132,7 +135,7 @@ describe("RPC contract instanceAccess conformance (whole repo)", () => {
     expect(validationErrors).toEqual([]);
   });
 
-  it("every parentScope / create.parent resourceType is team-scoped somewhere", () => {
+  it("every parentScope / create.parent / create.alsoAcceptCreatorOf resourceType is team-scoped somewhere", () => {
     const danglers: string[] = [];
     for (const { file, contract } of contracts) {
       for (const [name, proc] of Object.entries(contract)) {
@@ -140,6 +143,9 @@ describe("RPC contract instanceAccess conformance (whole repo)", () => {
         const parents = [
           ia?.parentScope?.resourceType,
           ia?.create?.parent?.resourceType,
+          // A sibling create-gate type MUST also be a real scoped type, or its
+          // `creator` grant could never be granted and the gate is dead.
+          ...(ia?.create?.alsoAcceptCreatorOf ?? []),
         ].filter((t): t is string => typeof t === "string");
         for (const parent of parents) {
           if (!teamScopableTypes.has(parent)) {
@@ -148,8 +154,8 @@ describe("RPC contract instanceAccess conformance (whole repo)", () => {
         }
       }
     }
-    // A dangling parent type means the grant check keys on a type no contract
-    // team-scopes, so it fails closed forever. Print the offenders.
+    // A dangling parent/sibling type means the grant check keys on a type no
+    // contract team-scopes, so it fails closed forever. Print the offenders.
     expect(danglers).toEqual([]);
   });
 });

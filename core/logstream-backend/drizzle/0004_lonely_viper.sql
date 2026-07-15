@@ -1,0 +1,1 @@
+CREATE INDEX "log_events_trace_ts_idx" ON "log_events" USING btree ("trace_id","ts" DESC NULLS LAST,"id" DESC NULLS LAST) WHERE "log_events"."trace_id" IS NOT NULL;

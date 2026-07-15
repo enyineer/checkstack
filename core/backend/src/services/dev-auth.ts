@@ -93,6 +93,10 @@ export function createDevAuthService({
       // The dev user is implicitly all-powerful; never categorically denied.
       return { hasGrant: true };
     },
+    async hasCreateCapability() {
+      // The dev user is implicitly all-powerful; treat as always capable.
+      return { hasCapability: true };
+    },
     async authorizeCreate() {
       // Dev user has global manage; create globally with no owning team.
       return { ownerTeamId: null, isPrivate: false };

@@ -9,15 +9,17 @@ import {
   type IncidentSeverity,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
-import { cn, LoadingSpinner, Button, type StatusPillTone } from "@checkstack/ui";
+import {
+  cn,
+  DetailCard,
+  LoadingSpinner,
+  Button,
+  type StatusPillTone,
+} from "@checkstack/ui";
 import { AlertTriangle, History } from "lucide-react";
 import { presentIncidentSeverity } from "../utils/badges.logic";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
-
-/** Shared card elevation used by the system-overview panels. */
-const PANEL_SHADOW =
-  "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
 
 const SEVERITY_WEIGHTS = { critical: 3, major: 2, minor: 1 } as const;
 
@@ -102,15 +104,18 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center rounded-[var(--d-card-r)] border border-border/70 bg-surface px-3 py-2">
+      <DetailCard
+        surface="flat"
+        className="flex items-center justify-center px-3 py-2"
+      >
         <LoadingSpinner />
-      </div>
+      </DetailCard>
     );
   }
 
   if (incidents.length === 0) {
     return (
-      <div className="flex items-center justify-between rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface px-3 py-2">
+      <DetailCard className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2 text-muted-foreground">
           <AlertTriangle className="h-3.5 w-3.5" />
           <span className="text-sm">No active incidents</span>
@@ -125,7 +130,7 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
             History
           </Link>
         </Button>
-      </div>
+      </DetailCard>
     );
   }
 
@@ -133,11 +138,10 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
   const panelStyles = toneStyles[severityTone(mostSevere.severity)];
 
   return (
-    <div
+    <DetailCard
       className={cn(
-        "relative flex items-center justify-between gap-3 overflow-hidden rounded-[var(--d-card-r)] border bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)]",
+        "relative flex items-center justify-between gap-3 overflow-hidden p-[var(--d-pad)]",
         panelStyles.border,
-        PANEL_SHADOW,
       )}
     >
       <span
@@ -190,6 +194,6 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
           View
         </Link>
       </Button>
-    </div>
+    </DetailCard>
   );
 };

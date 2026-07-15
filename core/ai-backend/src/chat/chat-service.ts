@@ -54,7 +54,7 @@ import { renderRowsForSummary, summarizeTurns } from "./summarize-turns";
 import { prepareFinalAnswerStep } from "../step-budget.logic";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
-import { createUserScopedRpcClient } from "../user-rpc-client";
+import { createUserScopedRpcClient } from "@checkstack/backend-api";
 import type { AiMemoryStore } from "../memory-store";
 import type { SystemAccessResolver } from "../system-signals-contributor";
 import type { AiSkillResolver } from "../skill-resolver";

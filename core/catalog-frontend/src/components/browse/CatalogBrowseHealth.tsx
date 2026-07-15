@@ -10,6 +10,8 @@ export interface CatalogBrowseHealthProps {
   systemIds: string[];
   /** Receives the resolved per-system statuses from the slot filler. */
   onStatuses: (statuses: CatalogHealthStatuses) => void;
+  /** Receives the filler's bulk-health load state (for a loading placeholder). */
+  onLoading?: (loading: boolean) => void;
 }
 
 /**
@@ -26,11 +28,12 @@ export interface CatalogBrowseHealthProps {
 export const CatalogBrowseHealth: React.FC<CatalogBrowseHealthProps> = ({
   systemIds,
   onStatuses,
+  onLoading,
 }) => {
   return (
     <ExtensionSlot
       slot={CatalogBrowseHealthSlot}
-      context={{ systemIds, onStatuses }}
+      context={{ systemIds, onStatuses, onLoading }}
     />
   );
 };

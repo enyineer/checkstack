@@ -130,6 +130,18 @@ export default tseslint.config(
       "checkstack/no-extraneous-runtime-deps": "error",
       "checkstack/enforce-package-metadata": "error",
       "checkstack/no-eslint-disable-any": "error",
+      // Test-runner isolation soundness (scripts/run-tests.ts). The runner keeps
+      // the suite fast by running the bulk in ONE shared process and pulling only
+      // the files that pollute process globals into a separate `--isolate` pass,
+      // detecting that set by grepping each TEST file for `mock.module` / global
+      // assignment / `spyOn(global*)`. That detection is defeated if such a call
+      // hides in an importable NON-test module, so this rule forbids those calls
+      // outside `*.test.*` files (the sanctioned `test-preload.ts` aside). Test
+      // files themselves are unaffected (they are in the top-level `ignores` and
+      // are isolated by the runner). Severity is `error`: the codebase already
+      // conforms and a violation silently breaks the runner's partition, leaking
+      // a mock into unrelated suites - a correctness risk, not a style nit.
+      "checkstack/no-shared-process-test-pollution": "error",
       // Reactive automation engine backstop (plan §6.4, §15.6). Severity is
       // intentionally `warn` and MUST NOT be escalated to `error`: it informs
       // authors that entity state should flow through `defineEntity`, it does
@@ -215,6 +227,17 @@ export default tseslint.config(
           additionalGuardIdentifiers: [],
         },
       ],
+      // Form-stability tripwire: a `useEffect` that seeds local state from one
+      // of its dependencies re-fires on every dependency change - including
+      // background query refetches driven by realtime signals - and wipes the
+      // user's in-progress edits (the catalog SystemEditor / EnvironmentEditor
+      // and healthcheck PlatformDefaultsDialog bugs). Seed once with
+      // `useSeedFormOnOpen` / `useInitOnceForKey` instead. Severity is
+      // intentionally `warn` and MUST NOT be escalated to `error` (nor forced
+      // green via `--max-warnings 0`): the rule cannot see whether a given
+      // parent passes a referentially-stable prop today, so it informs authors
+      // rather than blocking CI (see .claude/rules/code-style-guide.md).
+      "checkstack/no-state-seed-in-effect": "warn",
     },
   },
   // Gate-fusion nudge (PROTOTYPE scope): prefer `.useGatedMutation()` over raw
@@ -229,6 +252,33 @@ export default tseslint.config(
     files: ["core/automation-frontend/src/pages/**/*.{ts,tsx}"],
     rules: {
       "checkstack/prefer-gated-mutation": "warn",
+    },
+  },
+  // Detail-card chrome drift guard. The system detail / overview page renders a
+  // family of cards (the platform's own plus every plugin card contributed into
+  // `SystemDetailsSlot`: Logs/Metrics/Traces, health, dependency, SLO, incident,
+  // anomaly, maintenance) that are meant to look identical. They used to each
+  // hand-roll the same surface as a copy-pasted className, and it drifted - the
+  // telemetry `LinkedStreamsCard` regressed to a flat `bg-card` + hairline
+  // shadow, so the three telemetry cards rendered flatter than their siblings.
+  // The surface now lives in ONE place (`DetailCard` / `detailCardSurface` from
+  // `@checkstack/ui`); this rule forbids re-declaring it inline in these
+  // components so a new/edited card cannot diverge again. Severity is `error`:
+  // the scoped files are migrated to the shared primitive, so a violation is a
+  // genuine regression, not a warning to accumulate. To bring a NEW
+  // system-overview card under the guard, add its file here.
+  {
+    files: [
+      "core/catalog-frontend/src/components/LinkedStreamsCard.tsx",
+      "core/healthcheck-frontend/src/components/HealthCheckSystemOverview.tsx",
+      "core/dependency-frontend/src/components/SystemDependenciesPanel.tsx",
+      "core/slo-frontend/src/components/SystemSloPanel.tsx",
+      "core/incident-frontend/src/components/SystemIncidentPanel.tsx",
+      "core/anomaly-frontend/src/components/SystemAnomalyWidget.tsx",
+      "core/maintenance-frontend/src/components/SystemMaintenancePanel.tsx",
+    ],
+    rules: {
+      "checkstack/no-inline-detail-card-chrome": "error",
     },
   },
   // Enforced-by-design cache invalidation: the role-membership tables (`role`,

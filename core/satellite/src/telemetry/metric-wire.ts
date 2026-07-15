@@ -1,46 +1,35 @@
 /**
- * Agent-side adapter over the SHARED metricstream satellite wire contracts. The
+ * Agent-side adapter over the SHARED metricstream forward wire contracts. The
  * schemas + kind constants live in `@checkstack/metricstream-common` (owned by
  * the metricstream plugin, imported by both the core handlers and this agent);
- * this module re-exports them and adds the one helper the agent needs that the
- * core direction does not: serializing a scraped/parsed {@link NormalizedDatapoint}
- * (Date `ts`) to its wire shape (ISO `ts`). The core provides the inverse
+ * this module re-exports the FORWARD-batch contract (the agent's HTTP/OTLP metric
+ * receivers push into it) and adds the one helper the agent needs that the core
+ * direction does not: serializing a parsed {@link NormalizedDatapoint} (Date
+ * `ts`) to its wire shape (ISO `ts`). The core provides the inverse
  * (`wireDatapointToNormalized`).
  */
 
-import type {
-  NormalizedDatapoint,
-  WireDatapoint,
+import {
+  normalizedDatapointToWire,
+  type NormalizedDatapoint,
+  type WireDatapoint,
 } from "@checkstack/metricstream-common";
 
-// Every metricstream satellite contract - config, batch, status, secret
-// request/response, WireDatapoint - is owned by the shared leaf and validated on
-// BOTH ends against ONE schema. The agent parses the pushed config with the SAME
-// MetricScrapeConfigSchema the core builds; a bearer NEVER rides that config
-// (`hasBearer` is advisory), so the scheduler fetches it JIT via a
-// `capability_secret_request` (see MetricScrapeSecret{Request,Response}Schema).
+// The metricstream forward contract - kind constant, forward batch, WireDatapoint
+// - is owned by the shared leaf and validated on BOTH ends against ONE schema.
 export {
   METRICSTREAM_TELEMETRY_KIND,
-  METRIC_SCRAPE_CAPABILITY_KIND,
   MetricstreamForwardBatchSchema,
-  MetricScrapeConfigSchema,
-  MetricScrapeTargetConfigSchema,
-  MetricScrapeSecretRequestSchema,
-  MetricScrapeSecretResponseSchema,
-  MetricScrapeBatchSchema,
-  MetricScrapeStatusSchema,
   wireDatapointToNormalized,
   type WireDatapoint,
   type MetricstreamForwardBatch,
-  type MetricScrapeConfig,
-  type MetricScrapeTargetConfig,
-  type MetricScrapeSecretRequest,
-  type MetricScrapeSecretResponse,
-  type MetricScrapeBatch,
-  type MetricScrapeStatus,
 } from "@checkstack/metricstream-common";
 
-/** Serialize a {@link NormalizedDatapoint} to the shared wire shape (ts -> ISO). */
+/**
+ * Serialize a {@link NormalizedDatapoint} to the shared wire shape (ts -> ISO,
+ * including each exemplar's own ts). Delegates to the shared leaf's
+ * `normalizedDatapointToWire` so serialize/deserialize stay in lock-step.
+ */
 export function toWireDatapoint(dp: NormalizedDatapoint): WireDatapoint {
-  return { ...dp, ts: dp.ts.toISOString() };
+  return normalizedDatapointToWire(dp);
 }

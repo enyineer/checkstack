@@ -23,10 +23,11 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
 export const DependencySignalsFiller: React.FC<Props> = ({
   systemIds,
   onSignals,
+  onLoadingChange,
 }) => {
   const depClient = usePluginClient(DependencyApi);
 
-  const { data } = depClient.getWarnings.useQuery(
+  const { data, isLoading } = depClient.getWarnings.useQuery(
     { systemIds },
     { enabled: systemIds.length > 0, staleTime: 30_000 },
   );
@@ -48,6 +49,13 @@ export const DependencySignalsFiller: React.FC<Props> = ({
   useEffect(() => {
     onSignals(DEPENDENCY_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(DEPENDENCY_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

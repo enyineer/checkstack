@@ -16,6 +16,17 @@ import { createWorkerFlushExecutor } from "./pool";
  * load guard then leans on; it needs no Postgres, so it runs in the unit lane.
  */
 
+// Deliberate starvation ceiling, not a masked determinism bug: the wait here is
+// ALREADY terminal-signal-driven — `executor.prepare()` resolves on the worker's
+// actual `flush-result` message, with no fixed sleep and no internal handshake
+// deadline (pool.ts). What is genuinely heavy is spawning a REAL Bun worker and
+// cold-loading its whole module graph (the drain engine + logstream-common),
+// which runs in ~0.4s in isolation but has starved past the old 15s ceiling
+// under the parallel suite. Sizing this well above the observed-under-load ~16s
+// keeps scheduler starvation from reading as a failure while still failing fast
+// on a genuinely wedged worker.
+const WORKER_SPAWN_CEILING_MS = 60_000;
+
 function line(body: string): IngestedLine {
   return {
     ts: new Date(60_000),
@@ -72,7 +83,7 @@ describe("ingest worker (real Bun worker) round trip", () => {
         await executor.stop();
       }
     },
-    15_000,
+    WORKER_SPAWN_CEILING_MS,
   );
 
   it(
@@ -102,6 +113,6 @@ describe("ingest worker (real Bun worker) round trip", () => {
         await executor.stop();
       }
     },
-    15_000,
+    WORKER_SPAWN_CEILING_MS,
   );
 });

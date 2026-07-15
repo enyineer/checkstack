@@ -1,42 +1,41 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
+import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import { SloApi } from "../api";
 import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
-import { cn, formatPercent } from "@checkstack/ui";
+import { DetailCard, formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
 
-/** Shared card elevation used by the system-overview panels. */
-const PANEL_SHADOW =
-  "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
-
-type Props = SlotContext<typeof SystemDetailsTopSlot>;
+type Props = SlotContext<typeof SystemDetailsSlot>;
 
 /**
- * Compact SLO panel embedded in the system detail page alert strip.
- * Shows SLO objectives with error budget bars in a minimal layout.
+ * Compact SLO card in the system detail page's left (monitoring) column, beside
+ * dependencies and health. Shows SLO objectives with error budget bars in a
+ * minimal layout; self-hides when the system has no objectives.
  */
-export const SystemSloPanel: React.FC<Props> = ({ system }) => {
+export const SystemSloPanel: React.FC<Props> = ({ system, onLoadingChange }) => {
   const sloClient = usePluginClient(SloApi);
 
-  const { data: objectives } = sloClient.getObjectivesForSystem.useQuery(
-    { systemId: system?.id ?? "" },
-    { enabled: !!system?.id },
-  );
+  const { data: objectives, isLoading } =
+    sloClient.getObjectivesForSystem.useQuery(
+      { systemId: system?.id ?? "" },
+      { enabled: !!system?.id },
+    );
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("slo.panel", isLoading);
+  }, [isLoading, onLoadingChange]);
 
   if (!objectives || objectives.length === 0) return;
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface",
-        PANEL_SHADOW,
-      )}
-    >
+    <DetailCard className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-border/50 px-[var(--d-pad)] py-3">
         <div className="flex items-center gap-2">
           <Target className="h-4 w-4 text-muted-foreground" />
@@ -82,6 +81,6 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
           </Link>
         ))}
       </div>
-    </div>
+    </DetailCard>
   );
 };

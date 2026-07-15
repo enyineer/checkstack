@@ -22,6 +22,27 @@
       "when": 1783896327090,
       "tag": "0002_neat_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784073612209,
+      "tag": "0003_jittery_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784102735869,
+      "tag": "0004_rare_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784112752929,
+      "tag": "0005_large_black_panther",
+      "breakpoints": true
     }
   ]
 }

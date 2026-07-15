@@ -51,6 +51,7 @@ describe("HttpHealthCheckStrategy", () => {
               body: Buffer.concat(chunks).toString("utf8"),
               auth: req.headers["authorization"] ?? null,
               custom: req.headers["x-custom-header"] ?? null,
+              traceparent: req.headers["traceparent"] ?? null,
               host: req.headers["host"] ?? null,
             }),
           );
@@ -221,6 +222,30 @@ describe("HttpHealthCheckStrategy", () => {
       };
       expect(parsed.auth).toBe("Bearer my-token");
       expect(parsed.custom).toBe("custom-value");
+
+      connectedClient.close();
+    });
+
+    // The collector builds the traceparent header and hands it to exec; this
+    // proves the transport forwards it verbatim onto the wire (the server sees
+    // it unchanged), completing the emission path end-to-end.
+    it("forwards a traceparent header to the server", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const traceparent =
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        headers: { traceparent },
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as {
+        traceparent: string | null;
+      };
+      expect(parsed.traceparent).toBe(traceparent);
 
       connectedClient.close();
     });

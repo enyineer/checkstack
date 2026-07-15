@@ -153,6 +153,7 @@ export const AuthSettingsPage: React.FC = () => {
   ]);
 
   // Auto-select first visible tab if current tab is not accessible
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- navigation state, not an editable form: selects the first accessible tab when the active one becomes unavailable, nothing the user is editing gets wiped.
   useEffect(() => {
     if (
       visibleTabs.length > 0 &&

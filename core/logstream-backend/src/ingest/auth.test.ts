@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import type { CachedScope } from "@checkstack/cache-utils";
+import type { IngestTokenRow } from "@checkstack/ingest-utils";
 import { generateToken } from "../token-crypto";
 import {
   createIngestAuthenticator,
@@ -9,7 +10,6 @@ import {
   type TokenLookup,
 } from "./auth";
 import { ingestTokenCacheKey } from "../api/token-cache";
-import type { TokenRow } from "./token-lookup";
 
 /**
  * In-memory CachedScope exposing only the `provider` auth uses. TTL-aware
@@ -44,7 +44,7 @@ function memoryCache(nowMs: () => number = () => Date.now()): CachedScope {
   return { provider } as unknown as CachedScope;
 }
 
-function countingLookup(rows: TokenRow[]): { lookup: TokenLookup; calls: () => number } {
+function countingLookup(rows: IngestTokenRow[]): { lookup: TokenLookup; calls: () => number } {
   let calls = 0;
   const lookup: TokenLookup = async (tokenHash) => {
     calls += 1;
@@ -56,8 +56,8 @@ function countingLookup(rows: TokenRow[]): { lookup: TokenLookup; calls: () => n
 describe("createIngestAuthenticator", () => {
   it("accepts a valid token and resolves its stream", async () => {
     const gen = generateToken({ streamId: "stream-1" });
-    const rows: TokenRow[] = [
-      { tokenId: "t1", streamId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
+    const rows: IngestTokenRow[] = [
+      { tokenId: "t1", resourceId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
     ];
     const { lookup } = countingLookup(rows);
     const auth = createIngestAuthenticator({ lookup, cache: memoryCache() });
@@ -75,10 +75,10 @@ describe("createIngestAuthenticator", () => {
 
   it("rejects a revoked token", async () => {
     const gen = generateToken({ streamId: "stream-1" });
-    const rows: TokenRow[] = [
+    const rows: IngestTokenRow[] = [
       {
         tokenId: "t1",
-        streamId: "stream-1",
+        resourceId: "stream-1",
         tokenHash: gen.tokenHash,
         revokedAt: new Date(),
       },
@@ -91,8 +91,8 @@ describe("createIngestAuthenticator", () => {
 
   it("caches the verdict so a warm token skips the DB lookup", async () => {
     const gen = generateToken({ streamId: "stream-1" });
-    const rows: TokenRow[] = [
-      { tokenId: "t1", streamId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
+    const rows: IngestTokenRow[] = [
+      { tokenId: "t1", resourceId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
     ];
     const { lookup, calls } = countingLookup(rows);
     const auth = createIngestAuthenticator({ lookup, cache: memoryCache() });
@@ -157,8 +157,8 @@ describe("createIngestAuthenticator", () => {
   it("does not negatively cache a valid token (positive path unaffected)", async () => {
     const gen = generateToken({ streamId: "stream-1" });
     const cache = memoryCache();
-    const rows: TokenRow[] = [
-      { tokenId: "t1", streamId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
+    const rows: IngestTokenRow[] = [
+      { tokenId: "t1", resourceId: "stream-1", tokenHash: gen.tokenHash, revokedAt: null },
     ];
     const { lookup } = countingLookup(rows);
     const auth = createIngestAuthenticator({ lookup, cache });

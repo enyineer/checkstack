@@ -1,10 +1,9 @@
-import { useState } from "react";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { LogstreamApi, type LogStream } from "@checkstack/logstream-common";
 import { StreamSettingsForm } from "../StreamSettingsForm";
 import { SeverityRulesSection } from "../SeverityRulesSection";
-import { TokensSection } from "../TokensSection";
-import { ShipLogsInstructions } from "../ShipLogsInstructions";
+import { TraceExtractionSection } from "../TraceExtractionSection";
+import { LinkedSystemsSection } from "../LinkedSystemsSection";
 import { DangerZoneSection } from "../DangerZoneSection";
 
 export interface SettingsTabProps {
@@ -12,9 +11,11 @@ export interface SettingsTabProps {
 }
 
 /**
- * Settings tab: stream details + policy, source tokens and ship-logs snippets.
- * Write controls are gated on the contract-derived `updateStream` verdict, so a
- * read-only viewer sees everything but cannot edit or mint.
+ * Settings tab: stream details + policy and linked systems. Log ingest (push
+ * tokens, OTLP/native snippets, syslog, pull) lives on the dedicated Sources
+ * tab now, owned by the platform. Write controls are gated on the
+ * contract-derived `updateStream` verdict, so a read-only viewer sees everything
+ * but cannot edit.
  */
 export function SettingsTab({ stream }: SettingsTabProps) {
   const accessApi = useApi(accessApiRef);
@@ -22,19 +23,13 @@ export function SettingsTab({ stream }: SettingsTabProps) {
     LogstreamApi.contract.updateStream,
     { id: stream.id },
   );
-  // A freshly-minted secret, offered to the setup snippets for this session only.
-  const [mintedSecret, setMintedSecret] = useState<string | undefined>();
 
   return (
     <div className="space-y-6">
       <StreamSettingsForm stream={stream} canManage={canManage} />
+      <LinkedSystemsSection stream={stream} />
       <SeverityRulesSection stream={stream} canManage={canManage} />
-      <TokensSection
-        streamId={stream.id}
-        canManage={canManage}
-        onMinted={setMintedSecret}
-      />
-      <ShipLogsInstructions token={mintedSecret} />
+      <TraceExtractionSection stream={stream} canManage={canManage} />
       <DangerZoneSection stream={stream} />
     </div>
   );

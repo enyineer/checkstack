@@ -317,13 +317,54 @@ authenticated mirrors of the S2S `authorizeCreate` / `listAccessibleObjectIds`.
 
 ```typescript
 // canCreate: may the caller create this type via a team grant?
-// True when a team of theirs holds a `creator` grant on `objectType`, OR
-// (when parentType is given) manages at least one object of `parentType`.
-{ objectType: string; parentType?: string } -> { allowed: boolean }
+// True when a team of theirs holds a `creator` grant on `objectType`, OR on any
+// `alsoAcceptCreatorOf` sibling type (see below), OR (when parentType is given)
+// manages at least one object of `parentType`.
+{ objectType: string; parentType?: string; alsoAcceptCreatorOf?: string[] }
+  -> { allowed: boolean }
 
 // listMyAccessibleResources: which of these ids may the caller act on?
 { objectType: string; resourceIds: string[]; action: "read" | "manage" }
   -> { accessibleIds: string[] }
+```
+
+##### `hasCreateCapability` (S2S)
+
+The single, strict definition of "can this caller create this type": true only
+when one of the caller's teams holds a type-level `creator` grant on `objectType`
+(an instance `editor`/`owner` grant does NOT count). It backs the
+`create.alsoAcceptCreatorOf` seam (below) and the `canCreate` verdict, so the
+backend gate and the frontend button agree by construction.
+
+```typescript
+{ userId: string; userType: "user" | "application"; objectType: string }
+  -> { hasCapability: boolean }
+```
+
+##### The `create.alsoAcceptCreatorOf` sibling gate
+
+A create procedure normally requires a `creator` grant on its OWN type. Two seams
+widen that without weakening it:
+
+- `create.parent: { resourceType, idParam }` - MANAGE on a parent INSTANCE named
+  in the payload authorizes the create (e.g. an incident "for" a system).
+- `create.alsoAcceptCreatorOf: [type, ...]` - a `creator` grant on a SIBLING TYPE
+  authorizes the create, no instance needed. This is "sibling self-service": a
+  caller who may create `catalog.system` may also create `catalog.group` /
+  `catalog.environment`. It is strictly the type-level `creator` grant (an
+  instance manage grant is the `parent` case, not this one); each listed type
+  must itself be team-scoped. The owning team of the new object is still resolved
+  from `teamIdParam` / membership.
+
+```typescript
+// catalog-common: createGroup / createEnvironment declare the sibling gate.
+instanceAccess: {
+  create: {
+    teamIdParam: "teamId",
+    idField: "id",
+    alsoAcceptCreatorOf: ["catalog.system"],
+  },
+}
 ```
 
 Prefer the contract-derived frontend gates - the gate-fused client hooks

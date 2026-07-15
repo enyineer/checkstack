@@ -1,6 +1,8 @@
 export * from "./components/Button";
 export * from "./components/Input";
 export * from "./components/Card";
+export * from "./components/DetailCard";
+export * from "./components/CollapsibleDetailCard";
 export * from "./components/Label";
 export * from "./components/FormError";
 export * from "./components/NavItem";
@@ -86,6 +88,7 @@ export * from "./components/Popover";
 export * from "./components/comboboxInteraction";
 export * from "./hooks/useIsMobile";
 export * from "./hooks/useInitOnceForKey";
+export * from "./hooks/useSeedFormOnOpen";
 export * from "./components/ListEmptyState";
 export * from "./components/QueryErrorState";
 export * from "./components/ErrorState";

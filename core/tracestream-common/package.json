@@ -1,0 +1,36 @@
+{
+  "name": "@checkstack/tracestream-common",
+  "version": "0.0.1",
+  "description": "Distributed tracing streams: OTLP trace ingestion, tail-based sampling, trace search and waterfalls",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": { "import": "./src/index.ts" }
+  },
+  "checkstack": {
+    "type": "common",
+    "pluginId": "tracestream"
+  },
+  "scripts": {
+    "pack": "checkstack-scripts plugin-pack",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/otlp-wire": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  }
+}

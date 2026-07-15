@@ -20,6 +20,7 @@ import {
   SelectItem,
   cn,
   usePerformance,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 import {
@@ -81,13 +82,17 @@ export const BackendConfigCard: React.FC<{
     message: string;
   } | null>(null);
 
-  // Re-seed when the loaded config changes (first load / after save).
-  React.useEffect(() => {
-    if (config) {
-      setActive(config.activeBackend);
-      setVault(seedVaultForm(config));
-    }
-  }, [config]);
+  // Seed once per load - `config` is a singleton settings object (no id), so
+  // key on presence: this fires on first load but not on background
+  // refetches while the admin is mid-edit.
+  useInitOnceForKey(
+    config,
+    config ? "secrets-backend-config-loaded" : null,
+    (c) => {
+      setActive(c.activeBackend);
+      setVault(seedVaultForm(c));
+    },
+  );
 
   const { isLowPower } = usePerformance();
   const available = config?.availableBackends ?? [];

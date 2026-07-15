@@ -6,7 +6,7 @@ import {
   type NormalizedDatapoint,
 } from "@checkstack/metricstream-common";
 import { computeSeriesId, floorToMinute } from "../storage";
-import type { MinuteBucketDelta } from "../storage";
+import type { MinuteBucketDelta, SeriesExemplarUpdate } from "../storage";
 import type { NewSeriesRow } from "../storage/series";
 import type { MetricNameUpsert } from "../storage/names";
 import { foldDatapoints, writeFlushPlan, type FlushStorage } from "./flush";
@@ -25,9 +25,13 @@ function item(dp: Partial<NormalizedDatapoint> & { name: string; value: number }
       labels: dp.labels ?? {},
       value: dp.value,
       ts: dp.ts ?? new Date("2026-07-12T12:00:30.000Z"),
+      ...(dp.exemplars ? { exemplars: dp.exemplars } : {}),
     },
   };
 }
+
+const TRACE_A = "a".repeat(32);
+const TRACE_B = "b".repeat(32);
 
 describe("foldDatapoints", () => {
   it("folds gauge samples of one series into a single minute bucket", async () => {
@@ -109,6 +113,46 @@ describe("foldDatapoints", () => {
     expect(fold.names.get("m")?.unit).toBe("s");
   });
 
+  it("folds a series' exemplars, dedupes by trace id, keeps the newest", async () => {
+    const t1 = new Date("2026-07-12T12:00:10.000Z");
+    const t2 = new Date("2026-07-12T12:00:50.000Z");
+    const fold = await foldDatapoints({
+      streamId: STREAM,
+      items: [
+        item({
+          name: "g",
+          value: 1,
+          ts: t1,
+          exemplars: [{ traceId: TRACE_A, value: 1, ts: t1 }],
+        }),
+        item({
+          name: "g",
+          value: 2,
+          ts: t2,
+          // Same trace id later + a second trace -> A dedupes to the newest, B kept.
+          exemplars: [
+            { traceId: TRACE_A, value: 9, ts: t2 },
+            { traceId: TRACE_B, value: 3, ts: t2 },
+          ],
+        }),
+      ],
+    });
+    const series = [...fold.series.values()][0];
+    expect(series.exemplars).toHaveLength(2);
+    const byTrace = new Map(series.exemplars.map((e) => [e.traceId, e]));
+    expect(byTrace.get(TRACE_A)?.value).toBe(9); // newest occurrence won
+    expect(byTrace.get(TRACE_A)?.tsMs).toBe(t2.getTime());
+    expect(byTrace.get(TRACE_B)?.value).toBe(3);
+  });
+
+  it("leaves a series' exemplars empty when no datapoint carries one", async () => {
+    const fold = await foldDatapoints({
+      streamId: STREAM,
+      items: [item({ name: "g", value: 1 })],
+    });
+    expect([...fold.series.values()][0].exemplars).toEqual([]);
+  });
+
   it("yields the event loop without dropping data", async () => {
     const items = Array.from({ length: 4500 }, (_, i) =>
       item({ name: "g", value: i, labels: { i: String(i) } }),
@@ -142,6 +186,7 @@ function mockStorage(
       droppedDatapoints?: number;
       rateEstimate: number;
     }[],
+    exemplarUpdates: [] as SeriesExemplarUpdate[],
   };
   const existing = seed.existing ?? new Set<string>();
   const conflicting = seed.conflicting ?? new Set<string>();
@@ -165,6 +210,9 @@ function mockStorage(
     },
     touchStreamActivity: async ({ droppedSeries, droppedDatapoints, rateEstimate }) => {
       calls.activity.push({ droppedSeries, droppedDatapoints, rateEstimate });
+    },
+    updateSeriesExemplars: async ({ updates }) => {
+      calls.exemplarUpdates.push(...updates);
     },
   };
   return { storage, calls };
@@ -265,6 +313,55 @@ describe("writeFlushPlan", () => {
     // ...but only the truly-new series bumps the name's count.
     expect(calls.nameUpserts).toHaveLength(1);
     expect(calls.nameUpserts[0].seriesCountDelta).toBe(1);
+  });
+
+  it("seeds a NEW series' exemplars on insert and updates an EXISTING series' exemplars", async () => {
+    const ts = new Date("2026-07-12T12:00:10.000Z");
+    const existingId = computeSeriesId({ streamId: STREAM, name: "m", labels: { host: "old" } });
+    const fold = await foldFor([
+      item({ name: "m", value: 1, labels: { host: "old" }, exemplars: [{ traceId: TRACE_A, value: 1, ts }] }),
+      item({ name: "m", value: 2, labels: { host: "new" }, exemplars: [{ traceId: TRACE_B, value: 2, ts }] }),
+    ]);
+    const { storage, calls } = mockStorage({
+      existing: new Set([existingId]),
+      existingCount: 1,
+    });
+    await writeFlushPlan({
+      runner: fakeRunner,
+      storage,
+      streamId: STREAM,
+      fold,
+      config: DEFAULT_METRIC_STREAM_CONFIG,
+      flushAt,
+      rateEstimate: 1,
+    });
+    // New series carries its exemplars on the insert row.
+    const newRow = calls.inserted.find((r) => r.name === "m" && r.labels.host === "new");
+    expect(newRow?.lastExemplars?.[0].traceId).toBe(TRACE_B);
+    // Existing series is updated out-of-band (not via insert).
+    expect(calls.exemplarUpdates).toEqual([
+      { seriesId: existingId, exemplars: [{ traceId: TRACE_A, value: 1, tsMs: ts.getTime() }] },
+    ]);
+  });
+
+  it("does not persist exemplars for a series capped by cardinality", async () => {
+    const ts = new Date("2026-07-12T12:00:10.000Z");
+    const fold = await foldFor([
+      item({ name: "capped", value: 1, labels: { host: "x" }, exemplars: [{ traceId: TRACE_A, value: 1, ts }] }),
+    ]);
+    const config: MetricStreamConfig = { ...DEFAULT_METRIC_STREAM_CONFIG, seriesCap: 0 };
+    const { storage, calls } = mockStorage({ existingCount: 0 });
+    await writeFlushPlan({
+      runner: fakeRunner,
+      storage,
+      streamId: STREAM,
+      fold,
+      config,
+      flushAt,
+      rateEstimate: 0,
+    });
+    expect(calls.inserted).toHaveLength(0);
+    expect(calls.exemplarUpdates).toHaveLength(0);
   });
 
   it("does not register a metric name whose every series was capped", async () => {

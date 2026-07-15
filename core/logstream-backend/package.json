@@ -29,10 +29,12 @@
     "generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@checkstack/ai-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/ingest-utils": "workspace:*",
@@ -40,6 +42,8 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/satellite-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-backend": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
     "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1"

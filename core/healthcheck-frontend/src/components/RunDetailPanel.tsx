@@ -1,6 +1,9 @@
 import React, { useState } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
-import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { ExtensionSlot, usePluginClient } from "@checkstack/frontend-api";
+import {
+  HealthCheckApi,
+  RunDetailExtrasSlot,
+} from "@checkstack/healthcheck-common";
 import {
   Button,
   CodeEditor,
@@ -196,6 +199,9 @@ export const RunDetailPanel: React.FC<RunDetailPanelProps> = ({
         <span className="text-sm text-muted-foreground">
           {format(new Date(run.timestamp), "PPpp")}
         </span>
+        {/* Cross-plugin per-run actions (e.g. tracestream's "View trace" jump).
+            Fillers self-hide when the run carries nothing for them. */}
+        <ExtensionSlot slot={RunDetailExtrasSlot} context={{ run }} />
         <div className="ml-auto flex items-center gap-1">
           {prevNext && (
             <>

@@ -1,0 +1,114 @@
+---
+title: "Trace streams"
+description: "Distributed tracing in Checkstack: OTLP span ingestion into trace streams, tail-based sampling, storage tiers and the trace query API."
+---
+
+The tracestream plugin adds the third observability signal next to log streams and metric streams: a **trace stream** receives spans (OTLP or native JSON), keeps a searchable per-trace summary index, tail-samples which traces retain their full span data, and aggregates per-operation RED buckets with real p95 latency. Trace streams are team-scopable exactly like their siblings, and they contribute the `traces` sink to the [telemetry platform](/checkstack/developer-guide/backend/telemetry-sources/), so configured telemetry sources can route spans into a bound trace stream.
+
+## Architecture
+
+```text
+core/tracestream-common    -> stream/span/summary contracts, config schema,
+                              cktr_ token format, browser-safe OTLP + native
+                              span decoding, signals
+core/tracestream-backend   -> port-based storage, tail-sampling jobs, ingest
+                              endpoints + pipeline, query API, traces sink
+core/tracestream-frontend  -> stream list/detail, trace search, waterfall
+                              view, sampling editor, ship instructions
+@checkstack/ui             -> TraceWaterfall chart component
+```
+
+All storage access goes through **port interfaces** (`src/storage/ports.ts`); the Postgres adapters are the only drizzle consumers. This is the deliberate seam for a future alternative trace store.
+
+## Ingestion
+
+Two token-authenticated push endpoints. Shippers authenticate with a `cktr_` source token minted on the platform's `tracestream.push` [push source](/checkstack/developer-guide/backend/telemetry-sources/#push-sources) (hash-only storage, shown once, rotatable); the authenticator's lookup is the platform push-token verifier scoped to `tracestream.push` and the `traces` signal, so tracestream owns no token storage and its ingest cache converges on the `telemetry.push-token.invalidated` hook:
+
+- `POST /api/tracestream/v1/traces` - OTLP/HTTP `ExportTraceServiceRequest`, protobuf and JSON, gzip-aware, answering `ExportTraceServiceResponse` with `partialSuccess.rejectedSpans`.
+- `POST /api/tracestream/ingest` - native JSON spans for shippers without OTel tooling.
+
+Point an OTel SDK at a stream with the per-signal env vars (the stream's Sources tab renders ready-to-copy snippets when you add a push source):
+
+```env
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://checkstack.example.com/api/tracestream/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer cktr_...
+```
+
+Ingest applies the stream's policy before anything is stored: soft rate limit (429 + Retry-After), `maxSpansPerTrace`, `maxSpanBytes` (oversized attribute payloads are dropped and surfaced as an important event), then a pod-local buffer with a 500 ms / 1000-span flush. Each stream's flush writes spans, upserts the trace summary, folds per-operation buckets and touches the service/operation catalog in one transaction.
+
+## Tail-based sampling
+
+Head sampling drops exactly the traces an operator cares about, so tracestream decides retention AFTER a trace completes:
+
+- Every span updates the trace's summary row (`retained = null` while undecided). RED buckets fold ALL spans before sampling, so service/operation stats stay exact regardless of the sampling verdict.
+- A decision job (every 60 s) picks summaries idle past `completionGraceSeconds` and applies the stream's policy: error traces are kept (`keepErrorTraces`), traces slower than `slowTraceThresholdMs` are kept, and a deterministic hash of the trace id keeps a `baselineSampleRate` sample. An optional `maxRetainedTracesPerHour` budget demotes baseline-sampled traces first - error and slow traces are never demoted.
+- A hot sweep deletes span data of unretained traces after `hotRetentionHours`; retained spans live `retainedTraceRetentionDays`; summaries remain searchable for `summaryRetentionDays`; minute buckets roll up into hourly (t-digest merge preserves p95) and expire per the retention tiers.
+
+> [!NOTE]
+> Summaries outlive spans on purpose: a trace stays findable (and countable in overviews) after its span data expired; the UI marks it as no longer expanded.
+
+## Query API
+
+The contract (`@checkstack/tracestream-common`) mirrors the reviewed stream RLAC modes. The notable reads: `searchTraces` (keyset-paginated summary search by service, operation, status, duration and time), `getTrace` (summary + spans for the waterfall), `getOpBuckets` (per-operation RED buckets with digest-backed `p95Ms`), `listServices` / `listOperations`, `getStreamOverview`, and the cross-stream `findTraceById`, which post-filters matches by the caller's stream grants - it powers every "View trace" jump the correlation phase adds.
+
+## Health integration
+
+tracestream registers a reader-only OBSERVABILITY health strategy
+(`tracestream`): it probes nothing and reads only the pre-aggregated
+tables, so a check can never load the raw span store. Two collectors:
+
+- `trace-window` - windowed span/trace totals, error counts,
+  `errorRatePerMinute` and `secondsSinceLastSpan` (absence detection),
+  from the op-bucket minute tier and trace summaries.
+- `operation-latency` (repeatable) - per service (and optionally per
+  operation) `p95Ms`, `avgMs`, `maxMs`, span/error counts and error rate
+  over the window. The p95 merges every minute bucket's t-digest state
+  into ONE digest before computing the percentile - a window p95 is not
+  an average of per-bucket p95s.
+
+The check editor's stream/service/operation dropdowns resolve through
+shared resolver-name constants in `@checkstack/tracestream-common`
+(`health-resolvers.ts`), filled by tracestream-frontend.
+
+Two mechanisms react faster than the schedule:
+
+- A **fast-path**: when a flush persists error spans, a debounced,
+  deterministic job id enqueues the affected checks on the shared
+  health-checks queue ahead of their interval (mirrors logstream's
+  fast-path; the debounce is pod-local bookkeeping, the job id dedupes
+  cluster-wide).
+- An **error-spike important event** (`error_spike`): post-commit, a
+  trailing-average threshold over the op-bucket error counts records at
+  most one spike per stream per 10 minutes (deduped through the shared
+  events table, so N pods agree).
+
+## Satellite forwarding
+
+Satellites with `CHECKSTACK_SATELLITE_TRACE_RECEIVERS=1` expose local
+`/v1/traces` (OTLP protobuf + JSON) and `/ingest/traces` (native)
+receivers on the shared receiver port. Spans are parsed with the SAME
+browser-safe parsers the core uses, serialized over the
+`tracestream`-kind telemetry channel (`satellite-relay.ts` wire schema,
+ISO dates + decimal-string nanos), and re-enter the core through the
+satellite capability handler: the forwarded `cktr_` token is verified by
+the same authenticator as direct pushes, times are re-clamped against
+the CORE clock, and spans feed the identical ingest pipeline (policy,
+caps, buckets). See
+[satellite telemetry](/checkstack/developer-guide/backend/satellite-telemetry/).
+
+## Correlation
+
+The trace detail view hosts `TraceCorrelationsSlot`
+(`@checkstack/tracestream-common`) so other signals can surface records
+correlated with the open trace (logstream fills it with the trace's log
+events), while tracestream-frontend fills logstream's `LogEventDetailSlot`
+and healthcheck's `RunDetailExtrasSlot` with "View trace" jumps resolved
+through `findTraceById`. See
+[trace correlation](/checkstack/developer-guide/backend/trace-correlation/)
+for the full picture including the HTTP probe's traceparent emission.
+
+## Telemetry sink
+
+tracestream registers the `traces` sink with the telemetry platform: normalized spans emitted by a telemetry source enter the exact same ingest pipeline (policy, caps, buckets) as the push endpoints, and bind-time authorization is answered by the stream's own access rules. With the sink in place, `traces` bindings are accepted in the sources UI and the trace stream's Sources tab embeds the platform's sources section.

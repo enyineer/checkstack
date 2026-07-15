@@ -7,34 +7,38 @@ import type {
   HookUnsubscribe,
 } from "@checkstack/backend-api";
 import type { CacheManager } from "@checkstack/cache-api";
+import type { CachedScope } from "@checkstack/cache-utils";
 import type { SignalService } from "@checkstack/signal-common";
 import {
   createSourceTokenKit,
   createIngestAuthenticator,
   createIngestTokenCache,
+  ingestTokenCacheKey,
+  ingestTokenMissKey,
   IngestBuffer,
   createFlushLoop,
   type IngestAuthenticator,
-  type SourceTokenKit,
 } from "@checkstack/ingest-utils";
 import {
   pluginMetadata,
   METRICSTREAM_TOKEN_PREFIX,
 } from "@checkstack/metricstream-common";
+import {
+  telemetryPushTokenInvalidatedHook,
+  type PushTokenVerifier,
+  type TelemetryPushTokenInvalidatedPayload,
+} from "@checkstack/telemetry-backend";
 import type * as schema from "../schema";
 import type { Storage } from "../storage";
 import type { ImportantEventRecorder } from "../events/recorder";
-import type { MetricIngestSink } from "../sources/extension-point";
-import {
-  metricstreamTokensInvalidatedHook,
-  type MetricstreamTokensInvalidatedPayload,
-} from "../events/bus-hooks";
+import type { MetricIngestSink } from "../sources/ingest-sink";
+import { METRICSTREAM_PUSH_QUALIFIED_ID } from "../sources/push/source-type";
 import {
   createMetricSink,
   estimateDatapointBytes,
   type BufferedDatapoint,
 } from "./sink";
-import { lookupTokenByHash } from "./token-lookup";
+import { createMetricstreamPushTokenLookup } from "./token-lookup";
 import { createStreamConfigResolver, type StreamConfigResolver } from "./stream-config";
 import { createMetricFlusher } from "./flush";
 
@@ -47,10 +51,8 @@ export const FLUSH_THRESHOLD = 5000;
 export interface IngestTeardown {
   /** The shared write path both source kinds use. */
   sink: MetricIngestSink;
-  /** Source-token authenticator (ckms_) for push sources' HTTP handlers. */
+  /** Push-token authenticator (ckms_) for the push endpoints' HTTP handlers. */
   auth: IngestAuthenticator;
-  /** The token kit (ckms_) - mint path + hashing for the API area. */
-  tokenKit: SourceTokenKit;
   /**
    * Per-stream config resolver (caps + soft limit), cached. Push endpoints use
    * it for the per-request datapoint cap + soft rate limit; the flush uses it
@@ -65,14 +67,15 @@ export interface IngestTeardown {
 }
 
 /**
- * Build the shared ingest subsystem: the ckms_ source-token kit, the token
- * authenticator (shared-cache verdict + per-pod negative cache), the per-stream
- * config resolver, the pod-local buffer, and the single-inflight flush loop
- * whose `runCycle` folds each stream's drained datapoints into storage in ONE
- * transaction. Also subscribes (broadcast mode) to
- * `metricstream.tokens.invalidated` so a token MINTED on another pod clears this
- * pod's negative (unknown-token) cache and authenticates without waiting out the
- * negative TTL.
+ * Build the shared ingest subsystem: the token authenticator (shared-cache
+ * verdict + per-pod negative cache) over the PLATFORM push-token verifier, the
+ * per-stream config resolver, the pod-local buffer, and the single-inflight
+ * flush loop whose `runCycle` folds each stream's drained datapoints into storage
+ * in ONE transaction. Also subscribes (broadcast mode) to the platform's
+ * `telemetry.push-token.invalidated` hook so that, for `metricstream.push`
+ * tokens, a REVOKE drops this pod's cached positive verdict + miss marker and a
+ * MINT clears its negative (unknown-token) cache - each pod converges without
+ * waiting out a TTL.
  *
  * STATE & SCALE: the buffer + flush state are pod-local, short-lived write
  * bookkeeping - never a queryable source of truth. Each pod folds its own intake
@@ -85,6 +88,7 @@ export function registerIngest({
   cacheManager,
   signalService,
   logger,
+  verifier,
   eventBus,
 }: {
   rpc: RpcService;
@@ -95,8 +99,12 @@ export function registerIngest({
   signalService: SignalService;
   logger: Logger;
   instanceRuntime: InstanceRuntime;
+  /** Platform push-token verifier backing the ingest authenticator. */
+  verifier: PushTokenVerifier;
   eventBus?: EventBus;
 }): IngestTeardown {
+  // The kit only supplies `hashToken` here (mint/list/revoke are the platform's);
+  // the prefix keeps the sha256 convention identical to the historical tokens.
   const tokenKit = createSourceTokenKit({ prefix: METRICSTREAM_TOKEN_PREFIX });
 
   const cache = createIngestTokenCache({
@@ -104,7 +112,7 @@ export function registerIngest({
     pluginId: pluginMetadata.pluginId,
   });
   const auth = createIngestAuthenticator({
-    lookup: (tokenHash) => lookupTokenByHash({ db, tokenHash }),
+    lookup: createMetricstreamPushTokenLookup({ verifier }),
     cache,
     hashToken: tokenKit.hashToken,
   });
@@ -141,20 +149,20 @@ export function registerIngest({
     flushThreshold: FLUSH_THRESHOLD,
   });
 
-  // Broadcast-mode subscription: EVERY pod clears its per-pod negative
-  // (unknown-token) cache when a token is minted, so a token minted on another
-  // pod authenticates here without waiting out the negative TTL. The
-  // revoked/stream_deleted paths are served by the shared-cache delete the API
-  // performs (no per-connection state to evict - metricstream is HTTP push
-  // only), so only `minted` needs local action.
+  // Broadcast-mode subscription to the platform push-token lifecycle hook. Every
+  // pod converges its ingest-auth caches: a REVOKE (disable/rotate-old/delete)
+  // drops the shared positive verdict + miss marker so the token stops
+  // authenticating within the TTL; a MINT (create/rotate-new/enable) clears the
+  // per-pod negative cache so the fresh token authenticates immediately. Filtered
+  // to metricstream's OWN push type - a hash of another push type is ignored.
   let unsubscribeTokenInvalidation: HookUnsubscribe | null = null;
   if (eventBus) {
     void eventBus
       .subscribe(
         pluginMetadata.pluginId,
-        metricstreamTokensInvalidatedHook,
-        async (payload: MetricstreamTokensInvalidatedPayload) => {
-          await applyTokenInvalidation({ payload, auth });
+        telemetryPushTokenInvalidatedHook,
+        async (payload: TelemetryPushTokenInvalidatedPayload) => {
+          await applyPushTokenInvalidation({ payload, auth, cache });
         },
         { mode: "broadcast" },
       )
@@ -163,7 +171,7 @@ export function registerIngest({
       })
       .catch((error: unknown) => {
         logger.warn(
-          `metricstream: failed to subscribe to token invalidations (falling back to TTLs): ${String(error)}`,
+          `metricstream: failed to subscribe to push-token invalidations (falling back to TTLs): ${String(error)}`,
         );
       });
   }
@@ -172,7 +180,6 @@ export function registerIngest({
   return {
     sink,
     auth,
-    tokenKit,
     configResolver,
     async stop() {
       if (stopped) return;
@@ -197,20 +204,31 @@ export function registerIngest({
 }
 
 /**
- * Apply a `metricstream.tokens.invalidated` broadcast to this pod's per-pod
- * negative token cache. Only `minted` requires action (clear the negative cache
- * for the fresh hashes); `revoked`/`stream_deleted` are handled by the API's
- * shared-cache delete. Exported for unit testing.
+ * Apply a platform `telemetry.push-token.invalidated` broadcast to this pod's
+ * ingest-auth caches. Scoped to metricstream's push type (a hash of another push
+ * type is ignored). `revoked` drops the shared positive verdict AND the negative
+ * miss marker for the hash so the token stops authenticating within the TTL;
+ * `minted` clears the per-pod negative cache + shared miss marker (via
+ * `clearNegative`) so a freshly-minted token authenticates without waiting out
+ * the negative TTL. Exported for unit testing.
  */
-export async function applyTokenInvalidation({
+export async function applyPushTokenInvalidation({
   payload,
   auth,
+  cache,
 }: {
-  payload: MetricstreamTokensInvalidatedPayload;
+  payload: TelemetryPushTokenInvalidatedPayload;
   auth: IngestAuthenticator;
+  cache: CachedScope;
 }): Promise<void> {
-  if (payload.reason !== "minted") return;
-  for (const hash of payload.tokenHashes) {
-    await auth.clearNegative?.(hash);
+  if (payload.sourceTypeId !== METRICSTREAM_PUSH_QUALIFIED_ID) return;
+  const { tokenHash } = payload;
+  if (payload.reason === "revoked") {
+    await cache.invalidate(ingestTokenCacheKey(tokenHash));
+    await cache.provider.delete(ingestTokenMissKey(tokenHash));
+    return;
   }
+  // "minted": clearNegative drops this pod's negative LRU AND the shared miss
+  // marker for the hash.
+  await auth.clearNegative?.(tokenHash);
 }

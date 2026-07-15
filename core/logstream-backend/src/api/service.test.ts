@@ -3,9 +3,8 @@ import type {
   SafeDatabase,
   Logger,
   RpcClient,
-  EventBus,
 } from "@checkstack/backend-api";
-import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import {
   DEFAULT_LOG_STREAM_CONFIG,
   logstreamResourceTypes,
@@ -20,7 +19,6 @@ import type { Storage } from "../storage";
 import * as schema from "../schema";
 import {
   logStreams,
-  logStreamTokens,
   logEvents,
   logSeverityBuckets,
   logPatternBuckets,
@@ -29,8 +27,8 @@ import {
   logPatterns,
   logImportantEvents,
   logStreamActivity,
+  logStreamSystemLinks,
 } from "../schema";
-import { hashToken } from "../token-crypto";
 
 // =============================================================================
 // Test doubles
@@ -67,24 +65,6 @@ function mockLogger(): Logger {
   };
 }
 
-/** A cache manager whose provider records every `delete(key)`. */
-function recordingCacheManager(): { cacheManager: CacheManager; deletedKeys: string[] } {
-  const deletedKeys: string[] = [];
-  const provider: CacheProvider = {
-    get: async () => undefined,
-    set: async () => {},
-    delete: async (key: string) => {
-      deletedKeys.push(key);
-    },
-    deleteByPrefix: async () => 0,
-    has: async () => false,
-  };
-  const cacheManager = {
-    getProvider: () => provider,
-  } as unknown as CacheManager;
-  return { cacheManager, deletedKeys };
-}
-
 const noopStorage = {} as unknown as Storage;
 
 const asDb = (fake: unknown) => fake as unknown as SafeDatabase<typeof schema>;
@@ -106,6 +86,20 @@ function recordingRpcClient(): {
     }),
   } as unknown as RpcClient;
   return { rpcClient, relationDeletes };
+}
+
+/** A telemetry source lifecycle that records `handleStreamDeleted` inputs. */
+function recordingSourceLifecycle(): {
+  sourceLifecycle: TelemetrySourceLifecycle;
+  streamDeletes: Array<{ signal: string; streamId: string }>;
+} {
+  const streamDeletes: Array<{ signal: string; streamId: string }> = [];
+  const sourceLifecycle = {
+    handleStreamDeleted: async (input: { signal: string; streamId: string }) => {
+      streamDeletes.push(input);
+    },
+  } as unknown as TelemetrySourceLifecycle;
+  return { sourceLifecycle, streamDeletes };
 }
 
 // =============================================================================
@@ -189,124 +183,6 @@ describe("assembleStreamSummaries", () => {
 });
 
 // =============================================================================
-// Token lifecycle
-// =============================================================================
-
-describe("mintToken", () => {
-  it("returns the full secret once and a token row without any hash", async () => {
-    const streamRow = {
-      id: "stream-1",
-      name: "s",
-      description: null,
-      config: DEFAULT_LOG_STREAM_CONFIG,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    let insertedValues: Record<string, unknown> | undefined;
-    const fakeDb = {
-      select: () => ({ from: () => chain([streamRow]) }),
-      insert: () => ({
-        values: (v: Record<string, unknown>) => {
-          insertedValues = v;
-          return {
-            returning: async () => [
-              {
-                id: "tok-1",
-                streamId: "stream-1",
-                name: v.name,
-                tokenHash: v.tokenHash,
-                tokenPrefix: v.tokenPrefix,
-                createdAt: new Date(),
-                lastUsedAt: null,
-                revokedAt: null,
-              },
-            ],
-          };
-        },
-      }),
-    };
-    const { cacheManager, deletedKeys } = recordingCacheManager();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger: mockLogger(),
-    });
-
-    const result = await service.mintToken({
-      streamId: "stream-1",
-      name: "shipper",
-    });
-
-    // The secret is a real ckls_ token whose hash is what got persisted.
-    expect(result.secret.startsWith("ckls_")).toBe(true);
-    expect(insertedValues?.tokenHash).toBe(hashToken(result.secret));
-    // The returned token row carries NO secret/hash - only the display prefix.
-    expect(result.token).not.toHaveProperty("tokenHash");
-    expect(result.token).not.toHaveProperty("secret");
-    expect(result.token.tokenPrefix).toBe(result.secret.slice(0, 8));
-    // The shared negative miss marker for the new token's hash is invalidated,
-    // so the just-minted token is not shadowed by a stale unknown-token entry.
-    expect(
-      deletedKeys.some((k) =>
-        k.includes(`ingest-token-miss:${hashToken(result.secret)}`),
-      ),
-    ).toBe(true);
-  });
-});
-
-describe("revokeToken", () => {
-  it("stamps revokedAt and invalidates the ingest-token cache entry", async () => {
-    const tokenHash = "a".repeat(64);
-    let setValues: Record<string, unknown> | undefined;
-    const fakeDb = {
-      update: () => ({
-        set: (v: Record<string, unknown>) => {
-          setValues = v;
-          return {
-            where: () => ({
-              returning: async () => [{ tokenHash }],
-            }),
-          };
-        },
-      }),
-    };
-    const { cacheManager, deletedKeys } = recordingCacheManager();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger: mockLogger(),
-    });
-
-    await service.revokeToken({ streamId: "stream-1", tokenId: "tok-1" });
-
-    expect(setValues?.revokedAt).toBeInstanceOf(Date);
-    // The cache key is the shared `ingest-token:<hash>` convention, plugin-scoped.
-    expect(deletedKeys).toHaveLength(1);
-    expect(deletedKeys[0]).toContain(`ingest-token:${tokenHash}`);
-  });
-
-  it("throws NOT_FOUND when no matching token exists for the stream", async () => {
-    const fakeDb = {
-      update: () => ({
-        set: () => ({ where: () => ({ returning: async () => [] }) }),
-      }),
-    };
-    const { cacheManager } = recordingCacheManager();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger: mockLogger(),
-    });
-    await expect(
-      service.revokeToken({ streamId: "stream-1", tokenId: "missing" }),
-    ).rejects.toThrow(/not found/i);
-  });
-});
-
-// =============================================================================
 // Stream update config merge
 // =============================================================================
 
@@ -334,11 +210,9 @@ describe("updateStream", () => {
         },
       }),
     };
-    const { cacheManager } = recordingCacheManager();
     const service = createLogstreamService({
       db: asDb(fakeDb),
       storage: noopStorage,
-      cacheManager,
       logger: mockLogger(),
     });
 
@@ -360,14 +234,11 @@ describe("updateStream", () => {
 // =============================================================================
 
 describe("deleteStream", () => {
-  it("cascades deletes across every stream-scoped table and clears token caches", async () => {
+  it("cascades deletes across every stream-scoped table (sources are platform-owned)", async () => {
     const deletedTables: unknown[] = [];
     const tx = {
       select: () => ({
         from: (table: unknown) => {
-          if (table === logStreamTokens) {
-            return chain([{ tokenHash: "h1" }, { tokenHash: "h2" }]);
-          }
           if (table === logEvents) {
             // One non-empty batch, then the loop ends (batch < BATCH size).
             return chain([{ eventId: 1 }]);
@@ -384,21 +255,20 @@ describe("deleteStream", () => {
     const fakeDb = {
       transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     };
-    const { cacheManager, deletedKeys } = recordingCacheManager();
     const service = createLogstreamService({
       db: asDb(fakeDb),
       storage: noopStorage,
-      cacheManager,
       logger: mockLogger(),
     });
 
     await service.deleteStream({ id: "stream-1" });
 
-    // Every stream-scoped child table AND the stream row are deleted.
+    // Every stream-scoped child table AND the stream row are deleted. The push
+    // SOURCES bound to the stream are NOT touched - the telemetry platform owns
+    // their lifecycle, and the `log_stream_tokens` table no longer exists.
     expect(new Set(deletedTables)).toEqual(
       new Set([
         logEvents,
-        logStreamTokens,
         logSeverityBuckets,
         logPatternBuckets,
         logSeverityHourly,
@@ -406,12 +276,10 @@ describe("deleteStream", () => {
         logPatterns,
         logImportantEvents,
         logStreamActivity,
+        logStreamSystemLinks,
         logStreams,
       ]),
     );
-    // Both tokens' ingest-auth cache entries are invalidated post-commit.
-    expect(deletedKeys.some((k) => k.includes("ingest-token:h1"))).toBe(true);
-    expect(deletedKeys.some((k) => k.includes("ingest-token:h2"))).toBe(true);
   });
 
   it("deletes the stream's team grants via auth after the cascade", async () => {
@@ -422,12 +290,10 @@ describe("deleteStream", () => {
     const fakeDb = {
       transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     };
-    const { cacheManager } = recordingCacheManager();
     const { rpcClient, relationDeletes } = recordingRpcClient();
     const service = createLogstreamService({
       db: asDb(fakeDb),
       storage: noopStorage,
-      cacheManager,
       logger: mockLogger(),
       rpcClient,
     });
@@ -449,16 +315,62 @@ describe("deleteStream", () => {
     const fakeDb = {
       transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     };
-    const { cacheManager } = recordingCacheManager();
     const logger = mockLogger();
     const service = createLogstreamService({
       db: asDb(fakeDb),
       storage: noopStorage,
-      cacheManager,
       logger,
     });
 
     // No rpcClient: the delete succeeds and the missing-client case is warned.
+    await service.deleteStream({ id: "stream-1" });
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("cascades the deletion to bound telemetry sources with the logs signal", async () => {
+    const tx = {
+      select: () => ({ from: () => chain([]) }),
+      delete: () => ({ where: async () => {} }),
+    };
+    const fakeDb = {
+      transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    };
+    const { sourceLifecycle, streamDeletes } = recordingSourceLifecycle();
+    const service = createLogstreamService({
+      db: asDb(fakeDb),
+      storage: noopStorage,
+      logger: mockLogger(),
+      sourceLifecycle,
+    });
+
+    await service.deleteStream({ id: "stream-1" });
+
+    // The platform is told to strip this stream's binding from every source.
+    expect(streamDeletes).toEqual([{ signal: "logs", streamId: "stream-1" }]);
+  });
+
+  it("still deletes the stream when the source cascade throws (warns, does not rethrow)", async () => {
+    const tx = {
+      select: () => ({ from: () => chain([]) }),
+      delete: () => ({ where: async () => {} }),
+    };
+    const fakeDb = {
+      transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    };
+    const logger = mockLogger();
+    const sourceLifecycle = {
+      handleStreamDeleted: async () => {
+        throw new Error("platform unavailable");
+      },
+    } as unknown as TelemetrySourceLifecycle;
+    const service = createLogstreamService({
+      db: asDb(fakeDb),
+      storage: noopStorage,
+      logger,
+      sourceLifecycle,
+    });
+
+    // The stream deletion already succeeded, so a failing cascade is logged.
     await service.deleteStream({ id: "stream-1" });
     expect(logger.warn).toHaveBeenCalled();
   });
@@ -505,11 +417,9 @@ describe("searchEvents", () => {
     const fakeDb = {
       select: () => ({ from: () => chain(rows) }),
     };
-    const { cacheManager } = recordingCacheManager();
     const service = createLogstreamService({
       db: asDb(fakeDb),
       storage: noopStorage,
-      cacheManager,
       logger: mockLogger(),
     });
 
@@ -525,138 +435,3 @@ describe("searchEvents", () => {
   });
 });
 
-// =============================================================================
-// Token invalidation broadcasts (logstream.tokens.invalidated)
-// =============================================================================
-
-/** An EventBus double that records every emit. */
-function recordingEventBus(): {
-  eventBus: EventBus;
-  emitted: Array<{ hookId: string; payload: unknown }>;
-} {
-  const emitted: Array<{ hookId: string; payload: unknown }> = [];
-  const eventBus: EventBus = {
-    subscribe: async () => async () => {},
-    emit: async (hook, payload) => {
-      emitted.push({ hookId: hook.id, payload });
-    },
-    emitLocal: async (hook, payload) => {
-      emitted.push({ hookId: hook.id, payload });
-    },
-    shutdown: async () => {},
-  };
-  return { eventBus, emitted };
-}
-
-describe("token invalidation broadcasts", () => {
-  it("revokeToken broadcasts a revoked payload with the token id and hash", async () => {
-    const tokenHash = "b".repeat(64);
-    const fakeDb = {
-      update: () => ({
-        set: () => ({
-          where: () => ({ returning: async () => [{ tokenHash }] }),
-        }),
-      }),
-    };
-    const { cacheManager } = recordingCacheManager();
-    const { eventBus, emitted } = recordingEventBus();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger: mockLogger(),
-      eventBus,
-    });
-
-    await service.revokeToken({ streamId: "stream-1", tokenId: "tok-9" });
-
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0].hookId).toBe("logstream.tokens.invalidated");
-    expect(emitted[0].payload).toEqual({
-      streamId: "stream-1",
-      reason: "revoked",
-      tokenIds: ["tok-9"],
-      tokenHashes: [tokenHash],
-    });
-  });
-
-  it("mintToken broadcasts a minted payload so pods clear negative caches", async () => {
-    const streamRow = {
-      id: "stream-1",
-      name: "s",
-      description: undefined,
-      config: DEFAULT_LOG_STREAM_CONFIG,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    const fakeDb = {
-      select: () => ({ from: () => chain([streamRow]) }),
-      insert: () => ({
-        values: (v: Record<string, unknown>) => ({
-          returning: async () => [
-            {
-              id: "tok-new",
-              streamId: "stream-1",
-              name: v.name,
-              tokenHash: v.tokenHash,
-              tokenPrefix: v.tokenPrefix,
-              createdAt: new Date(),
-              lastUsedAt: null,
-              revokedAt: null,
-            },
-          ],
-        }),
-      }),
-    };
-    const { cacheManager } = recordingCacheManager();
-    const { eventBus, emitted } = recordingEventBus();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger: mockLogger(),
-      eventBus,
-    });
-
-    const result = await service.mintToken({ streamId: "stream-1", name: "t" });
-
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0].payload).toMatchObject({
-      streamId: "stream-1",
-      reason: "minted",
-      tokenHashes: [hashToken(result.secret)],
-    });
-  });
-
-  it("a failing event bus never fails the mutation (best-effort broadcast)", async () => {
-    const tokenHash = "c".repeat(64);
-    const fakeDb = {
-      update: () => ({
-        set: () => ({
-          where: () => ({ returning: async () => [{ tokenHash }] }),
-        }),
-      }),
-    };
-    const { cacheManager } = recordingCacheManager();
-    const failingBus: EventBus = {
-      subscribe: async () => async () => {},
-      emit: async () => {
-        throw new Error("bus down");
-      },
-      emitLocal: async () => {},
-      shutdown: async () => {},
-    };
-    const logger = mockLogger();
-    const service = createLogstreamService({
-      db: asDb(fakeDb),
-      storage: noopStorage,
-      cacheManager,
-      logger,
-      eventBus: failingBus,
-    });
-
-    // Does not throw; the failure is logged and the TTL backstops apply.
-    await service.revokeToken({ streamId: "stream-1", tokenId: "tok-1" });
-    expect(logger.warn).toHaveBeenCalled();
-  });
-});

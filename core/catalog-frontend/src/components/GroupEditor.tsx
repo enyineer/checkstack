@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -11,12 +11,19 @@ import {
   DialogFooter,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
+import {
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+} from "@checkstack/auth-frontend";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { catalogAccess } from "@checkstack/catalog-common";
 
 interface GroupEditorProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: { name: string }) => Promise<void>;
+  onSave: (data: { name: string; teamId?: string }) => Promise<void>;
   initialData?: { name: string };
 }
 
@@ -27,26 +34,46 @@ export const GroupEditor: React.FC<GroupEditorProps> = ({
   initialData,
 }) => {
   const [name, setName] = useState(initialData?.name || "");
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name || "");
-    }
-  }, [open, initialData]);
+  // Global manage holders may create a team-less (global) group; team-scoped
+  // creators must pick an owning team (the picker marks it required for them).
+  const accessApi = useApi(accessApiRef);
+  const { allowed: allowGlobal } = accessApi.useAccess(
+    catalogAccess.group.manage,
+  );
+
+  // Seed the form ONCE per open transition. The parent rebuilds `initialData`
+  // each render and realtime invalidations refetch while open, so a
+  // `useEffect([open, initialData])` would re-seed on refetch and wipe edits.
+  useSeedFormOnOpen(open, () => {
+    setName(initialData?.name || "");
+    setOwnerTeamId(null);
+    setOwnerTeamError(null);
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setLoading(true);
+    setOwnerTeamError(null);
     try {
-      await onSave({ name: name.trim() });
+      await onSave({
+        name: name.trim(),
+        ...(initialData ? {} : { teamId: ownerTeamId ?? undefined }),
+      });
       onClose();
     } catch (error) {
-      toastError(toast, "Failed to save group", error);
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+      } else {
+        toastError(toast, "Failed to save group", error);
+      }
     } finally {
       setLoading(false);
     }
@@ -78,6 +105,21 @@ export const GroupEditor: React.FC<GroupEditorProps> = ({
                 required
               />
             </div>
+
+            {/* Owning team picker - only when creating a new group. */}
+            {!initialData && (
+              <div className="space-y-2">
+                <TeamOwnershipPicker
+                  value={ownerTeamId}
+                  onChange={(id) => {
+                    setOwnerTeamId(id);
+                    setOwnerTeamError(null);
+                  }}
+                  allowGlobal={allowGlobal}
+                  error={ownerTeamError}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>

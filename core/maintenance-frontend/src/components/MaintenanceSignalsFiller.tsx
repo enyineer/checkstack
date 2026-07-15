@@ -26,13 +26,15 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
 export const MaintenanceSignalsFiller: React.FC<Props> = ({
   systemIds,
   onSignals,
+  onLoadingChange,
 }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
 
-  const { data } = maintenanceClient.getBulkMaintenancesForSystems.useQuery(
-    { systemIds },
-    { enabled: systemIds.length > 0, staleTime: 30_000 },
-  );
+  const { data, isLoading } =
+    maintenanceClient.getBulkMaintenancesForSystems.useQuery(
+      { systemIds },
+      { enabled: systemIds.length > 0, staleTime: 30_000 },
+    );
 
   const signals = useMemo<SystemSignalsMap>(() => {
     if (!data) return {};
@@ -45,6 +47,13 @@ export const MaintenanceSignalsFiller: React.FC<Props> = ({
   useEffect(() => {
     onSignals(MAINTENANCE_SIGNAL_SOURCE, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(MAINTENANCE_SIGNAL_SOURCE, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

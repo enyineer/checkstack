@@ -54,6 +54,7 @@ import {
   Textarea,
   toastError,
   cn,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -115,27 +116,27 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       : "",
   );
 
-  // Reset form when dialog opens with new data
-  React.useEffect(() => {
-    if (open) {
-      setTitle(announcement?.title ?? "");
-      setMessage(announcement?.message ?? "");
-      setSeverity(announcement?.severity ?? "info");
-      setVisibility(announcement?.visibility ?? "all");
-      setDisplayMode(announcement?.displayMode ?? "both");
-      setActive(announcement?.active ?? true);
-      setStartsAt(
-        announcement?.startsAt
-          ? format(new Date(announcement.startsAt), "yyyy-MM-dd'T'HH:mm")
-          : "",
-      );
-      setExpiresAt(
-        announcement?.expiresAt
-          ? format(new Date(announcement.expiresAt), "yyyy-MM-dd'T'HH:mm")
-          : "",
-      );
-    }
-  }, [open, announcement]);
+  // Reset form once each time the dialog transitions closed -> open, so a
+  // background refetch of `announcement` while the dialog stays open doesn't
+  // wipe in-progress edits.
+  useSeedFormOnOpen(open, () => {
+    setTitle(announcement?.title ?? "");
+    setMessage(announcement?.message ?? "");
+    setSeverity(announcement?.severity ?? "info");
+    setVisibility(announcement?.visibility ?? "all");
+    setDisplayMode(announcement?.displayMode ?? "both");
+    setActive(announcement?.active ?? true);
+    setStartsAt(
+      announcement?.startsAt
+        ? format(new Date(announcement.startsAt), "yyyy-MM-dd'T'HH:mm")
+        : "",
+    );
+    setExpiresAt(
+      announcement?.expiresAt
+        ? format(new Date(announcement.expiresAt), "yyyy-MM-dd'T'HH:mm")
+        : "",
+    );
+  });
 
   const createMutation = announcementClient.createAnnouncement.useMutation({
     onSuccess: () => {
@@ -516,6 +517,7 @@ const AnnouncementManageContent: React.FC = () => {
   const [orderedAnnouncements, setOrderedAnnouncements] = useState<
     Announcement[]
   >([]);
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- intentional continuous mirror of the server list so a concurrent operator's reorder stays authoritative; each reorder saves immediately, so there is no unsaved draft to clobber.
   React.useEffect(() => {
     setOrderedAnnouncements(announcementsData?.announcements ?? []);
   }, [announcementsData]);

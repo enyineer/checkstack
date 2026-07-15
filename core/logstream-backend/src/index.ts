@@ -5,15 +5,33 @@ import {
 } from "@checkstack/backend-api";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
 import {
+  telemetrySinkExtensionPoint,
+  telemetrySourceExtensionPoint,
+  telemetryDeriveTapExtensionPoint,
+  telemetryPushTokenVerifierRef,
+  telemetrySourceLifecycleRef,
+} from "@checkstack/telemetry-backend";
+import {
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import {
   pluginMetadata,
   logstreamAccessRules,
+  logstreamContract,
 } from "@checkstack/logstream-common";
+import { projectLogEventsForModel } from "./ai-projections";
+import { eq, inArray } from "drizzle-orm";
 import * as schema from "./schema";
 import { createStorage } from "./storage";
+import { createLogstreamTelemetrySink } from "./telemetry-sink";
 import { createImportantEventRecorder } from "./events/recorder";
 import { createDrainEngine } from "./drain/engine";
 import { registerHealthIntegration } from "./health/setup";
 import { registerIngestEndpoints } from "./ingest/setup";
+import { syslogSourceType } from "./ingest/syslog/source-type";
+import { pushSourceType } from "./ingest/push/source-type";
+import { createLogDeriveTap } from "./ingest/derive-tap";
 import { getIngestCounters } from "./ingest";
 import { registerApi } from "./api/setup";
 
@@ -28,6 +46,34 @@ export default createBackendPlugin({
 
   register(env) {
     env.registerAccessRules(logstreamAccessRules);
+
+    // Contribute the SYSLOG listener source type to the telemetry platform
+    // (the first listener registrant): instances carry port/TLS config and a
+    // stream BINDING - no env vars, no in-message tokens. Buffered, so load
+    // order does not matter.
+    env
+      .getExtensionPoint(telemetrySourceExtensionPoint)
+      .registerSourceType(syslogSourceType, pluginMetadata);
+
+    // Contribute the PUSH source type: shippers authenticate to the OTLP/native
+    // ingest endpoints with a per-instance bearer token the PLATFORM mints. This
+    // replaces logstream's former `log_stream_tokens` table - telemetry
+    // migration 0002 promoted every non-revoked token to a `logstream.push`
+    // instance. The verify path is wired in `registerIngestEndpoints` via the
+    // push-token verifier.
+    env
+      .getExtensionPoint(telemetrySourceExtensionPoint)
+      .registerSourceType(pushSourceType, pluginMetadata);
+
+    // Connect the logs DERIVE TAP: the platform hands back the dispatch fn
+    // once its derive dispatcher exists; the pipeline (built in init) calls
+    // the tap post-commit with each flushed batch so log-to-metric /
+    // log-to-trace sources can consume it. One holder shared by both phases.
+    const deriveTap = createLogDeriveTap();
+    env.getExtensionPoint(telemetryDeriveTapExtensionPoint).connectTap(
+      { signal: "logs", onReady: (dispatch) => deriveTap.connect(dispatch) },
+      pluginMetadata,
+    );
 
     // Bridges init() -> afterPluginsReady(): maintenance scheduling must wait
     // until every plugin's router is registered, because the retention pass
@@ -46,10 +92,17 @@ export default createBackendPlugin({
         queueManager: coreServices.queueManager,
         rpcClient: coreServices.rpcClient,
         eventBus: coreServices.eventBus,
+        auth: coreServices.auth,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
         instanceRuntime: coreServices.instanceRuntime,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
+        // The platform push-token verifier: drives the ingest authenticator's
+        // token lookup over the `logstream.push` source type.
+        pushTokenVerifier: telemetryPushTokenVerifierRef,
+        // The platform source-lifecycle service: `deleteStream` calls
+        // `handleStreamDeleted` so deleting a stream cascades to bound sources.
+        sourceLifecycle: telemetrySourceLifecycleRef,
       },
       init: async ({
         database,
@@ -60,10 +113,13 @@ export default createBackendPlugin({
         queueManager,
         rpcClient,
         eventBus,
+        auth,
         healthCheckRegistry,
         collectorRegistry,
         instanceRuntime,
         resourceResolverRegistry,
+        pushTokenVerifier,
+        sourceLifecycle,
       }) => {
         // The runtime injects the plugin's schema-scoped db typed as
         // `SafeDatabase<Record<string, unknown>>`; narrow it to this plugin's
@@ -107,9 +163,10 @@ export default createBackendPlugin({
           cacheManager,
           signalService,
           logger,
-          instanceRuntime,
           eventBus,
+          verifier: pushTokenVerifier,
           onIngestFlush: health.onIngestFlush,
+          onDeriveFlush: deriveTap.onDeriveFlush,
           // Healthcheck-referenced pattern ids feed the Drain protected set so
           // a pattern a check asserts on is never evicted/re-mined under a
           // fresh id (and retention never deletes it).
@@ -127,17 +184,143 @@ export default createBackendPlugin({
           .getExtensionPoint(satelliteCapabilityExtensionPoint)
           .registerCapability(ingest.satelliteCapabilityHandler, pluginMetadata);
 
+        // Contribute the telemetry "logs" sink: telemetry sources route their
+        // normalized records through the SAME pipeline + stream config the push
+        // endpoints use, so banding, rate limits, buffering and sampling apply
+        // identically. Existence + display name resolve straight off the streams
+        // table (the push path relies on the source token instead; there is no
+        // shared "get stream by id" helper to reuse).
+        env.getExtensionPoint(telemetrySinkExtensionPoint).registerSink(
+          createLogstreamTelemetrySink({
+            resolveStream: async (streamId) => {
+              const [row] = await db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams)
+                .where(eq(schema.logStreams.id, streamId))
+                .limit(1);
+              return row ?? null;
+            },
+            // Batched resolver for source LIST read paths: one set-based select
+            // over the bound ids, keyed by id (unknown ids map to null).
+            resolveStreams: async (streamIds) => {
+              const resolved: Record<
+                string,
+                { id: string; name: string } | null
+              > = {};
+              for (const id of streamIds) resolved[id] = null;
+              if (streamIds.length === 0) return resolved;
+              const rows = await db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams)
+                .where(inArray(schema.logStreams.id, streamIds));
+              for (const row of rows) resolved[row.id] = row;
+              return resolved;
+            },
+            // List all streams (id + name) for the telemetry binding picker; the
+            // sink filters them to the caller's manageable subset.
+            listStreams: async () =>
+              db
+                .select({
+                  id: schema.logStreams.id,
+                  name: schema.logStreams.name,
+                })
+                .from(schema.logStreams),
+            pipeline: ingest.pipeline,
+            configResolver: ingest.configResolver,
+            auth,
+            logger,
+          }),
+          pluginMetadata,
+        );
+
         registerApi({
           rpc,
           db,
           storage,
-          cacheManager,
           signalService,
           logger,
           resourceResolverRegistry,
           ingestCounters: getIngestCounters,
           rpcClient,
+          sourceLifecycle,
           eventBus,
+          internalUrl: process.env.INTERNAL_URL || "http://localhost:3000",
+        });
+
+        // Expose this plugin's OWN read-only AI projections of existing read
+        // procedures via aiToolProjectionExtensionPoint - owned here, not in
+        // ai-backend. Each projected tool is routed by the transport (MCP /
+        // chat) AS the principal, so the source procedure's own contract access
+        // rules gate it; `deferredProjectionExecute` is the fail-closed net if a
+        // transport ever forgot to route.
+        const aiProjection = env.getExtensionPoint(
+          aiToolProjectionExtensionPoint,
+        );
+
+        // Raw log search, filterable by text / severity / pattern / trace /
+        // time window. The lean projection drops the unbounded attributes/
+        // resource jsonb and clamps the body so a page of lines does not blow
+        // the model's context on every replay.
+        aiProjection.expose({
+          procedure: logstreamContract.searchEvents,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "searchEvents",
+          name: "logstream.searchLogs",
+          description:
+            "Search a log stream's raw lines by `streamId`, filtering by " +
+            "`text` (substring), `severityBands`, `patternId`, `traceId`, and " +
+            "a `from`/`to` time window; keep `limit` small (each line is a " +
+            "row). Resolve a stream NAME to its id with logstream.listStreams " +
+            "first. For 'how often / how many errors / volume over a window' " +
+            "questions, PREFER logstream.severityStats - it returns compact " +
+            "counts instead of thousands of raw lines. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+          // Lean shape for the model: drop attributes/resource + opaque ids and
+          // clamp the body, keeping time/band/message + correlation handles.
+          projectResult: projectLogEventsForModel,
+        });
+
+        // Windowed severity counts (the compact "how much / how often" answer).
+        // Output is already small and bounded, so no projectResult.
+        aiProjection.expose({
+          procedure: logstreamContract.getSeverityBuckets,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getSeverityBuckets",
+          name: "logstream.severityStats",
+          description:
+            "Summarize a log stream's volume over a `from`/`to` window as " +
+            "per-bucket counts BY SEVERITY band (trace/debug/info/warn/error/" +
+            "fatal). PREFER THIS over logstream.searchLogs for any 'how many " +
+            "errors / how much log volume / error trend over the last N hours " +
+            "or days' question - it returns compact aggregates, not raw rows. " +
+            "Resolve a stream NAME to its id with logstream.listStreams first. " +
+            "Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+
+        // Compact stream directory (id + name) so the model can resolve a
+        // stream NAME to the id the other two tools require. `listStreamsForPicker`
+        // is the least-privileged compact list (id+name only).
+        aiProjection.expose({
+          procedure: logstreamContract.listStreamsForPicker,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listStreamsForPicker",
+          name: "logstream.listStreams",
+          description:
+            "List the log streams the caller can access as compact " +
+            "{ id, name } entries. Use this FIRST to resolve a stream NAME to " +
+            "the `streamId` that logstream.searchLogs and " +
+            "logstream.severityStats require. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
         });
 
         startMaintenance = health.startMaintenance;

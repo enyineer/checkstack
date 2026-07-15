@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   ChartCard,
@@ -13,13 +14,20 @@ import {
   EmptyState,
   Skeleton,
   formatNumber,
+  usePerformance,
+  useToast,
   type DateRange,
   type TimeSeries,
 } from "@checkstack/ui";
 import { LineChart } from "lucide-react";
 import { MetricstreamApi } from "@checkstack/metricstream-common";
+import {
+  TracestreamApi,
+  buildViewTraceHref,
+} from "@checkstack/tracestream-common";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { toMetricSeries, hasMetricSamples } from "../lib/metric-series";
+import { ExemplarLane } from "./ExemplarLane";
 
 export interface MetricQuickChartProps {
   streamId: string;
@@ -44,10 +52,36 @@ function last6h(): DateRange {
  */
 export function MetricQuickChart({ streamId }: MetricQuickChartProps) {
   const client = usePluginClient(MetricstreamApi);
+  const traceClient = usePluginClient(TracestreamApi);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { isLowPower } = usePerformance();
   const [range, setRange] = useState<DateRange>(last6h);
   const [search, setSearch] = useState("");
   const [metricName, setMetricName] = useState<string | undefined>();
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  // Exemplar -> trace jump-off: on marker click, resolve which stream holds the
+  // trace, then deep-link into its waterfall (or toast when it was not
+  // sampled/retained). The lookup is keyed on the traceId, so switching markers
+  // never navigates with a stale match.
+  const [pendingTraceId, setPendingTraceId] = useState<string | null>(null);
+  const { data: traceMatches } = traceClient.findTraceById.useQuery(
+    { traceId: pendingTraceId ?? "" },
+    { enabled: pendingTraceId !== null },
+  );
+  useEffect(() => {
+    if (pendingTraceId === null || traceMatches === undefined) return;
+    const match = traceMatches.matches[0];
+    if (match) {
+      navigate(buildViewTraceHref({ streamId: match.id, traceId: pendingTraceId }));
+    } else {
+      toast.info(
+        "No trace found for this exemplar. It may not have been sampled or has expired.",
+      );
+    }
+    setPendingTraceId(null);
+  }, [pendingTraceId, traceMatches, navigate, toast]);
 
   const { data: names, isLoading: namesLoading } =
     client.listMetricNames.useQuery({
@@ -139,15 +173,25 @@ export function MetricQuickChart({ streamId }: MetricQuickChartProps) {
         bucketsLoading ? (
           <Skeleton variant="chart" />
         ) : hasData ? (
-          <TimeSeriesChart
-            primary={avgSeries}
-            secondary={maxSeries}
-            ariaLabel={`${metricName} average and max over time`}
-            formatY={(v) => formatNumber(v)}
-            // Same 192px footprint as the `chart` Skeleton / EmptyState, so
-            // swapping between the three states never shifts the layout.
-            height={192}
-          />
+          <>
+            <TimeSeriesChart
+              primary={avgSeries}
+              secondary={maxSeries}
+              ariaLabel={`${metricName} average and max over time`}
+              formatY={(v) => formatNumber(v)}
+              // Same 192px footprint as the `chart` Skeleton / EmptyState, so
+              // swapping between the three states never shifts the layout.
+              height={192}
+            />
+            <ExemplarLane
+              exemplars={buckets?.exemplars ?? []}
+              from={range.startDate}
+              to={range.endDate}
+              onSelect={setPendingTraceId}
+              pendingTraceId={pendingTraceId}
+              isLowPower={isLowPower}
+            />
+          </>
         ) : (
           <EmptyState
             title="No samples in this range"

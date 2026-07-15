@@ -7,19 +7,21 @@ import type {
   EventBus,
 } from "@checkstack/backend-api";
 import { withScopedTransaction } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import { AuthApi } from "@checkstack/auth-common";
 import {
   LogStreamConfigSchema,
   bandFromSeverityNumber,
   logstreamResourceTypes,
+  normalizeTraceId,
+  MAX_TRACE_CORRELATION_STREAMS,
   type LogStream,
   type CreateLogStream,
   type UpdateLogStream,
-  type LogStreamToken,
-  type MintTokenResult,
   type SearchEvents,
   type SearchEventsResult,
+  type FindEventsByTraceId,
+  type FindEventsByTraceIdResult,
   type LogEvent,
   type EventCursor,
   type GetBuckets,
@@ -46,20 +48,24 @@ import {
   type ListPatternVariables,
   type ListPatternVariablesResult,
 } from "@checkstack/logstream-common";
-import { generateToken } from "../token-crypto";
+import type {
+  ListSystemLinksResult,
+  ListStreamsForSystemResult,
+  ListLinkedStreamStatusesResult,
+} from "@checkstack/telemetry-common";
+import type { ListServiceNamesResult } from "@checkstack/logstream-common";
 import {
   createPatternOperations,
   type PatternOperations,
 } from "./patterns";
+import {
+  createSystemLinkOperations,
+  type SystemLinkOperations,
+} from "./system-links";
 import type { FindReferencingChecks } from "../health/pattern-references";
 import * as schema from "../schema";
 import {
-  logstreamTokensInvalidatedHook,
-  type LogstreamTokensInvalidatedPayload,
-} from "../events/bus-hooks";
-import {
   logStreams,
-  logStreamTokens,
   logEvents,
   logSeverityBuckets,
   logPatternBuckets,
@@ -68,6 +74,7 @@ import {
   logPatterns,
   logImportantEvents,
   logStreamActivity,
+  logStreamSystemLinks,
 } from "../schema";
 import type { Storage } from "../storage";
 import {
@@ -79,14 +86,6 @@ import {
   addSeverityTotals,
   ZERO_SEVERITY_TOTALS,
 } from "./buckets-merge";
-import { createIngestTokenCache, ingestTokenCacheKey } from "./token-cache";
-// The negative (unknown-token) miss-marker key convention is owned by the
-// ingest auth path; the mint path invalidates the SAME shared key so a
-// just-minted token is not shadowed by a stale negative entry. Approved
-// cross-area import (both are the logstream plugin), mirroring how ingest/auth
-// imports the positive-key builder from api/token-cache.
-import { ingestTokenMissKey } from "../ingest/auth";
-import type { CachedScope } from "@checkstack/cache-utils";
 
 /** How many raw rows to delete per statement in the deleteStream cascade. */
 const EVENT_DELETE_BATCH = 10_000;
@@ -116,11 +115,10 @@ export interface LogstreamService {
   getStream(input: { id: string }): Promise<LogStream>;
   listStreamsForPicker(): Promise<StreamForPicker[]>;
 
-  listTokens(input: { streamId: string }): Promise<LogStreamToken[]>;
-  mintToken(input: { streamId: string; name: string }): Promise<MintTokenResult>;
-  revokeToken(input: { streamId: string; tokenId: string }): Promise<void>;
-
   searchEvents(input: SearchEvents): Promise<SearchEventsResult>;
+  findEventsByTraceId(
+    input: FindEventsByTraceId,
+  ): Promise<FindEventsByTraceIdResult>;
   getSeverityBuckets(input: GetBuckets): Promise<SeverityBucketsResult>;
   getPatternBuckets(input: GetBuckets): Promise<PatternBucketsResult>;
   listPatterns(input: ListPatterns): Promise<LogPattern[]>;
@@ -139,14 +137,33 @@ export interface LogstreamService {
     input: ListImportantEvents,
   ): Promise<ListImportantEventsResult>;
   getStreamOverview(input: { streamId: string }): Promise<StreamOverview>;
+
+  // System links (explicit stream -> catalog-system mapping; see ./system-links).
+  listSystemLinks(input: { streamId: string }): Promise<ListSystemLinksResult>;
+  getSystemLinksForUpdate(input: {
+    streamId: string;
+  }): Promise<ListSystemLinksResult>;
+  setSystemLinks(input: {
+    streamId: string;
+    systemIds: string[];
+  }): Promise<void>;
+  listStreamsForSystem(input: {
+    systemId: string;
+  }): Promise<ListStreamsForSystemResult>;
+  listLinkedStreamStatuses(input: {
+    systemIds: string[];
+  }): Promise<ListLinkedStreamStatusesResult>;
+  listServiceNames(input: {
+    streamId: string;
+  }): Promise<ListServiceNamesResult>;
 }
 
 export function createLogstreamService({
   db,
   storage,
-  cacheManager,
   logger,
   rpcClient,
+  sourceLifecycle,
   eventBus,
   ingestCounters,
   findReferencingChecks,
@@ -154,7 +171,6 @@ export function createLogstreamService({
 }: {
   db: SafeDatabase<typeof schema>;
   storage: Storage;
-  cacheManager: CacheManager;
   logger: Logger;
   /**
    * Platform RPC client, used to clean up the deleted stream's team grants via
@@ -164,11 +180,19 @@ export function createLogstreamService({
    */
   rpcClient?: RpcClient;
   /**
-   * Platform event bus, used to broadcast `logstream.tokens.invalidated`
-   * after token mutations so every pod can evict POD-LOCAL token state the
-   * shared-cache invalidation cannot reach (syslog per-connection verdicts,
-   * the negative unknown-token cache). Optional so lightweight tests can omit
-   * it; the pod-local TTLs remain the backstop when absent.
+   * Telemetry source-lifecycle service. `deleteStream` calls
+   * `handleStreamDeleted` best-effort after the stream's own rows and grants are
+   * gone, so the platform strips the deleted stream's binding from every source
+   * and fully deletes sources left binding-less. Optional so lightweight tests
+   * can omit it; when absent, `deleteStream` logs a warning and skips the
+   * cascade (the stream deletion itself already succeeded).
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  /**
+   * Platform event bus, forwarded to the pattern operations so a
+   * `createPattern` / `deletePattern` broadcasts `logstream.patterns.changed`
+   * to every pod's Drain tree. Optional so lightweight tests can omit it; a pod
+   * that misses the event still converges on its next hydration.
    */
   eventBus?: EventBus;
   /** Optional per-pod ingest counter accessor (see {@link IngestCountersReader}). */
@@ -182,8 +206,6 @@ export function createLogstreamService({
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
 }): LogstreamService {
-  const tokenCache: CachedScope = createIngestTokenCache({ cacheManager });
-
   const patternOps: PatternOperations = createPatternOperations({
     db,
     eventBus,
@@ -192,23 +214,10 @@ export function createLogstreamService({
     now,
   });
 
-  /**
-   * Best-effort post-commit broadcast of a token lifecycle change. Never
-   * throws: the DB is the source of truth and the pod-local TTLs bound the
-   * staleness window if the bus is unavailable.
-   */
-  async function emitTokensInvalidated(
-    payload: LogstreamTokensInvalidatedPayload,
-  ): Promise<void> {
-    if (!eventBus) return;
-    try {
-      await eventBus.emit(logstreamTokensInvalidatedHook, payload);
-    } catch (error) {
-      logger.warn(
-        `logstream: failed to broadcast token invalidation (${payload.reason}): ${String(error)}`,
-      );
-    }
-  }
+  const systemLinkOps: SystemLinkOperations = createSystemLinkOperations({
+    db,
+    now,
+  });
 
   async function getStreamRowOrThrow(id: string) {
     const [row] = await db
@@ -318,18 +327,13 @@ export function createLogstreamService({
       // Explicit cascade: there are NO FKs (Foundation deviation #2), so every
       // stream-scoped table is cleared by hand in ONE transaction. The
       // high-volume raw table is deleted in bounded batches; the aggregate
-      // tables (bounded by retention) go in a single statement each. Token
-      // hashes are captured first so their ingest-auth cache entries can be
-      // invalidated after commit.
-      const tokenRows = await withScopedTransaction(db, async (tx) => {
-        const rows = await tx
-          .select({
-            tokenId: logStreamTokens.id,
-            tokenHash: logStreamTokens.tokenHash,
-          })
-          .from(logStreamTokens)
-          .where(eq(logStreamTokens.streamId, id));
-
+      // tables (bounded by retention) go in a single statement each.
+      //
+      // Push SOURCES bound to this stream are NOT touched here: the telemetry
+      // platform owns push-instance lifecycle (deleting a stream does not
+      // cascade to its bound sources - the operator deletes/re-binds them in the
+      // Sources UI), so this cascade only clears logstream's own tables.
+      await withScopedTransaction(db, async (tx) => {
         // Batched delete of the raw lines (potentially millions of rows).
         for (;;) {
           const batch = await tx
@@ -349,9 +353,6 @@ export function createLogstreamService({
 
         // Single-statement deletes for the bounded child tables.
         await tx
-          .delete(logStreamTokens)
-          .where(eq(logStreamTokens.streamId, id));
-        await tx
           .delete(logSeverityBuckets)
           .where(eq(logSeverityBuckets.streamId, id));
         await tx
@@ -370,24 +371,10 @@ export function createLogstreamService({
         await tx
           .delete(logStreamActivity)
           .where(eq(logStreamActivity.streamId, id));
+        await tx
+          .delete(logStreamSystemLinks)
+          .where(eq(logStreamSystemLinks.streamId, id));
         await tx.delete(logStreams).where(eq(logStreams.id, id));
-
-        return rows;
-      });
-
-      // After commit: drop each token's cached ingest-auth verdict (shared
-      // cache, reaches every pod's HTTP path immediately) and broadcast so
-      // pods also evict POD-LOCAL state (open syslog connection verdicts).
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
-        logger,
-      });
-      await emitTokensInvalidated({
-        streamId: id,
-        reason: "stream_deleted",
-        tokenIds: tokenRows.map((r) => r.tokenId),
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
       });
 
       // Also clear the stream's ReBAC team grants so they don't orphan (the
@@ -395,6 +382,17 @@ export function createLogstreamService({
       // the relation-tuple store). Best-effort: the DB cascade already
       // committed, so an auth-RPC failure is logged, not rethrown.
       await deleteStreamGrants({ rpcClient, streamId: id, logger });
+
+      // Cascade the deletion to the telemetry platform: strip this stream's
+      // binding from every source and fully delete sources left binding-less
+      // (secrets, schedule, push-token revoke). Best-effort for the same reason
+      // as the grant cleanup - the stream's own deletion already succeeded.
+      await cascadeSourceDeletion({
+        sourceLifecycle,
+        signal: "logs",
+        streamId: id,
+        logger,
+      });
     },
 
     async listStreams() {
@@ -485,98 +483,6 @@ export function createLogstreamService({
       return rows.map((r) => ({ id: r.id, name: r.name }));
     },
 
-    async listTokens({ streamId }) {
-      const rows = await db
-        .select()
-        .from(logStreamTokens)
-        .where(eq(logStreamTokens.streamId, streamId))
-        .orderBy(desc(logStreamTokens.createdAt));
-      // NEVER expose `tokenHash` - only the display prefix survives the mapping.
-      return rows.map((row) => mapTokenRow(row));
-    },
-
-    async mintToken({ streamId, name }) {
-      await getStreamRowOrThrow(streamId);
-      const generated = generateToken({ streamId });
-      const id = crypto.randomUUID();
-      const createdAt = now();
-      const [row] = await db
-        .insert(logStreamTokens)
-        .values({
-          id,
-          streamId,
-          name,
-          tokenHash: generated.tokenHash,
-          tokenPrefix: generated.tokenPrefix,
-          createdAt,
-          lastUsedAt: null,
-          revokedAt: null,
-        })
-        .returning();
-      if (!row) {
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          message: "Failed to mint token",
-        });
-      }
-      // Clear any shared negative (unknown-token) miss marker for this hash so
-      // the freshly-minted token authenticates immediately instead of being
-      // shadowed by a stale miss for up to its TTL. Best-effort: a cache error
-      // must never fail the mint (the DB row is the source of truth).
-      try {
-        await tokenCache.invalidate(ingestTokenMissKey(generated.tokenHash));
-      } catch (error) {
-        logger.warn(
-          `logstream: failed to clear ingest-token miss marker on mint: ${String(error)}`,
-        );
-      }
-      // Broadcast so every pod also clears its IN-PROCESS negative cache for
-      // this hash (the shared miss marker above cannot reach those), letting
-      // the fresh token authenticate immediately instead of after the
-      // negative-cache TTL.
-      await emitTokensInvalidated({
-        streamId,
-        reason: "minted",
-        tokenIds: [id],
-        tokenHashes: [generated.tokenHash],
-      });
-
-      // The full secret is returned ONCE here and never persisted or logged.
-      return { secret: generated.secret, token: mapTokenRow(row) };
-    },
-
-    async revokeToken({ streamId, tokenId }) {
-      // Scoped to BOTH the token id AND its parent streamId so a manager of
-      // `streamId` cannot revoke a token belonging to another stream (the
-      // instanceAccess check only proved manage on `streamId`).
-      const [row] = await db
-        .update(logStreamTokens)
-        .set({ revokedAt: now() })
-        .where(
-          and(
-            eq(logStreamTokens.id, tokenId),
-            eq(logStreamTokens.streamId, streamId),
-          ),
-        )
-        .returning({ tokenHash: logStreamTokens.tokenHash });
-      if (!row) {
-        throw new ORPCError("NOT_FOUND", { message: "Token not found" });
-      }
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: [row.tokenHash],
-        logger,
-      });
-      // Broadcast so an already-open syslog connection on any pod drops its
-      // cached verdict for this token immediately instead of after the 60s
-      // per-connection TTL.
-      await emitTokensInvalidated({
-        streamId,
-        reason: "revoked",
-        tokenIds: [tokenId],
-        tokenHashes: [row.tokenHash],
-      });
-    },
-
     async searchEvents(input) {
       const conditions = [eq(logEvents.streamId, input.streamId)];
       if (input.text) {
@@ -587,6 +493,16 @@ export function createLogstreamService({
       }
       if (input.patternId) {
         conditions.push(eq(logEvents.patternId, input.patternId));
+      }
+      if (input.traceId !== undefined) {
+        // Stored trace ids are normalized (dash-stripped, lowercased) at the
+        // flush seam, so the query input must be normalized the SAME way to
+        // match. An input that normalizes to nothing can match no row.
+        const normalized = normalizeTraceId(input.traceId);
+        if (normalized === undefined) {
+          return { events: [], nextCursor: null };
+        }
+        conditions.push(eq(logEvents.traceId, normalized));
       }
       if (input.from) conditions.push(gte(logEvents.ts, input.from));
       if (input.to) conditions.push(lte(logEvents.ts, input.to));
@@ -610,6 +526,103 @@ export function createLogstreamService({
         .limit(input.limit);
       const events = rows.map((row) => mapEventRow(row));
       return { events, nextCursor: nextCursorFor(events, input.limit) };
+    },
+
+    async findEventsByTraceId({ traceId: rawTraceId, from, to, limitPerStream }) {
+      // Stored ids are normalized at the flush seam; normalize the input the
+      // SAME way so an operator pasting a dashed/uppercase id still matches. An
+      // input that normalizes to nothing can match no row.
+      const traceId = normalizeTraceId(rawTraceId);
+      if (traceId === undefined) return { matches: [] };
+
+      // `from`/`to` are REQUIRED by the contract, so every scan is ts-bounded
+      // and rides the partial `(trace_id, ts)` index - a degenerate id shared by
+      // millions of rows can never turn this into a full ranking scan.
+      const windowConditions = and(
+        eq(logEvents.traceId, traceId),
+        gte(logEvents.ts, from),
+        lte(logEvents.ts, to),
+      );
+
+      // 1) The streams carrying this trace in-window, ranked by their newest
+      //    matching event and capped at MAX_TRACE_CORRELATION_STREAMS. This
+      //    bounds the number of GROUPS (and the ranking scan below) even if a
+      //    degenerate extraction rule stamped one "trace id" across many streams.
+      const topStreams = await db
+        .select({ streamId: logEvents.streamId })
+        .from(logEvents)
+        .where(windowConditions)
+        .groupBy(logEvents.streamId)
+        .orderBy(
+          sql`max(${logEvents.ts}) desc`,
+          // Tiebreak on the newest row's id (a global identity, unique per
+          // stream) so the cap is deterministic when two streams' newest events
+          // share a ts.
+          sql`max(${logEvents.id}) desc`,
+        )
+        .limit(MAX_TRACE_CORRELATION_STREAMS);
+      if (topStreams.length === 0) return { matches: [] };
+      const boundedStreamIds = topStreams.map((s) => s.streamId);
+
+      // 2) Per-stream newest-first events for ONLY those bounded streams, keeping
+      //    at most `limitPerStream` per stream via a window rank. Total rows are
+      //    thus bounded by MAX_TRACE_CORRELATION_STREAMS * limitPerStream.
+      const ranked = db
+        .select({
+          id: logEvents.id,
+          streamId: logEvents.streamId,
+          ts: logEvents.ts,
+          observedAt: logEvents.observedAt,
+          severityNumber: logEvents.severityNumber,
+          severityText: logEvents.severityText,
+          band: logEvents.band,
+          body: logEvents.body,
+          attributes: logEvents.attributes,
+          resource: logEvents.resource,
+          patternId: logEvents.patternId,
+          traceId: logEvents.traceId,
+          spanId: logEvents.spanId,
+          rn: sql<number>`row_number() over (partition by ${logEvents.streamId} order by ${logEvents.ts} desc, ${logEvents.id} desc)`.as(
+            "rn",
+          ),
+        })
+        .from(logEvents)
+        .where(and(windowConditions, inArray(logEvents.streamId, boundedStreamIds)))
+        .as("ranked");
+
+      const rows = await db
+        .select()
+        .from(ranked)
+        .where(lte(ranked.rn, limitPerStream))
+        .orderBy(desc(ranked.ts), desc(ranked.id));
+
+      // Group the (already newest-first) rows per stream; the global DESC order
+      // preserves per-stream DESC order, so each group stays newest-first.
+      const eventsByStream = new Map<string, LogEvent[]>();
+      for (const row of rows) {
+        const group = eventsByStream.get(row.streamId);
+        if (group) group.push(mapEventRow(row));
+        else eventsByStream.set(row.streamId, [mapEventRow(row)]);
+      }
+
+      const streamIds = [...eventsByStream.keys()];
+      if (streamIds.length === 0) return { matches: [] };
+
+      // Resolve stream names in one batch. `id` on each match IS the stream id -
+      // the field the `listKey` RLAC filter post-filters on.
+      const nameRows = await db
+        .select({ id: logStreams.id, name: logStreams.name })
+        .from(logStreams)
+        .where(inArray(logStreams.id, streamIds));
+      const nameById = new Map(nameRows.map((r) => [r.id, r.name]));
+
+      return {
+        matches: streamIds.map((id) => ({
+          id,
+          streamName: nameById.get(id) ?? id,
+          events: eventsByStream.get(id)!,
+        })),
+      };
     },
 
     async getSeverityBuckets(input) {
@@ -777,19 +790,44 @@ export function createLogstreamService({
     maskLine: patternOps.maskLine,
     listPatternVariables: patternOps.listPatternVariables,
 
-    async listImportantEvents({ streamId, before, limit }) {
+    // System links (explicit stream -> catalog-system mapping); RLAC is enforced
+    // by the contract. The "cannot expose what you cannot see" readability gate
+    // over the ADDED subset lives in the router's injected authorizer.
+    listSystemLinks: systemLinkOps.listSystemLinks,
+    getSystemLinksForUpdate: systemLinkOps.getSystemLinksForUpdate,
+    setSystemLinks: systemLinkOps.setSystemLinks,
+    listStreamsForSystem: systemLinkOps.listStreamsForSystem,
+    listLinkedStreamStatuses: systemLinkOps.listLinkedStreamStatuses,
+    listServiceNames: systemLinkOps.listServiceNames,
+
+    async listImportantEvents({ streamId, cursor, limit }) {
       const conditions = [eq(logImportantEvents.streamId, streamId)];
-      if (before) conditions.push(lt(logImportantEvents.ts, before));
+      if (cursor) {
+        // Tuple keyset over the (ts DESC, id DESC) order: strictly BEFORE the
+        // cursor row. `ts` alone would skip or repeat rows sharing a millisecond
+        // (throttle/pattern events burst at the same ts), so the id breaks the tie.
+        conditions.push(
+          or(
+            lt(logImportantEvents.ts, cursor.ts),
+            and(
+              eq(logImportantEvents.ts, cursor.ts),
+              lt(logImportantEvents.id, cursor.id),
+            ),
+          )!,
+        );
+      }
+      // Fetch one extra to compute the next cursor without a second query.
       const rows = await db
         .select()
         .from(logImportantEvents)
         .where(and(...conditions))
-        .orderBy(desc(logImportantEvents.ts))
-        .limit(limit);
-      const events = rows.map((row) => mapImportantEventRow(row));
-      const nextBefore =
-        events.length < limit ? null : events.at(-1)!.ts;
-      return { events, nextBefore };
+        .orderBy(desc(logImportantEvents.ts), desc(logImportantEvents.id))
+        .limit(limit + 1);
+      const events = rows.slice(0, limit).map((row) => mapImportantEventRow(row));
+      const last = events.at(-1);
+      const nextCursor =
+        rows.length > limit && last ? { ts: last.ts, id: last.id } : null;
+      return { events, nextCursor };
     },
 
     async getStreamOverview({ streamId }) {
@@ -911,18 +949,6 @@ function mapStreamRow(row: typeof logStreams.$inferSelect): LogStream {
   };
 }
 
-function mapTokenRow(row: typeof logStreamTokens.$inferSelect): LogStreamToken {
-  return {
-    id: row.id,
-    streamId: row.streamId,
-    name: row.name,
-    tokenPrefix: row.tokenPrefix,
-    createdAt: row.createdAt,
-    lastUsedAt: row.lastUsedAt,
-    revokedAt: row.revokedAt,
-  };
-}
-
 function mapPatternRow(row: typeof logPatterns.$inferSelect): LogPattern {
   return {
     id: row.id,
@@ -975,33 +1001,6 @@ function mapImportantEventRow(
 }
 
 /**
- * Invalidate the ingest-auth cache entry for each token hash. Best-effort: a
- * cache miss/error must never fail the mutation (the DB write is already the
- * source of truth), so failures are swallowed + logged.
- */
-async function invalidateTokenCaches({
-  tokenCache,
-  tokenHashes,
-  logger,
-}: {
-  tokenCache: CachedScope;
-  tokenHashes: string[];
-  logger: Logger;
-}): Promise<void> {
-  await Promise.all(
-    tokenHashes.map(async (hash) => {
-      try {
-        await tokenCache.invalidate(ingestTokenCacheKey(hash));
-      } catch (error) {
-        logger.warn(
-          `logstream: failed to invalidate ingest-token cache: ${String(error)}`,
-        );
-      }
-    }),
-  );
-}
-
-/**
  * Delete the ReBAC team grants for a removed stream via auth's
  * `deleteObjectRelations`, keyed on the SAME qualified type the access rule
  * grants on (`logstream.stream`). Best-effort: the stream's own DB rows are
@@ -1032,6 +1031,41 @@ async function deleteStreamGrants({
   } catch (error) {
     logger.warn(
       `logstream: failed to delete team grants for stream ${streamId}: ${String(error)}`,
+    );
+  }
+}
+
+/**
+ * Cascade a stream deletion to the telemetry platform via
+ * `handleStreamDeleted`, so every source binding this stream is stripped and
+ * sources left binding-less are fully deleted. Best-effort and idempotent: the
+ * stream's own deletion already succeeded, so a lifecycle failure is logged
+ * rather than rethrown (it would surface an error for an operation that
+ * otherwise completed). When no `sourceLifecycle` is wired, the cascade is
+ * skipped with a warning.
+ */
+async function cascadeSourceDeletion({
+  sourceLifecycle,
+  signal,
+  streamId,
+  logger,
+}: {
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  signal: "logs";
+  streamId: string;
+  logger: Logger;
+}): Promise<void> {
+  if (!sourceLifecycle) {
+    logger.warn(
+      "logstream: telemetry source lifecycle not provided; skipped source cascade for deleted stream (bindings may orphan).",
+    );
+    return;
+  }
+  try {
+    await sourceLifecycle.handleStreamDeleted({ signal, streamId });
+  } catch (error) {
+    logger.warn(
+      `logstream: failed to cascade telemetry source deletion for stream ${streamId}: ${String(error)}`,
     );
   }
 }
