@@ -77,7 +77,13 @@ export function buildEventsListUrl({
   apiServerUrl: string;
   namespace?: string;
 }): string {
-  const base = apiServerUrl.replace(/\/+$/, "");
+  // Strip trailing slashes without a backtracking-prone regex: CodeQL's
+  // js/polynomial-redos flags a quantifier-anchored `/\/+$/` on config-derived
+  // input (the apiServerUrl comes from stream config). Scanning back over the
+  // '/' (char code 47) and slicing once is linear and unambiguous.
+  let end = apiServerUrl.length;
+  while (end > 0 && apiServerUrl.codePointAt(end - 1) === 47) end--;
+  const base = apiServerUrl.slice(0, end);
   const ns = namespace?.trim();
   return ns
     ? `${base}/apis/events.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/events`

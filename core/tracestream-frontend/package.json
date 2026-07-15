@@ -7,9 +7,13 @@
   "type": "module",
   "main": "src/index.tsx",
   "exports": {
-    ".": { "import": "./src/index.tsx" }
+    ".": {
+      "import": "./src/index.tsx"
+    }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "checkstack": {
     "type": "frontend",
     "pluginId": "tracestream"
@@ -37,9 +41,9 @@
     "@checkstack/tracestream-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "@tanstack/react-query": "^5.100.14",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "^7.16.0",
     "lucide-react": "^0.469.0"
   },
   "devDependencies": {
@@ -51,7 +55,7 @@
     "@module-federation/vite": "1.16.15",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "^5.7.2",
     "vite": "^8.0.16"

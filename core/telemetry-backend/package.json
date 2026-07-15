@@ -42,8 +42,8 @@
     "@checkstack/secrets-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/telemetry-common": "workspace:*",
-    "@orpc/client": "^1.13.2",
-    "@orpc/server": "^1.13.2",
+    "@orpc/client": "^1.14.4",
+    "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.1",
     "zod": "^4.2.1"
   },

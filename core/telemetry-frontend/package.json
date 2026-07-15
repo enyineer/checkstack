@@ -31,9 +31,9 @@
     "@checkstack/ui": "workspace:*",
     "@tanstack/react-query": "^5.100.14",
     "lucide-react": "^0.469.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "^7.16.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {

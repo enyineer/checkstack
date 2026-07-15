@@ -84,6 +84,19 @@ describe("buildEventsListUrl", () => {
       "https://k8s.example/apis/events.k8s.io/v1/namespaces/kube-system/events",
     );
   });
+
+  it("strips many trailing slashes in linear time (no ReDoS)", () => {
+    // Guards the non-regex linear trim that replaced `/\/+$/` (CodeQL
+    // js/polynomial-redos): a config value with a long run of trailing slashes
+    // must collapse to a single base without pathological backtracking.
+    const start = performance.now();
+    expect(
+      buildEventsListUrl({
+        apiServerUrl: `https://k8s.example${"/".repeat(100_000)}`,
+      }),
+    ).toBe("https://k8s.example/apis/events.k8s.io/v1/events");
+    expect(performance.now() - start).toBeLessThan(100);
+  });
 });
 
 describe("runK8sEventsPull", () => {
