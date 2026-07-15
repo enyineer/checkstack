@@ -1,13 +1,15 @@
 {
   "name": "@checkstack/tracestream-common",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Distributed tracing streams: OTLP trace ingestion, tail-based sampling, trace search and waterfalls",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
-    ".": { "import": "./src/index.ts" }
+    ".": {
+      "import": "./src/index.ts"
+    }
   },
   "checkstack": {
     "type": "common",

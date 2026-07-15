@@ -1,5 +1,14 @@
 # @checkstack/status-page-common
 
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+
 ## 0.6.3
 
 ### Patch Changes

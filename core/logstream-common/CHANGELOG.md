@@ -1,5 +1,141 @@
 # @checkstack/logstream-common
 
+## 0.4.0
+
+### Minor Changes
+
+- 6c8b36b: Push ingestion becomes a first-class telemetry PUSH source mode: a stream's
+  OTLP/native push access is now a "Push (OTLP / native)" source instance on
+  the stream's Sources tab - one instance per token, created with the token
+  shown once, rotatable from the source row, revoked by disabling or deleting
+  the instance, with "last received" liveness on the list. The seam is a
+  generic platform surface any plugin can adopt for its own inbound endpoint:
+  declare `push: { tokenPrefix, endpoints }` on the source type, and verify
+  presented bearers with `createPushTokenLookup` (scoped to the source type -
+  a token minted for one push type never authenticates another) composed with
+  the shared ingest authenticator; cache convergence rides the new
+  `telemetry.push-token.invalidated` cross-pod hook, which also fixes
+  tracestream's previous mint-vs-negative-cache race.
+
+  EXISTING SHIPPER TOKENS KEEP WORKING: every non-revoked stream token is
+  promoted in place to a push source instance (same id, same sha256 hash,
+  same `ckls_`/`ckms_`/`cktr_` prefixes), so nothing needs re-minting. A
+  one-shot grant backfill mirrors each bound stream's team relations (and
+  public visibility) onto the promoted instances, so team-scoped users who
+  managed a stream's tokens keep managing its migrated push and scrape
+  sources.
+
+  Lifecycle correctness that shipped with the review round: deleting a
+  stream now CASCADES through the platform (`handleStreamDeleted`) - bound
+  sources lose that binding, sources left binding-less are fully deleted
+  (secrets, schedule, team grants, push token revoked), so a deleted
+  stream's shippers get 401s instead of black-holing data; a push
+  instance's cached ingest verdict is evicted cluster-wide on any binding
+  change, not only on disable/rotate.
+
+  BREAKING CHANGES (platform is BETA): the per-plugin token CRUD procedures
+  (`listTokens`/`mintToken`/`revokeToken`), their schemas, and the bespoke
+  token UI (TokensSection, MintTokenDialog, PushEndpointsCard, ship-snippet
+  components) are REMOVED from logstream, metricstream, and tracestream -
+  manage push access as telemetry sources instead. The legacy
+  `log_stream_tokens`/`metric_stream_tokens`/`trace_stream_tokens` tables are
+  DROPPED (safe: plugin migrations run in dependency order, so the platform's
+  promotion always precedes the owner's drop). All three stream detail pages
+  now have a dedicated Sources tab.
+
+- 6c8b36b: Explicit stream-to-system links and AI tool projections for all three
+  observability streams:
+
+  - Every stream plugin declares the same four link procedures over its own
+    junction table (shared schemas in `@checkstack/telemetry-common`):
+    list/replace a stream's linked systems - the write verifies the caller
+    can READ every NEWLY ADDED system (one user-scoped catalog `getSystems`
+    membership pass before anything persists; retained or removed links need
+    no readability, so a manager is never dead-locked by a link a
+    broader-privileged user authorized) - plus two read-filtered reverse
+    lookups powering the catalog system page and the dashboard (chunked
+    client-side, so deployments beyond the 500-system lookup cap keep their
+    signals).
+  - catalog-frontend ships the shared `StreamSystemLinksEditor`: a
+    controlled system picker with "suggested from observed service names"
+    chips that a human explicitly applies - suggestions are never
+    auto-linked. Suggestion sources: tracestream's service catalog,
+    metricstream label values, and logstream's new bounded
+    `listServiceNames` scan.
+  - The catalog system page gains self-hiding Logs/Metrics/Traces cards
+    (SystemDetailsSlot) and the dashboard gains conservative per-stream
+    signals (SystemSignalsSlot, one bulk query per plugin).
+  - AI tool projections: logstream (`searchLogs` slimmed, `severityStats`,
+    `listStreams`), metricstream (`listStreams`, `listMetricNames`,
+    `metricBuckets` - the unbounded raw-series read is deliberately not
+    projected), tracestream (`searchTraces`, `getTraceSummary` with spans
+    reduced to seven scalar fields, `serviceStats`, `listServices`). All
+    read-only, RLAC-enforced by routed re-entry as the caller.
+
+- 6c8b36b: Syslog ingestion becomes the platform's first LISTENER source type
+  (`logstream.syslog`): create a syslog source instance with port/TLS
+  config and a log-stream binding instead of setting
+  `CHECKSTACK_LOGSTREAM_SYSLOG_PORT`. The instance binding is the
+  authorization and routing - no in-message `ckls_` tokens. A TLS
+  listener validates its cert/key paths at start (a bad path surfaces as
+  the instance's lastError instead of a silently-dead intake), and a
+  deployment still setting the removed env var gets an explicit startup
+  warning pointing at the new source flow.
+
+  BREAKING CHANGES (BETA): the env-var syslog listener and its per-message
+  token resolution are REMOVED from the core (the satellite's edge syslog
+  receiver keeps the token-prefix protocol unchanged). Recreate any
+  env-configured syslog intake as a syslog source instance bound to the
+  target stream.
+
+- 6c8b36b: Cross-signal trace correlation. Log events, traces, and health-check runs
+  now link to each other:
+
+  - logstream: `searchEvents` accepts an exact `traceId` filter (Explore gets
+    a matching, deep-linkable filter input backed by a new partial
+    `(trace_id, ts)` index), and the new cross-stream `findEventsByTraceId`
+    returns per-stream match groups post-filtered by the caller's read grants.
+    Streams can declare `config.traceExtraction` rules (attribute paths and a
+    capture-group body regex, validated at save) that populate trace/span ids
+    for non-OTLP sources at the ingest flush seam - OTLP and native reserved
+    keys always win.
+  - Correlation slots: `LogEventDetailSlot` (logstream-common, expanded event
+    row), `TraceCorrelationsSlot` (tracestream-common, trace detail view), and
+    `RunDetailExtrasSlot` (healthcheck-common, run detail panel) with
+    `extractRunTraceIds` owning the run-result trace-id shape.
+  - Fills: the trace view shows the trace's correlated log events grouped per
+    readable stream; log events and health-check runs with a known trace id
+    get a "View trace" jump resolved through `findTraceById`.
+
+### Patch Changes
+
+- 6c8b36b: Fix important-events pagination losing same-millisecond events at page
+  boundaries. The timeline paged on `ts` alone (`before`/`nextBefore`), so when a
+  page boundary fell inside a cluster of events sharing a millisecond (cap / rate
+  / throttle / pattern events fire in bursts at the same `ts`), rows were skipped
+  or served twice. Both plugins now use a tuple keyset cursor `{ ts, id }` with
+  `(ts DESC, id DESC)` ordering and a strict tuple comparison, matching
+  tracestream.
+
+  BREAKING CHANGE: the `listImportantEvents` contract shape changes -
+  `before` -> `cursor: { ts, id }` on input and `nextBefore` -> `nextCursor:
+{ ts, id }` on output (no back-compat alias). Timeline UIs that only read the
+  first page are unaffected; any paginating caller must pass and read the new
+  cursor.
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/telemetry-common@0.1.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/otlp-wire@0.1.1
+  - @checkstack/common@0.23.0
+  - @checkstack/signal-common@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes

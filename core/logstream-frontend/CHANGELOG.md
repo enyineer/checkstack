@@ -1,5 +1,182 @@
 # @checkstack/logstream-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 6c8b36b: Push ingestion becomes a first-class telemetry PUSH source mode: a stream's
+  OTLP/native push access is now a "Push (OTLP / native)" source instance on
+  the stream's Sources tab - one instance per token, created with the token
+  shown once, rotatable from the source row, revoked by disabling or deleting
+  the instance, with "last received" liveness on the list. The seam is a
+  generic platform surface any plugin can adopt for its own inbound endpoint:
+  declare `push: { tokenPrefix, endpoints }` on the source type, and verify
+  presented bearers with `createPushTokenLookup` (scoped to the source type -
+  a token minted for one push type never authenticates another) composed with
+  the shared ingest authenticator; cache convergence rides the new
+  `telemetry.push-token.invalidated` cross-pod hook, which also fixes
+  tracestream's previous mint-vs-negative-cache race.
+
+  EXISTING SHIPPER TOKENS KEEP WORKING: every non-revoked stream token is
+  promoted in place to a push source instance (same id, same sha256 hash,
+  same `ckls_`/`ckms_`/`cktr_` prefixes), so nothing needs re-minting. A
+  one-shot grant backfill mirrors each bound stream's team relations (and
+  public visibility) onto the promoted instances, so team-scoped users who
+  managed a stream's tokens keep managing its migrated push and scrape
+  sources.
+
+  Lifecycle correctness that shipped with the review round: deleting a
+  stream now CASCADES through the platform (`handleStreamDeleted`) - bound
+  sources lose that binding, sources left binding-less are fully deleted
+  (secrets, schedule, team grants, push token revoked), so a deleted
+  stream's shippers get 401s instead of black-holing data; a push
+  instance's cached ingest verdict is evicted cluster-wide on any binding
+  change, not only on disable/rotate.
+
+  BREAKING CHANGES (platform is BETA): the per-plugin token CRUD procedures
+  (`listTokens`/`mintToken`/`revokeToken`), their schemas, and the bespoke
+  token UI (TokensSection, MintTokenDialog, PushEndpointsCard, ship-snippet
+  components) are REMOVED from logstream, metricstream, and tracestream -
+  manage push access as telemetry sources instead. The legacy
+  `log_stream_tokens`/`metric_stream_tokens`/`trace_stream_tokens` tables are
+  DROPPED (safe: plugin migrations run in dependency order, so the platform's
+  promotion always precedes the owner's drop). All three stream detail pages
+  now have a dedicated Sources tab.
+
+- 6c8b36b: Explicit stream-to-system links and AI tool projections for all three
+  observability streams:
+
+  - Every stream plugin declares the same four link procedures over its own
+    junction table (shared schemas in `@checkstack/telemetry-common`):
+    list/replace a stream's linked systems - the write verifies the caller
+    can READ every NEWLY ADDED system (one user-scoped catalog `getSystems`
+    membership pass before anything persists; retained or removed links need
+    no readability, so a manager is never dead-locked by a link a
+    broader-privileged user authorized) - plus two read-filtered reverse
+    lookups powering the catalog system page and the dashboard (chunked
+    client-side, so deployments beyond the 500-system lookup cap keep their
+    signals).
+  - catalog-frontend ships the shared `StreamSystemLinksEditor`: a
+    controlled system picker with "suggested from observed service names"
+    chips that a human explicitly applies - suggestions are never
+    auto-linked. Suggestion sources: tracestream's service catalog,
+    metricstream label values, and logstream's new bounded
+    `listServiceNames` scan.
+  - The catalog system page gains self-hiding Logs/Metrics/Traces cards
+    (SystemDetailsSlot) and the dashboard gains conservative per-stream
+    signals (SystemSignalsSlot, one bulk query per plugin).
+  - AI tool projections: logstream (`searchLogs` slimmed, `severityStats`,
+    `listStreams`), metricstream (`listStreams`, `listMetricNames`,
+    `metricBuckets` - the unbounded raw-series read is deliberately not
+    projected), tracestream (`searchTraces`, `getTraceSummary` with spans
+    reduced to seven scalar fields, `serviceStats`, `listServices`). All
+    read-only, RLAC-enforced by routed re-entry as the caller.
+
+- 6c8b36b: Integrate the log and metric streams with the new telemetry platform.
+
+  - The backends contribute telemetry SINKS: normalized platform records enter
+    the exact same ingest pipelines (severity rules, banding, clamping, caps) as
+    the plugins' own push endpoints, and bind-time authorization is answered by
+    each plugin's own stream access rules.
+  - The frontends embed the platform's `StreamSourcesSection` (metricstream on
+    the Sources tab, logstream on the Settings tab), so configured telemetry
+    sources bound to a stream are managed next to the stream's other ingestion
+    settings. The section self-hides while no source types are installed.
+
+- 6c8b36b: Cross-signal trace correlation. Log events, traces, and health-check runs
+  now link to each other:
+
+  - logstream: `searchEvents` accepts an exact `traceId` filter (Explore gets
+    a matching, deep-linkable filter input backed by a new partial
+    `(trace_id, ts)` index), and the new cross-stream `findEventsByTraceId`
+    returns per-stream match groups post-filtered by the caller's read grants.
+    Streams can declare `config.traceExtraction` rules (attribute paths and a
+    capture-group body regex, validated at save) that populate trace/span ids
+    for non-OTLP sources at the ingest flush seam - OTLP and native reserved
+    keys always win.
+  - Correlation slots: `LogEventDetailSlot` (logstream-common, expanded event
+    row), `TraceCorrelationsSlot` (tracestream-common, trace detail view), and
+    `RunDetailExtrasSlot` (healthcheck-common, run detail panel) with
+    `extractRunTraceIds` owning the run-result trace-id shape.
+  - Fills: the trace view shows the trace's correlated log events grouped per
+    readable stream; log events and health-check runs with a known trace id
+    get a "View trace" jump resolved through `findTraceById`.
+
+### Patch Changes
+
+- 6c8b36b: Smooth out loading states so surfaces no longer flash a wrong resolved state or
+  pop content in one piece at a time.
+
+  - **Dashboard no longer flashes "all systems healthy".** The overview aggregates
+    per-system signals from many plugins (health, incidents, SLOs, anomalies,
+    dependencies, log/metric/trace streams), each reporting asynchronously - so
+    before any had loaded, an empty problem list briefly read as an all-clear.
+    `SystemSignalsSlot` gains an additive `onLoadingChange` report; every source
+    filler reports its load state, and the dashboard holds its existing skeleton
+    until all mounted sources have settled (bounded by a grace period so a
+    non-reporting source cannot hang it).
+  - **System detail overview cards reveal together.** Each `SystemDetailsSlot` card
+    self-loads and several self-hide when empty, so they popped in one after
+    another. The slot gains an additive `onLoadingChange`; each card reports, and
+    the detail page keeps the cards mounted but behind a skeleton set until all
+    have settled, then reveals them at once - no stagger, no layout shift, and
+    cards with no content simply never appear.
+  - **Catalog manage "Health" column no longer pops in.** `CatalogBrowseHealthSlot`
+    gains an additive `onLoading` report (sourced from the health filler's bulk
+    fetch); the manage Systems tab shows a per-row placeholder until the health
+    data settles, so the status badges swap in instead of appearing onto an empty
+    cell. The same tab also keeps its state badges on one row (side by side)
+    instead of wrapping.
+  - The system detail **Dependencies** and **Logs / Metrics / Traces** cards are now
+    collapsed by default: each shows a compact "<title> N" summary and expands its
+    detail on click, so the overview column stays short. They render through a new
+    shared `CollapsibleDetailCard` (`@checkstack/ui`) that single-sources the header
+    layout (icon + title + count + rotating chevron) so every collapsible overview
+    card is vertically centred and behaves identically - the earlier per-card header
+    markup had drifted and left the Logs/Metrics/Traces titles off-centre when
+    collapsed.
+  - Moved the system detail **SLO card** from the full-width alert strip into the
+    left (monitoring) column, so it sits at the same width as the dependencies and
+    health cards; only maintenances and incidents stay full width. It now joins the
+    coordinated card reveal above.
+  - Removed a dead, unreferenced duplicate dashboard component
+    (`dashboard-frontend/src/Dashboard.tsx`); the live overview is
+    `DashboardSystemHealthSection`.
+
+  All slot-contract additions are optional/additive - existing fillers and
+  consumers keep working unchanged.
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/auth-frontend@0.14.0
+  - @checkstack/catalog-frontend@0.21.0
+  - @checkstack/telemetry-common@0.1.0
+  - @checkstack/telemetry-frontend@0.1.0
+  - @checkstack/healthcheck-frontend@0.37.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/logstream-common@0.4.0
+  - @checkstack/tracestream-common@0.1.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/signal-common@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes

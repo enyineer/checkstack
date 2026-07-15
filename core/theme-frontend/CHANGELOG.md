@@ -1,5 +1,29 @@
 # @checkstack/theme-frontend
 
+## 0.3.17
+
+### Patch Changes
+
+- 6c8b36b: Annotate two deliberate effect-based state mirrors with the
+  `checkstack/no-state-seed-in-effect` lint rule: the automation edit page's
+  YAML-tab mirror of the visual editor's `definition`, and the theme toggle's
+  mirror of the global resolved theme. Both are one-way mirrors of values the user
+  never edits directly, so they are safe exceptions to the rule. Comment-only - no
+  runtime behavior change.
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/auth-frontend@0.14.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/theme-common@0.2.12
+
 ## 0.3.16
 
 ### Patch Changes

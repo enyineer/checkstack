@@ -1,5 +1,66 @@
 # @checkstack/catalog-backend
 
+## 1.10.0
+
+### Minor Changes
+
+- 6c8b36b: Catalog **Groups** and **Environments** are now team-manageable. Their reads
+  stay public (they are shared browse facets everyone can see), but creating,
+  renaming, and deleting them is team-scoped exactly like Systems: a create
+  writes an owning-team grant, and edit/delete require a per-instance manage
+  grant. A team that can create Systems can also create Groups and Environments
+  (and attach them to systems it manages) with no extra grant.
+
+  New reusable platform seam `instanceAccess.create.alsoAcceptCreatorOf: string[]`:
+  a create procedure can declare sibling types whose `creator` (create-capability)
+  grant also authorizes the create - strictly the type-level creator grant, so it
+  stays orthogonal to `create.parent` (which is instance-manage). It is backed by a
+  new strict-creator auth primitive `hasCreateCapability({ objectType })` consumed
+  by BOTH the create middleware and the frontend `canCreate` verdict (extended with
+  an optional `alsoAcceptCreatorOf`), so the button gate and the backend can never
+  drift. The boot conformance check now also verifies every `alsoAcceptCreatorOf`
+  type is a real team-scoped type, and `catalog.group` / `catalog.environment` gain
+  resource-name resolvers so their team grants render by name.
+
+  BREAKING: `catalog.deleteGroup` input reshaped from a bare `string` to
+  `{ id: string }` (mirrors the earlier `deleteSystem` reshape) so the per-group
+  manage check can resolve the target id. `catalog.reorderGroups` stays a
+  global-admin operation (it rewrites the single global sort order for all groups).
+  Existing ownerless (global) groups and environments remain editable only by
+  global catalog admins until re-owned; no data migration is required (team grants
+  live in the auth relation store).
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/auth-common@0.15.0
+  - @checkstack/auth-backend@0.12.0
+  - @checkstack/ai-backend@0.11.3
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/common@0.23.0
+  - @checkstack/automation-backend@0.11.7
+  - @checkstack/command-backend@0.2.26
+  - @checkstack/gitops-backend@0.5.26
+  - @checkstack/ai-common@0.6.7
+  - @checkstack/cache-api@0.3.20
+  - @checkstack/gitops-common@0.7.4
+  - @checkstack/notification-common@1.7.2
+  - @checkstack/signal-common@0.3.1
+  - @checkstack/cache-utils@0.3.1
+
 ## 1.9.2
 
 ### Patch Changes

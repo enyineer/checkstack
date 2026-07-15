@@ -1,5 +1,18 @@
 # @checkstack/dependency-common
 
+## 1.7.6
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/notification-common@1.7.2
+  - @checkstack/signal-common@0.3.1
+
 ## 1.7.5
 
 ### Patch Changes

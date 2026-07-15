@@ -1,5 +1,43 @@
 # @checkstack/satellite-frontend
 
+## 0.8.3
+
+### Patch Changes
+
+- 6c8b36b: Edit forms stay stable while you are typing. Previously, editing a system's
+  description (and many other edit dialogs/settings pages) would reset the field
+  mid-edit whenever a webhook update or realtime signal refetched the underlying
+  query: the form re-seeded its local state from the fresh query result on every
+  refetch. Forms now seed their local state ONCE - on the dialog's open
+  transition, or once per record via a stable key - and ignore background
+  refetches while you are editing.
+
+  New shared primitive `useSeedFormOnOpen(open, onInit)` in `@checkstack/ui`
+  (alongside the existing `useInitOnceForKey`) seeds a dialog form once per
+  open transition, StrictMode-safe. Fixed surfaces include the catalog
+  system/environment/group editors, the healthcheck platform-defaults dialog,
+  the SLO / gitops-provider / telemetry-source / satellite / announcement /
+  role edit dialogs, and the cache / queue / notification / secrets / anomaly /
+  profile / strategies settings pages (query-seeded pages also drop their loader
+  cache via `gcTime: 0` so a warm cache cannot race the one-shot seed).
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/gitops-frontend@0.7.8
+  - @checkstack/common@0.23.0
+  - @checkstack/tips-frontend@0.5.4
+  - @checkstack/satellite-common@0.10.1
+  - @checkstack/gitops-common@0.7.4
+  - @checkstack/signal-frontend@0.3.7
+
 ## 0.8.2
 
 ### Patch Changes

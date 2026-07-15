@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/slo-common",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

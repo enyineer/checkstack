@@ -1,5 +1,242 @@
 # @checkstack/logstream-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- 6c8b36b: Signal-to-signal DERIVE sources: the telemetry platform gains a fourth
+  source mode - a derive source consumes one signal's already-ingested
+  records from a configured input stream and emits another signal. Two
+  built-in types ship: `log-to-metric` (count matching lines per flush as a
+  delta counter, or extract a numeric attribute as a gauge; substring +
+  severity filters only - no user regex on the ingest hot path) and
+  `log-to-trace` (logs already carrying full W3C trace context become
+  spans; span ids are never synthesized). Sink-owning plugins feed the
+  dispatcher through a buffered record tap; logstream connects its
+  post-flush batches (best-effort and error-isolated - a deriver can never
+  fail or slow ingest: the dispatch is detached from the flush cycle, and
+  the tap passes records as a lazy thunk the dispatcher only materializes
+  when a derive instance actually matches the stream, so streams without
+  derive sources pay zero conversion cost). The dispatcher's pod-local
+  source cache is generation-guarded so an invalidation during an
+  in-flight rebuild can never wedge a pod on a stale derive set, and
+  `log-to-metric` caps distinct label tuples per batch (100) so a
+  high-cardinality attribute path cannot mint unbounded series. The
+  source editor gets bespoke config forms with a proper input-stream
+  picker.
+- 6c8b36b: Push ingestion becomes a first-class telemetry PUSH source mode: a stream's
+  OTLP/native push access is now a "Push (OTLP / native)" source instance on
+  the stream's Sources tab - one instance per token, created with the token
+  shown once, rotatable from the source row, revoked by disabling or deleting
+  the instance, with "last received" liveness on the list. The seam is a
+  generic platform surface any plugin can adopt for its own inbound endpoint:
+  declare `push: { tokenPrefix, endpoints }` on the source type, and verify
+  presented bearers with `createPushTokenLookup` (scoped to the source type -
+  a token minted for one push type never authenticates another) composed with
+  the shared ingest authenticator; cache convergence rides the new
+  `telemetry.push-token.invalidated` cross-pod hook, which also fixes
+  tracestream's previous mint-vs-negative-cache race.
+
+  EXISTING SHIPPER TOKENS KEEP WORKING: every non-revoked stream token is
+  promoted in place to a push source instance (same id, same sha256 hash,
+  same `ckls_`/`ckms_`/`cktr_` prefixes), so nothing needs re-minting. A
+  one-shot grant backfill mirrors each bound stream's team relations (and
+  public visibility) onto the promoted instances, so team-scoped users who
+  managed a stream's tokens keep managing its migrated push and scrape
+  sources.
+
+  Lifecycle correctness that shipped with the review round: deleting a
+  stream now CASCADES through the platform (`handleStreamDeleted`) - bound
+  sources lose that binding, sources left binding-less are fully deleted
+  (secrets, schedule, team grants, push token revoked), so a deleted
+  stream's shippers get 401s instead of black-holing data; a push
+  instance's cached ingest verdict is evicted cluster-wide on any binding
+  change, not only on disable/rotate.
+
+  BREAKING CHANGES (platform is BETA): the per-plugin token CRUD procedures
+  (`listTokens`/`mintToken`/`revokeToken`), their schemas, and the bespoke
+  token UI (TokensSection, MintTokenDialog, PushEndpointsCard, ship-snippet
+  components) are REMOVED from logstream, metricstream, and tracestream -
+  manage push access as telemetry sources instead. The legacy
+  `log_stream_tokens`/`metric_stream_tokens`/`trace_stream_tokens` tables are
+  DROPPED (safe: plugin migrations run in dependency order, so the platform's
+  promotion always precedes the owner's drop). All three stream detail pages
+  now have a dedicated Sources tab.
+
+- 6c8b36b: Explicit stream-to-system links and AI tool projections for all three
+  observability streams:
+
+  - Every stream plugin declares the same four link procedures over its own
+    junction table (shared schemas in `@checkstack/telemetry-common`):
+    list/replace a stream's linked systems - the write verifies the caller
+    can READ every NEWLY ADDED system (one user-scoped catalog `getSystems`
+    membership pass before anything persists; retained or removed links need
+    no readability, so a manager is never dead-locked by a link a
+    broader-privileged user authorized) - plus two read-filtered reverse
+    lookups powering the catalog system page and the dashboard (chunked
+    client-side, so deployments beyond the 500-system lookup cap keep their
+    signals).
+  - catalog-frontend ships the shared `StreamSystemLinksEditor`: a
+    controlled system picker with "suggested from observed service names"
+    chips that a human explicitly applies - suggestions are never
+    auto-linked. Suggestion sources: tracestream's service catalog,
+    metricstream label values, and logstream's new bounded
+    `listServiceNames` scan.
+  - The catalog system page gains self-hiding Logs/Metrics/Traces cards
+    (SystemDetailsSlot) and the dashboard gains conservative per-stream
+    signals (SystemSignalsSlot, one bulk query per plugin).
+  - AI tool projections: logstream (`searchLogs` slimmed, `severityStats`,
+    `listStreams`), metricstream (`listStreams`, `listMetricNames`,
+    `metricBuckets` - the unbounded raw-series read is deliberately not
+    projected), tracestream (`searchTraces`, `getTraceSummary` with spans
+    reduced to seven scalar fields, `serviceStats`, `listServices`). All
+    read-only, RLAC-enforced by routed re-entry as the caller.
+
+- 6c8b36b: Syslog ingestion becomes the platform's first LISTENER source type
+  (`logstream.syslog`): create a syslog source instance with port/TLS
+  config and a log-stream binding instead of setting
+  `CHECKSTACK_LOGSTREAM_SYSLOG_PORT`. The instance binding is the
+  authorization and routing - no in-message `ckls_` tokens. A TLS
+  listener validates its cert/key paths at start (a bad path surfaces as
+  the instance's lastError instead of a silently-dead intake), and a
+  deployment still setting the removed env var gets an explicit startup
+  warning pointing at the new source flow.
+
+  BREAKING CHANGES (BETA): the env-var syslog listener and its per-message
+  token resolution are REMOVED from the core (the satellite's edge syslog
+  receiver keeps the token-prefix protocol unchanged). Recreate any
+  env-configured syslog intake as a syslog source instance bound to the
+  target stream.
+
+- 6c8b36b: Add the multi-signal binding editor and a global Sources management page.
+
+  - The telemetry sink contract gains an optional `listBindableStreams({ user })`
+    method: the owning plugin lists its streams and FILTERS them to the ones the
+    caller may manage, so the binding editor only offers streams a bind will
+    accept. logstream and metricstream implement it through the shared
+    `createStreamBindAuthorizer` factory (service bypass, global rule, then a
+    per-resource team-grant filter via `auth.listAccessibleObjectIds`), keeping
+    the authorization rule in one place. A sink without the method yields an empty
+    picker, so adoption is incremental.
+  - The frontend add/edit dialogs route each emitted signal through a per-signal
+    stream picker: at most one stream per signal, at least one binding overall, a
+    signal may be left unrouted, and a bound-but-no-longer-listable stream stays
+    visible as a synthetic option. The single-signal fast path (opened from a
+    stream section) collapses to the embedding-stream preset with no extra
+    interaction.
+  - A new global Sources page (Reliability nav group) lists every source instance
+    the caller may read with per-row enable/edit/rotate/delete gating, and "Add
+    source" opens the full catalog with no preset binding.
+
+- 6c8b36b: Integrate the log and metric streams with the new telemetry platform.
+
+  - The backends contribute telemetry SINKS: normalized platform records enter
+    the exact same ingest pipelines (severity rules, banding, clamping, caps) as
+    the plugins' own push endpoints, and bind-time authorization is answered by
+    each plugin's own stream access rules.
+  - The frontends embed the platform's `StreamSourcesSection` (metricstream on
+    the Sources tab, logstream on the Settings tab), so configured telemetry
+    sources bound to a stream are managed next to the stream's other ingestion
+    settings. The section self-hides while no source types are installed.
+
+- 6c8b36b: Cross-signal trace correlation. Log events, traces, and health-check runs
+  now link to each other:
+
+  - logstream: `searchEvents` accepts an exact `traceId` filter (Explore gets
+    a matching, deep-linkable filter input backed by a new partial
+    `(trace_id, ts)` index), and the new cross-stream `findEventsByTraceId`
+    returns per-stream match groups post-filtered by the caller's read grants.
+    Streams can declare `config.traceExtraction` rules (attribute paths and a
+    capture-group body regex, validated at save) that populate trace/span ids
+    for non-OTLP sources at the ingest flush seam - OTLP and native reserved
+    keys always win.
+  - Correlation slots: `LogEventDetailSlot` (logstream-common, expanded event
+    row), `TraceCorrelationsSlot` (tracestream-common, trace detail view), and
+    `RunDetailExtrasSlot` (healthcheck-common, run detail panel) with
+    `extractRunTraceIds` owning the run-result trace-id shape.
+  - Fills: the trace view shows the trace's correlated log events grouped per
+    readable stream; log events and health-check runs with a known trace id
+    get a "View trace" jump resolved through `findTraceById`.
+
+### Patch Changes
+
+- 6c8b36b: Promote the health-check run-queue contract and the observability window
+  math into `@checkstack/healthcheck-common`: `HEALTH_CHECK_QUEUE`,
+  `HealthCheckJobPayload`, `fastPathJobId` (per-plugin prefix) and
+  `computeWindowBounds`/`computeSecondsSinceLast` now have ONE definition
+  that the queue owner (healthcheck-backend) and every observability
+  strategy plugin import, replacing the per-plugin mirror copies that had
+  to be kept in lock-step by convention. Enqueued job ids and window
+  semantics are byte-identical; this is a drift-proofing refactor, not a
+  behavior change.
+- 6c8b36b: Fix important-events pagination losing same-millisecond events at page
+  boundaries. The timeline paged on `ts` alone (`before`/`nextBefore`), so when a
+  page boundary fell inside a cluster of events sharing a millisecond (cap / rate
+  / throttle / pattern events fire in bursts at the same `ts`), rows were skipped
+  or served twice. Both plugins now use a tuple keyset cursor `{ ts, id }` with
+  `(ts DESC, id DESC)` ordering and a strict tuple comparison, matching
+  tracestream.
+
+  BREAKING CHANGE: the `listImportantEvents` contract shape changes -
+  `before` -> `cursor: { ts, id }` on input and `nextBefore` -> `nextCursor:
+{ ts, id }` on output (no back-compat alias). Timeline UIs that only read the
+  first page are unaffected; any paginating caller must pass and read the new
+  cursor.
+
+- 6c8b36b: Satellite forwarding hardening:
+
+  - tracestream now persists per-stream satellite in-transit drop counts at
+    parity with logstream/metricstream: a `dropped_in_transit_count` column
+    on the activity table (additive migration) incremented durably by the
+    capability handler (best-effort; an accounting failure can never change
+    a batch's ack).
+  - The satellite receivers' batch chunking and byte-budget estimation now
+    live once in `@checkstack/ingest-utils` (`chunkTelemetryBatchItems`,
+    `estimateTelemetryItemBytes`); the log/metric/trace receivers keep only
+    their per-signal item shapes and caps. Behavior is pinned unchanged by
+    the receivers' existing tests.
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/auth-common@0.15.0
+  - @checkstack/telemetry-common@0.1.0
+  - @checkstack/telemetry-backend@0.1.0
+  - @checkstack/ai-backend@0.11.3
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/healthcheck-common@1.18.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/logstream-common@0.4.0
+  - @checkstack/queue-api@0.4.0
+  - @checkstack/ingest-utils@0.2.0
+  - @checkstack/common@0.23.0
+  - @checkstack/satellite-backend@0.9.3
+  - @checkstack/cache-api@0.3.20
+  - @checkstack/signal-common@0.3.1
+  - @checkstack/cache-utils@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
