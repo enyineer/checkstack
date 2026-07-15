@@ -26,7 +26,6 @@ import type {
   TraceStream,
   TraceStreamConfig,
   TraceStreamConfigInput,
-  TraceStreamToken,
   TraceSummary,
   TraceTopService,
 } from "@checkstack/tracestream-common";
@@ -193,32 +192,6 @@ export interface StreamStore {
   }): Promise<TraceStream | null>;
   /** Delete the stream ROW only (the data cascade is the per-port sweeps). */
   delete(args: { id: string }): Promise<void>;
-}
-
-/** Source tokens. Minting/hashing lives in ingest-utils; this only persists. */
-export interface TokenStore {
-  insert(args: {
-    streamId: string;
-    name: string;
-    tokenHash: string;
-    tokenPrefix: string;
-  }): Promise<TraceStreamToken>;
-  list(args: { streamId: string }): Promise<TraceStreamToken[]>;
-  /** Revoke; returns the revoked token's hash (for cache invalidation) or null. */
-  revoke(args: {
-    streamId: string;
-    tokenId: string;
-  }): Promise<{ tokenHash: string } | null>;
-  touchLastUsed(args: { tokenHash: string; at: Date }): Promise<void>;
-  /** Ingest auth: resolve an active token by hash. */
-  lookupByHash(args: { tokenHash: string }): Promise<{
-    tokenId: string;
-    streamId: string;
-    revokedAt: Date | null;
-  } | null>;
-  /** All token hashes of a stream (captured before delete for cache clearing). */
-  listHashesForStream(args: { streamId: string }): Promise<string[]>;
-  deleteAllForStream(args: { streamId: string }): Promise<void>;
 }
 
 /** Raw stored spans of retained (or in-flight) traces. */
@@ -529,7 +502,6 @@ export interface FlushPorts {
 /** The full port set returned by `createStorage`. */
 export interface Storage {
   streams: StreamStore;
-  tokens: TokenStore;
   spans: SpanStore;
   summaries: TraceSummaryStore;
   opBuckets: OpBucketStore;

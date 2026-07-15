@@ -16,7 +16,7 @@ import type {
   EventBus,
   ResourceResolverRegistry,
 } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import type { SignalService } from "@checkstack/signal-common";
 import { ilike, inArray } from "drizzle-orm";
 import {
@@ -35,7 +35,11 @@ export interface RegisterApiDeps {
   storage: Storage;
   rpc: RpcService;
   rpcClient: RpcClient;
-  cacheManager: CacheManager;
+  /**
+   * Telemetry source-lifecycle service, forwarded to the service so
+   * `deleteStream` cascades the deletion to bound telemetry sources.
+   */
+  sourceLifecycle: TelemetrySourceLifecycle;
   signalService: SignalService;
   resourceResolverRegistry: ResourceResolverRegistry;
   eventBus: EventBus;
@@ -45,10 +49,10 @@ export interface RegisterApiDeps {
 }
 
 /**
- * Register the tracestream oRPC router (stream CRUD, source tokens, trace search
- * + waterfall, op buckets, service/operation autocomplete, overview, important
- * events and cross-stream `findTraceById`) and the `tracestream.stream` resource
- * resolver so Teams can render grant names (rlac.md checklist #4).
+ * Register the tracestream oRPC router (stream CRUD, trace search + waterfall,
+ * op buckets, service/operation autocomplete, overview, important events and
+ * cross-stream `findTraceById`) and the `tracestream.stream` resource resolver
+ * so Teams can render grant names (rlac.md checklist #4).
  *
  * The service runs entirely over the storage PORTS; the ONLY direct `db` use is
  * the resource resolver's opaque name lookup/search (the established sibling
@@ -60,16 +64,16 @@ export function registerApi({
   storage,
   rpc,
   rpcClient,
-  cacheManager,
+  sourceLifecycle,
   logger,
   resourceResolverRegistry,
   internalUrl,
 }: RegisterApiDeps): void {
   const service = createTracestreamService({
     storage,
-    cacheManager,
     logger,
     rpcClient,
+    sourceLifecycle,
   });
 
   // Per-request gate for `setSystemLinks`: re-enters catalog AS the caller to

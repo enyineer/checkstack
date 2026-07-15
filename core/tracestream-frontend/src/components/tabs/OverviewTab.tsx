@@ -42,12 +42,15 @@ export function OverviewTab({ streamId, onOpenTrace }: OverviewTabProps) {
   const topServices = overview?.topServices ?? [];
   const slowest = overview?.slowestRetained ?? [];
   const maxSpanCount = Math.max(1, ...topServices.map((s) => s.spanCount));
+  const droppedSpans = overview?.droppedSpansCount ?? 0;
+  const droppedTraces = overview?.droppedTracesCount ?? 0;
+  const droppedInTransit = overview?.droppedInTransitCount ?? 0;
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+          Array.from({ length: 7 }).map((_, i) => (
             <Skeleton key={i} variant="card" />
           ))
         ) : (
@@ -75,6 +78,24 @@ export function OverviewTab({ streamId, onOpenTrace }: OverviewTabProps) {
                   : "never"
               }
               hoverTitle="Most recent span activity on this stream."
+            />
+            <StatTile
+              label="Dropped spans"
+              value={formatNumber(droppedSpans)}
+              hoverTitle="Spans dropped by the pipeline (rate limit, buffer full, or span/service/operation caps)."
+              tone={droppedSpans > 0 ? "warn" : "default"}
+            />
+            <StatTile
+              label="Dropped traces"
+              value={formatNumber(droppedTraces)}
+              hoverTitle="Traces dropped to summary-only when the retained-per-hour ceiling overflowed."
+              tone={droppedTraces > 0 ? "warn" : "default"}
+            />
+            <StatTile
+              label="Dropped in transit"
+              value={formatNumber(droppedInTransit)}
+              hoverTitle="Spans dropped in transit from a satellite during a disconnect."
+              tone={droppedInTransit > 0 ? "warn" : "default"}
             />
           </>
         )}

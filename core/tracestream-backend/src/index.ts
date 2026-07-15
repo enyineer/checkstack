@@ -7,7 +7,12 @@ import {
   tracestreamAccessRules,
   pluginMetadata,
 } from "@checkstack/tracestream-common";
-import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
+import {
+  telemetrySinkExtensionPoint,
+  telemetrySourceExtensionPoint,
+  telemetryPushTokenVerifierRef,
+  telemetrySourceLifecycleRef,
+} from "@checkstack/telemetry-backend";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
 import { aiToolProjectionExtensionPoint } from "@checkstack/ai-backend";
 import * as schema from "./schema";
@@ -17,6 +22,7 @@ import { createImportantEventRecorder } from "./events/recorder";
 import { registerMaintenance } from "./health/maintenance";
 import { registerHealthIntegration } from "./health/setup";
 import { registerIngest } from "./ingest/setup";
+import { tracestreamPushSourceType } from "./ingest/push-source-type";
 import { registerApi } from "./api/setup";
 import { createTracestreamTelemetrySink } from "./telemetry-sink";
 
@@ -41,6 +47,14 @@ export default createBackendPlugin({
     // behind the extension point, so load order does not matter).
     const telemetrySink = env.getExtensionPoint(telemetrySinkExtensionPoint);
 
+    // Contribute the PUSH source type: a `tracestream.push` instance is a
+    // platform-minted bearer token bound to a traces stream, and the OTLP /
+    // native ingest endpoints (served in init) verify presented tokens through
+    // the platform's push-token verifier. Buffered, so load order is irrelevant.
+    env
+      .getExtensionPoint(telemetrySourceExtensionPoint)
+      .registerSourceType(tracestreamPushSourceType, pluginMetadata);
+
     env.registerInit({
       schema,
       deps: {
@@ -56,6 +70,10 @@ export default createBackendPlugin({
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
+        pushTokenVerifier: telemetryPushTokenVerifierRef,
+        // The platform source-lifecycle service: `deleteStream` calls
+        // `handleStreamDeleted` so deleting a stream cascades to bound sources.
+        sourceLifecycle: telemetrySourceLifecycleRef,
       },
       init: async ({
         database,
@@ -71,6 +89,8 @@ export default createBackendPlugin({
         resourceResolverRegistry,
         healthCheckRegistry,
         collectorRegistry,
+        pushTokenVerifier,
+        sourceLifecycle,
       }) => {
         // The runtime injects the plugin's schema-scoped db typed as
         // `SafeDatabase<Record<string, unknown>>`; narrow it to this plugin's
@@ -106,6 +126,7 @@ export default createBackendPlugin({
           queueManager,
           eventBus,
           instanceRuntime,
+          verifier: pushTokenVerifier,
           logger,
           onIngestFlush: health.onIngestFlush,
         });
@@ -149,7 +170,7 @@ export default createBackendPlugin({
           storage,
           rpc,
           rpcClient,
-          cacheManager,
+          sourceLifecycle,
           signalService,
           resourceResolverRegistry,
           eventBus,

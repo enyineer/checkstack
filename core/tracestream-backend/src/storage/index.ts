@@ -3,7 +3,6 @@ import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "../schema";
 import type { Storage } from "./ports";
 import { createStreamStore } from "./postgres/streams";
-import { createTokenStore } from "./postgres/tokens";
 import { createSpanStore } from "./postgres/spans";
 import { createTraceSummaryStore } from "./postgres/summaries";
 import { createOpBucketStore } from "./postgres/op-buckets";
@@ -30,7 +29,6 @@ export function createStorage({
   db: SafeDatabase<typeof schema>;
 }): Storage {
   const streams = createStreamStore({ db });
-  const tokens = createTokenStore({ db });
   const importantEvents = createImportantEventStore({ db });
   const systemLinks = createSystemLinkStore({ db });
   // The write ports run on a "runner" (the scoped db by default, or a flush
@@ -44,7 +42,6 @@ export function createStorage({
 
   return {
     streams,
-    tokens,
     spans,
     summaries,
     opBuckets,
@@ -55,8 +52,7 @@ export function createStorage({
     async deleteStreamData({ streamId }) {
       // Forward-only, idempotent per-table sweeps: a partial failure leaves rows
       // that the next call (or the retention job) removes. No FKs, so order is
-      // free; tokens/spans/summaries/buckets/catalog/activity/events/links cleared.
-      await tokens.deleteAllForStream({ streamId });
+      // free; spans/summaries/buckets/catalog/activity/events/links cleared.
       await spans.deleteAllForStream({ streamId });
       await summaries.deleteAllForStream({ streamId });
       await opBuckets.deleteAllForStream({ streamId });

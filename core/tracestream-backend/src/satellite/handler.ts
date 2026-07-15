@@ -57,15 +57,22 @@ export function createTracestreamSatelliteCapabilityHandler({
   configResolver,
   pipeline,
   activity,
+  recordSeen,
   logger,
   now = () => new Date(),
 }: {
-  /** cktr_ source-token authenticator (the same one the push endpoints use). */
+  /** cktr_ push-token authenticator (the same one the push endpoints use). */
   auth: IngestAuthenticator;
   configResolver: StreamConfigResolver;
   pipeline: IngestPipeline;
   /** Activity store, for the durable per-stream in-transit drop counter. */
   activity: Pick<ActivityStore, "addInTransitDrops">;
+  /**
+   * Fire-and-forget last-seen stamp for each verified push source (`tokenId`)
+   * that forwarded spans through this satellite batch. Same throttled verifier
+   * stamp the HTTP endpoints use.
+   */
+  recordSeen?: (tokenId: string) => void;
   logger: Logger;
   now?: () => Date;
 }): SatelliteCapabilityHandler {
@@ -124,6 +131,10 @@ export function createTracestreamSatelliteCapabilityHandler({
         { config: TraceStreamConfig; spans: NormalizedSpan[] }
       >();
 
+      // Distinct verified source instance ids that forwarded spans, stamped
+      // last-seen once each after the batch (throttled inside the verifier).
+      const seenTokenIds = new Set<string>();
+
       for (const item of parsed.data) {
         if (item.spans.length === 0) continue;
         const verdict = await verify(item.streamToken);
@@ -134,6 +145,7 @@ export function createTracestreamSatelliteCapabilityHandler({
           continue;
         }
 
+        seenTokenIds.add(verdict.tokenId);
         let entry = byStream.get(verdict.resourceId);
         if (!entry) {
           const config = await configResolver.resolve(verdict.resourceId);
@@ -159,6 +171,10 @@ export function createTracestreamSatelliteCapabilityHandler({
         if (result.accepted > 0) sawAccept = true;
         if (dropped > 0) sawSaturation = true;
       }
+
+      // Stamp last-seen for each verified source that forwarded spans (the
+      // verifier throttles per source, so a stamp per batch is cheap).
+      for (const tokenId of seenTokenIds) recordSeen?.(tokenId);
 
       // Satellite in-transit drops: resolve each group's token to its stream via
       // the SAME verdict cache the payload used, then PERSIST the loss on that

@@ -132,43 +132,6 @@ export const UpdateTraceStreamSchema = z.object({
 export type UpdateTraceStream = z.infer<typeof UpdateTraceStreamSchema>;
 
 // =============================================================================
-// SOURCE TOKENS
-// =============================================================================
-
-/** A source token as returned by list/read - NEVER carries the secret. */
-export const TraceStreamTokenSchema = z.object({
-  id: z.string(),
-  streamId: z.string(),
-  name: z.string(),
-  /** First 8 chars of the full secret, for display/disambiguation. */
-  tokenPrefix: z.string(),
-  createdAt: z.date(),
-  lastUsedAt: z.date().nullable(),
-  revokedAt: z.date().nullable(),
-});
-export type TraceStreamToken = z.infer<typeof TraceStreamTokenSchema>;
-
-export const MintTokenSchema = z.object({
-  streamId: z.string(),
-  name: z.string().min(1).max(255),
-});
-export type MintToken = z.infer<typeof MintTokenSchema>;
-
-/** Mint response: the full secret (shown ONCE) plus the persisted token row. */
-export const MintTokenResultSchema = z.object({
-  /** The full `cktr_...` secret. Displayed once; never retrievable again. */
-  secret: z.string(),
-  token: TraceStreamTokenSchema,
-});
-export type MintTokenResult = z.infer<typeof MintTokenResultSchema>;
-
-export const RevokeTokenSchema = z.object({
-  streamId: z.string(),
-  tokenId: z.string(),
-});
-export type RevokeToken = z.infer<typeof RevokeTokenSchema>;
-
-// =============================================================================
 // STORED SPAN (as served by getTrace)
 // =============================================================================
 
@@ -380,6 +343,21 @@ export const StreamOverviewSchema = z.object({
   }),
   /** Most recent span activity, or null before any span arrived. */
   lastReceivedAt: z.date().nullable(),
+  /**
+   * Spans the pipeline dropped (rate-limit, buffer-full, or the span/service/
+   * operation caps). Cumulative.
+   */
+  droppedSpansCount: z.number(),
+  /**
+   * Traces dropped to summary-only because the retained-per-hour ceiling
+   * overflowed. Cumulative.
+   */
+  droppedTracesCount: z.number(),
+  /**
+   * Spans a satellite dropped from its in-transit buffer during a disconnect /
+   * slow-consumer episode - telemetry that never reached core. Cumulative.
+   */
+  droppedInTransitCount: z.number(),
   /** Up to 5 slowest RETAINED traces in the last 24h (quick links). */
   slowestRetained: z.array(TraceSummarySchema).max(5),
   /** Up to 10 top services by span volume. */

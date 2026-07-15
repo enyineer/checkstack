@@ -15,10 +15,6 @@ import {
   TraceStreamSchema,
   CreateTraceStreamSchema,
   UpdateTraceStreamSchema,
-  TraceStreamTokenSchema,
-  MintTokenSchema,
-  MintTokenResultSchema,
-  RevokeTokenSchema,
   SearchTracesSchema,
   SearchTracesResultSchema,
   GetTraceSchema,
@@ -43,9 +39,11 @@ import {
  * Trace stream RPC contract (oRPC contract-first). Every write proc declares
  * exactly one `instanceAccess` mode so team-scoping stays coherent with the
  * frontend gates (see `.claude/rules/rlac.md`). Streams are the only
- * team-scopable resource; tokens / traces / spans / buckets / services /
- * operations / events are all scoped by their owning `streamId`. The
- * instanceAccess choices mirror metricstream's reviewed contract exactly.
+ * team-scopable resource; traces / spans / buckets / services / operations /
+ * events are all scoped by their owning `streamId`. Push-token management moved
+ * to the telemetry platform (`tracestream.push` source instances), so this
+ * contract no longer carries token procedures. The instanceAccess choices
+ * mirror metricstream's reviewed contract exactly.
  */
 export const tracestreamContract = {
   // ==========================================================================
@@ -127,39 +125,6 @@ export const tracestreamContract = {
     access: [tracestreamAccess.read],
     instanceAccess: { typeScoped: {} },
   }).output(z.array(StreamForPickerSchema)),
-
-  // ==========================================================================
-  // SOURCE TOKENS (manage; scoped by the owning stream id)
-  // ==========================================================================
-
-  listTokens: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [tracestreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(z.object({ streamId: z.string() }))
-    .output(z.array(TraceStreamTokenSchema)),
-
-  /** Mint a token; returns the full secret ONCE plus the persisted row. */
-  mintToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [tracestreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(MintTokenSchema)
-    .output(MintTokenResultSchema),
-
-  /** Revoke a token. The handler MUST invalidate the ingest auth cache entry. */
-  revokeToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [tracestreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(RevokeTokenSchema)
-    .output(z.void()),
 
   // ==========================================================================
   // VIEWER READS (read; scoped by the owning stream id)

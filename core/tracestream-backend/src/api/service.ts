@@ -1,21 +1,12 @@
 import { ORPCError } from "@orpc/server";
 import type { Logger, RpcClient } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
-import type { CachedScope } from "@checkstack/cache-utils";
-import {
-  createIngestTokenCache,
-  ingestTokenCacheKey,
-  ingestTokenMissKey,
-} from "@checkstack/ingest-utils";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import { AuthApi } from "@checkstack/auth-common";
 import {
-  pluginMetadata,
   tracestreamResourceTypes,
   type CreateTraceStream,
   type UpdateTraceStream,
   type TraceStream,
-  type TraceStreamToken,
-  type MintTokenResult,
   type SearchTraces,
   type SearchTracesResult,
   type GetTrace,
@@ -44,7 +35,6 @@ import type {
   ListLinkedStreamStatusesResult,
 } from "@checkstack/telemetry-common";
 import type { Storage } from "../storage";
-import { tokenKit } from "../token-crypto";
 import { resolveGrain } from "./grain";
 
 /** Overview / streams-list rollups look back this far. */
@@ -60,9 +50,9 @@ const OVERVIEW_TOP_SERVICES = 10;
  * The tracestream API service: every contract procedure implemented over the
  * storage PORTS (jobs/ingest/API never see drizzle - USER DIRECTIVE). Stream
  * config merge/defaulting is owned by the `StreamStore` adapter, so the CRUD
- * methods here are thin pass-throughs; the only non-storage concerns are source-
- * token minting (via the shared `cktr_` source-token kit) and the ingest-auth
- * cache invalidation that keeps a revoked/deleted token from authenticating.
+ * methods here are thin pass-throughs. Push-token auth is now owned by the
+ * telemetry platform (`tracestream.push` source instances), so this service no
+ * longer mints/revokes tokens or invalidates ingest-auth caches.
  */
 export interface TracestreamService {
   createStream(input: CreateTraceStream): Promise<TraceStream>;
@@ -72,10 +62,6 @@ export interface TracestreamService {
   listStreamSummaries(): Promise<ListStreamSummariesResult>;
   getStream(input: { id: string }): Promise<TraceStream>;
   listStreamsForPicker(): Promise<StreamForPicker[]>;
-
-  listTokens(input: { streamId: string }): Promise<TraceStreamToken[]>;
-  mintToken(input: { streamId: string; name: string }): Promise<MintTokenResult>;
-  revokeToken(input: { streamId: string; tokenId: string }): Promise<void>;
 
   searchTraces(input: SearchTraces): Promise<SearchTracesResult>;
   getTrace(input: GetTrace): Promise<GetTraceResult>;
@@ -104,49 +90,33 @@ export interface TracestreamService {
 
 export function createTracestreamService({
   storage,
-  cacheManager,
   logger,
   rpcClient,
+  sourceLifecycle,
   now = () => new Date(),
 }: {
   storage: Storage;
-  cacheManager: CacheManager;
   logger: Logger;
   /** Platform RPC client for auth grant cleanup on stream delete (optional). */
   rpcClient?: RpcClient;
+  /**
+   * Telemetry source-lifecycle service. `deleteStream` calls
+   * `handleStreamDeleted` best-effort after the stream's own data and grants are
+   * gone, so the platform strips the deleted stream's binding from every source
+   * and fully deletes sources left binding-less. Optional so lightweight tests
+   * can omit it; when absent, `deleteStream` logs a warning and skips the
+   * cascade (the stream deletion itself already succeeded).
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
 }): TracestreamService {
-  // Same shared source-token kit the ingest authenticator uses (keyless sha256
-  // hashing), and the SAME ingest-token cache scope (pluginId + key builders
-  // from `@checkstack/ingest-utils`) so a revoke/delete here evicts the exact
-  // `ingest-token:<hash>` verdict the ingest auth path caches on every pod.
-  const tokenCache: CachedScope = createIngestTokenCache({
-    cacheManager,
-    pluginId: pluginMetadata.pluginId,
-  });
-
   async function getStreamOrThrow(id: string): Promise<TraceStream> {
     const stream = await storage.streams.get({ id });
     if (!stream) {
       throw new ORPCError("NOT_FOUND", { message: "Trace stream not found" });
     }
     return stream;
-  }
-
-  /** Evict each token's shared positive verdict so a revoke/delete takes hold. */
-  async function invalidateTokenVerdicts(tokenHashes: string[]): Promise<void> {
-    await Promise.all(
-      tokenHashes.map(async (hash) => {
-        try {
-          await tokenCache.invalidate(ingestTokenCacheKey(hash));
-        } catch (error) {
-          logger.warn(
-            `tracestream: failed to invalidate ingest-token cache: ${String(error)}`,
-          );
-        }
-      }),
-    );
   }
 
   return {
@@ -172,27 +142,25 @@ export function createTracestreamService({
     },
 
     async deleteStream({ id }) {
-      // Capture the token hashes BEFORE the data cascade clears the token rows,
-      // so their cached ingest-auth verdicts can be evicted after the delete.
-      const tokenHashes = await storage.tokens.listHashesForStream({
-        streamId: id,
-      });
-      // Data cascade (all stream-scoped tables) then the stream ROW itself.
+      // Data cascade (all stream-scoped tables) then the stream ROW itself. Push
+      // tokens are no longer tracestream-owned (they live on the telemetry
+      // platform's `tracestream.push` source instances), so there is nothing to
+      // evict here; the platform invalidates its own ingest-auth caches when a
+      // source bound to a deleted stream is disabled/removed.
       await storage.deleteStreamData({ streamId: id });
       await storage.streams.delete({ id });
-      // Drop each token's shared positive verdict + negative miss marker so a
-      // deleted stream's tokens stop authenticating on every pod at once.
-      await invalidateTokenVerdicts(tokenHashes);
-      await Promise.all(
-        tokenHashes.map(async (hash) => {
-          try {
-            await tokenCache.provider.delete(ingestTokenMissKey(hash));
-          } catch {
-            // best-effort; the short negative TTL is the robust guarantee.
-          }
-        }),
-      );
       await deleteStreamGrants({ rpcClient, streamId: id, logger });
+
+      // Cascade the deletion to the telemetry platform: strip this stream's
+      // binding from every source and fully delete sources left binding-less.
+      // Best-effort for the same reason as the grant cleanup - the stream's own
+      // deletion already succeeded.
+      await cascadeSourceDeletion({
+        sourceLifecycle,
+        signal: "traces",
+        streamId: id,
+        logger,
+      });
     },
 
     async listStreams() {
@@ -231,43 +199,6 @@ export function createTracestreamService({
 
     async listStreamsForPicker() {
       return storage.streams.listForPicker();
-    },
-
-    async listTokens({ streamId }) {
-      return storage.tokens.list({ streamId });
-    },
-
-    async mintToken({ streamId, name }) {
-      await getStreamOrThrow(streamId);
-      const generated = tokenKit.generateToken({ resourceId: streamId });
-      const token = await storage.tokens.insert({
-        streamId,
-        name,
-        tokenHash: generated.tokenHash,
-        tokenPrefix: generated.tokenPrefix,
-      });
-      // Clear the shared negative (unknown-token) marker so the freshly-minted
-      // token authenticates immediately instead of being shadowed by a stale
-      // miss for up to its TTL. Best-effort.
-      try {
-        await tokenCache.provider.delete(ingestTokenMissKey(generated.tokenHash));
-      } catch (error) {
-        logger.warn(
-          `tracestream: failed to clear ingest-token miss marker on mint: ${String(error)}`,
-        );
-      }
-      // The full secret is returned ONCE here and never persisted or logged.
-      return { secret: generated.secret, token };
-    },
-
-    async revokeToken({ streamId, tokenId }) {
-      // Scoped to BOTH id AND streamId so a manager of `streamId` cannot revoke
-      // a token belonging to another stream.
-      const revoked = await storage.tokens.revoke({ streamId, tokenId });
-      if (!revoked) {
-        throw new ORPCError("NOT_FOUND", { message: "Token not found" });
-      }
-      await invalidateTokenVerdicts([revoked.tokenHash]);
     },
 
     async searchTraces(input) {
@@ -333,6 +264,9 @@ export function createTracestreamService({
       return {
         totals24h,
         lastReceivedAt: activity?.lastReceivedAt ?? null,
+        droppedSpansCount: activity?.droppedSpansCount ?? 0,
+        droppedTracesCount: activity?.droppedTracesCount ?? 0,
+        droppedInTransitCount: activity?.droppedInTransitCount ?? 0,
         slowestRetained,
         topServices,
       };
@@ -430,6 +364,40 @@ async function deleteStreamGrants({
   } catch (error) {
     logger.warn(
       `tracestream: failed to delete team grants for stream ${streamId}: ${String(error)}`,
+    );
+  }
+}
+
+/**
+ * Cascade a stream deletion to the telemetry platform via
+ * `handleStreamDeleted`, so every source binding this stream is stripped and
+ * sources left binding-less are fully deleted. Best-effort and idempotent: the
+ * stream's own deletion already succeeded, so a lifecycle failure is logged
+ * rather than rethrown. When no `sourceLifecycle` is wired, the cascade is
+ * skipped with a warning.
+ */
+async function cascadeSourceDeletion({
+  sourceLifecycle,
+  signal,
+  streamId,
+  logger,
+}: {
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  signal: "traces";
+  streamId: string;
+  logger: Logger;
+}): Promise<void> {
+  if (!sourceLifecycle) {
+    logger.warn(
+      "tracestream: telemetry source lifecycle not provided; skipped source cascade for deleted stream (bindings may orphan).",
+    );
+    return;
+  }
+  try {
+    await sourceLifecycle.handleStreamDeleted({ signal, streamId });
+  } catch (error) {
+    logger.warn(
+      `tracestream: failed to cascade telemetry source deletion for stream ${streamId}: ${String(error)}`,
     );
   }
 }

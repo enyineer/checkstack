@@ -2,8 +2,7 @@ import { Link } from "react-router-dom";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { Button } from "@checkstack/ui";
 import { Waypoints } from "lucide-react";
-import { TracestreamApi } from "@checkstack/tracestream-common";
-import { buildViewTraceHref } from "../lib/view-trace-link";
+import { TracestreamApi, buildViewTraceHref } from "@checkstack/tracestream-common";
 
 /**
  * Compact "View trace" action for a single trace id, shared by the log-event

@@ -5,7 +5,6 @@ import type { RpcContext } from "@checkstack/backend-api";
 import {
   DEFAULT_TRACE_STREAM_CONFIG,
   type TraceStream,
-  type TraceStreamToken,
   type TraceSummary,
 } from "@checkstack/tracestream-common";
 import { createTracestreamRouter } from "./router";
@@ -34,16 +33,6 @@ const stream = (id: string, name: string): TraceStream => ({
 
 const STREAM_1 = stream("stream-1", "Payments traces");
 const STREAM_2 = stream("stream-2", "Checkout traces");
-
-const token = (id: string, streamId: string): TraceStreamToken => ({
-  id,
-  streamId,
-  name: "shipper",
-  tokenPrefix: "cktr_abc",
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  lastUsedAt: null,
-  revokedAt: null,
-});
 
 const summary = (traceId: string): TraceSummary => ({
   traceId,
@@ -94,12 +83,6 @@ function stubService(
       { id: STREAM_1.id, name: STREAM_1.name },
       { id: STREAM_2.id, name: STREAM_2.name },
     ],
-    listTokens: async ({ streamId }) => [token("tok-1", streamId)],
-    mintToken: async ({ streamId }) => ({
-      secret: "cktr_secret_value",
-      token: token("tok-1", streamId),
-    }),
-    revokeToken: async () => {},
     searchTraces: async () => ({ traces: [], nextCursor: null }),
     getTrace: async () => ({ summary: summary("trace-1"), spans: [] }),
     getOpBuckets: async ({ grain }) => ({ grain: grain ?? "minute", buckets: [] }),
@@ -272,6 +255,9 @@ describe("viewer reads gated on read (idParam streamId)", () => {
         call(buildRouter({ getStreamOverview: async () => ({
           totals24h: { spans: 0, traces: 0, errorTraces: 0, retainedTraces: 0 },
           lastReceivedAt: null,
+          droppedSpansCount: 0,
+          droppedTracesCount: 0,
+          droppedInTransitCount: 0,
           slowestRetained: [],
           topServices: [],
         }) }).getStreamOverview, { streamId }, { context }),
@@ -299,50 +285,9 @@ describe("viewer reads gated on read (idParam streamId)", () => {
   }
 });
 
-describe("token mint/revoke gated on manage (idParam streamId)", () => {
-  it("a manage grant on the stream may mint", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().mintToken,
-      { streamId: "stream-1", name: "shipper" },
-      { context },
-    );
-    expect(result.secret).toBe("cktr_secret_value");
-  });
-
-  it("no grant on the stream is FORBIDDEN for mint and revoke", async () => {
-    const context = () => createMockRpcContext({ user: teamUser, ...grantAuth([]) });
-    await expect(
-      call(buildRouter().mintToken, { streamId: "stream-1", name: "s" }, { context: context() }),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-    await expect(
-      call(
-        buildRouter().revokeToken,
-        { streamId: "stream-1", tokenId: "tok-1" },
-        { context: context() },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-
-  it("listTokens (manage) never leaks the secret/hash", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().listTokens,
-      { streamId: "stream-1" },
-      { context },
-    );
-    for (const t of result) {
-      expect(t).not.toHaveProperty("secret");
-      expect(t).not.toHaveProperty("tokenHash");
-    }
-  });
-});
+// Push-token mint/revoke/list moved to the telemetry platform
+// (`tracestream.push` source instances), so the tracestream contract no longer
+// exposes token procedures - nothing to gate here anymore.
 
 describe("findTraceById (listKey 'matches') post-filter", () => {
   it("a team-scoped caller sees only matches on granted streams (keyed on item id)", async () => {

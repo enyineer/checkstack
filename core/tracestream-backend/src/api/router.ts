@@ -63,22 +63,6 @@ export function createTracestreamRouter({
       service.listStreamsForPicker(),
     ),
 
-    // ── Source tokens ───────────────────────────────────────────────────
-    listTokens: os.listTokens.handler(async ({ input }) =>
-      service.listTokens({ streamId: input.streamId }),
-    ),
-
-    mintToken: os.mintToken.handler(async ({ input }) =>
-      service.mintToken({ streamId: input.streamId, name: input.name }),
-    ),
-
-    revokeToken: os.revokeToken.handler(async ({ input }) => {
-      await service.revokeToken({
-        streamId: input.streamId,
-        tokenId: input.tokenId,
-      });
-    }),
-
     // ── Viewer reads ────────────────────────────────────────────────────
     searchTraces: os.searchTraces.handler(async ({ input }) =>
       service.searchTraces(input),

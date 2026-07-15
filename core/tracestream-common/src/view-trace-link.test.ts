@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { resolveRoute } from "@checkstack/common";
-import { tracestreamRoutes } from "@checkstack/tracestream-common";
+import { tracestreamRoutes } from "./routes";
 import { buildViewTraceHref } from "./view-trace-link";
 
 describe("buildViewTraceHref", () => {

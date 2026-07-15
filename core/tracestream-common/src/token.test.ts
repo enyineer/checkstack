@@ -59,6 +59,19 @@ describe("extractIngestToken", () => {
     expect(extractIngestToken({})).toBeNull();
     expect(extractIngestToken({ authorization: "" })).toBeNull();
   });
+
+  it("tolerates extra whitespace after the scheme without polynomial backtracking", () => {
+    // ReDoS-hardened slice form: the scheme regex only matches `Bearer\s+`, then
+    // the remainder is sliced + trimmed - no `\s+(.+)` capture to backtrack.
+    expect(
+      extractIngestToken({ authorization: "Bearer    cktr_padded   " }),
+    ).toBe("cktr_padded");
+  });
+
+  it("returns null for a bare scheme with no token", () => {
+    expect(extractIngestToken({ authorization: "Bearer " })).toBeNull();
+    expect(extractIngestToken({ authorization: "Bearer" })).toBeNull();
+  });
 });
 
 describe("browser-safety guard", () => {

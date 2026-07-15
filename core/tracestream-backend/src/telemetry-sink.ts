@@ -84,6 +84,9 @@ export function createTracestreamTelemetrySink({
 
   return {
     signal: "traces",
+    // The qualified ReBAC resource type of this signal's streams, so the
+    // platform can back-fill / clean up per-stream grants on binding changes.
+    streamResourceType: tracestreamResourceTypes.stream,
 
     assertBindable,
     describeStream,

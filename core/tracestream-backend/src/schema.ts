@@ -28,7 +28,7 @@ import type {
 
 /**
  * Trace stream definition. The only team-scopable resource here (RLAC keys
- * grants on `tracestream.stream`); tokens / spans / summaries / buckets / events
+ * grants on `tracestream.stream`); spans / summaries / buckets / events
  * are all scoped by their owning `streamId`. `config` carries the tiered
  * retention + tail-sampling + cap policy (see `TraceStreamConfigSchema`).
  */
@@ -44,32 +44,6 @@ export const traceStreams = pgTable("trace_streams", {
     .defaultNow()
     .notNull(),
 });
-
-/**
- * Per-stream source tokens (OTLP/native span push auth). Only the sha256 hash
- * and an 8-char display prefix are stored; the full secret is shown once at
- * mint. `tokenHash` is the ingest auth lookup key. Mirrors
- * `metric_stream_tokens` exactly.
- */
-export const traceStreamTokens = pgTable(
-  "trace_stream_tokens",
-  {
-    id: text("id").primaryKey(),
-    streamId: text("stream_id").notNull(),
-    name: text("name").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    tokenPrefix: text("token_prefix").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  },
-  (t) => [
-    index("trace_stream_tokens_hash_uq").on(t.tokenHash),
-    index("trace_stream_tokens_stream_idx").on(t.streamId),
-  ],
-);
 
 /**
  * Raw stored spans of RETAINED (or still-in-flight) traces. `id` is a bigint
@@ -277,7 +251,7 @@ export const traceStreamActivity = pgTable("trace_stream_activity", {
  * Explicit stream -> catalog-system links (the Phase 4 catalog integration).
  * FK-less by design like every other table here (schema-scoped, no cross-schema
  * FKs): `systemId` is a BARE catalog id this schema never owns, and `streamId`
- * references `trace_streams` the same FK-less way `trace_stream_tokens` does.
+ * references `trace_streams` the same FK-less way every other table here does.
  * The `(streamId, systemId)` PK makes the replace-all set idempotent; the
  * reverse index on `systemId` serves the system-page direction
  * (`listStreamsForSystem` / `listLinkedStreamStatuses`).

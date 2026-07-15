@@ -87,11 +87,13 @@ const item = (
 describe("tracestream satellite capability handler", () => {
   it("verifies the token, feeds the pipeline, and reports accepted", async () => {
     const { pipeline, ingest } = pipelineReturning(accepted(2));
+    const seen: string[] = [];
     const handler = createTracestreamSatelliteCapabilityHandler({
       auth: auth(),
       configResolver: configResolver(),
       pipeline,
       activity: activityStub(),
+      recordSeen: (tokenId) => seen.push(tokenId),
       logger: createMockLogger(),
     });
 
@@ -110,6 +112,8 @@ describe("tracestream satellite capability handler", () => {
     // Timestamps were rehydrated to Dates before feeding the pipeline.
     expect(call.spans[0]!.startTs).toBeInstanceOf(Date);
     expect(call.spans[0]!.endTs).toBeInstanceOf(Date);
+    // The verified source instance was stamped last-seen once.
+    expect(seen).toEqual(["t1"]);
   });
 
   it("passes the CORE clock as `now` so the pipeline re-clamps against it", async () => {
@@ -139,11 +143,13 @@ describe("tracestream satellite capability handler", () => {
 
   it("rejects spans authorized by a revoked token WITHOUT feeding the pipeline", async () => {
     const { pipeline, ingest } = pipelineReturning(accepted(0));
+    const seen: string[] = [];
     const handler = createTracestreamSatelliteCapabilityHandler({
       auth: auth(),
       configResolver: configResolver(),
       pipeline,
       activity: activityStub(),
+      recordSeen: (tokenId) => seen.push(tokenId),
       logger: createMockLogger(),
     });
 
@@ -154,6 +160,7 @@ describe("tracestream satellite capability handler", () => {
 
     expect(outcome).toEqual({ accepted: 0, rejected: 2, retryable: false });
     expect(ingest).not.toHaveBeenCalled();
+    expect(seen).toEqual([]); // a revoked token is never stamped last-seen
   });
 
   it("treats an unknown token the same as revoked (drop + count)", async () => {

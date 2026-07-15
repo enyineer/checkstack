@@ -1,15 +1,21 @@
 /**
- * Ingest SEAM (task #21): the OTLP + native span push endpoints, `cktr_`
- * source-token auth, and the shared per-pod pipeline that folds spans into the
- * storage ports (spans, summaries, op buckets, service/op catalog, activity) and
- * records cap / rate-limit important events. `index.ts` already hands this
- * function its full dependency set, so this wave only edits THIS file.
+ * Ingest SEAM: the OTLP + native span push endpoints, `cktr_` push-token auth,
+ * and the shared per-pod pipeline that folds spans into the storage ports
+ * (spans, summaries, op buckets, service/op catalog, activity) and records cap /
+ * rate-limit important events. `index.ts` already hands this function its full
+ * dependency set, so this wave only edits THIS file.
+ *
+ * PUSH-TOKEN AUTH (platform-owned). Tracestream no longer owns a token table:
+ * the telemetry platform mints/rotates/revokes each `tracestream.push`
+ * instance's bearer token and stores only its hash. The authenticator verifies
+ * presented tokens through the platform's push-token verifier
+ * (`createTracestreamPushTokenLookup` over `telemetryPushTokenVerifierRef`).
+ * Every verified ingest stamps the source's last-seen through the same verifier
+ * (throttled, fire-and-forget).
  *
  * The returned {@link IngestHandle} exposes the `pipeline` + `configResolver` so
  * the TELEMETRY SINK contribution can feed the SAME admit -> buffer -> flush path
- * the HTTP endpoints use (parity). The sink itself is registered by `index.ts`
- * (which holds the telemetry extension-point handle and `coreServices.auth`),
- * consuming this handle.
+ * the HTTP endpoints use (parity). The sink itself is registered by `index.ts`.
  */
 
 import type {
@@ -17,23 +23,33 @@ import type {
   Logger,
   RpcService,
   EventBus,
+  HookUnsubscribe,
   InstanceRuntime,
 } from "@checkstack/backend-api";
 import type { CacheManager } from "@checkstack/cache-api";
+import type { CachedScope } from "@checkstack/cache-utils";
 import type { SignalService } from "@checkstack/signal-common";
 import type { QueueManager } from "@checkstack/queue-api";
 import {
   createIngestAuthenticator,
   createIngestTokenCache,
+  ingestTokenCacheKey,
+  ingestTokenMissKey,
   type IngestAuthenticator,
 } from "@checkstack/ingest-utils";
+import {
+  telemetryPushTokenInvalidatedHook,
+  type PushTokenVerifier,
+  type TelemetryPushTokenInvalidatedPayload,
+} from "@checkstack/telemetry-backend";
 import { pluginMetadata } from "@checkstack/tracestream-common";
 import type * as schema from "../schema";
 import type { Storage } from "../storage";
 import type { ImportantEventRecorder } from "../events/recorder";
 import type { OnIngestFlush } from "../health/setup";
 import { tokenKit } from "../token-crypto";
-import { lookupTokenByHash } from "./token-lookup";
+import { createTracestreamPushTokenLookup } from "./token-lookup";
+import { TRACESTREAM_PUSH_SOURCE_TYPE_ID } from "./push-source-type";
 import { createStreamConfigResolver, type StreamConfigResolver } from "./stream-config";
 import { createIngestPipeline, type IngestPipeline } from "./pipeline";
 import { createOtlpTracesHandler } from "./endpoints/otlp";
@@ -51,6 +67,12 @@ export interface RegisterIngestDeps {
   queueManager: QueueManager;
   eventBus: EventBus;
   instanceRuntime: InstanceRuntime;
+  /**
+   * Platform push-token verifier (resolved via `telemetryPushTokenVerifierRef`):
+   * the ingest authenticator verifies `cktr_` tokens through it, and each
+   * verified ingest stamps last-seen with `recordPushSeen`.
+   */
+  verifier: PushTokenVerifier;
   logger: Logger;
   /** Post-commit health fast-path hook, threaded into the pipeline. */
   onIngestFlush?: OnIngestFlush;
@@ -70,7 +92,7 @@ export interface IngestHandle {
    * push endpoints resolve.
    */
   configResolver: StreamConfigResolver;
-  /** Source-token authenticator (cktr_), for any future forwarded-ingest path. */
+  /** Push-token authenticator (cktr_), for any future forwarded-ingest path. */
   auth: IngestAuthenticator;
   /**
    * The "tracestream" satellite capability handler (spans forwarded through a
@@ -81,31 +103,88 @@ export interface IngestHandle {
 }
 
 /**
- * Build the ingest subsystem: the cktr_ token authenticator (shared-cache verdict
- * + per-pod negative cache; the API's revoke path deletes the SAME
- * `ingest-token:<hash>` key), the per-stream config resolver, and the pod-local
- * pipeline (buffer + single-inflight flush loop). Registers the OTLP and native
- * HTTP handlers at the exact paths the frontend's ship-traces snippets print
+ * Apply a `telemetry.push-token.invalidated` broadcast to this pod's ingest-auth
+ * caches for a `tracestream.push` token. The caller filters on `sourceTypeId`;
+ * this only handles the two reasons. Exported for unit testing.
+ *
+ * - `minted`: clear this pod's negative (unknown-token) LRU + the shared miss
+ *   marker (`auth.clearNegative`), so a freshly-minted token authenticates
+ *   without waiting out the negative TTL instead of being shadowed by a pod's
+ *   stale miss.
+ * - `revoked`: delete the shared POSITIVE verdict key AND the miss marker, so
+ *   the token stops authenticating on every pod at once and a later re-mint is
+ *   not blocked by a stale miss.
+ */
+export async function applyPushTokenInvalidation({
+  payload,
+  auth,
+  cache,
+}: {
+  payload: TelemetryPushTokenInvalidatedPayload;
+  auth: IngestAuthenticator;
+  cache: CachedScope;
+}): Promise<void> {
+  const { tokenHash } = payload;
+  if (payload.reason === "minted") {
+    await auth.clearNegative?.(tokenHash);
+    return;
+  }
+  // revoked: the positive verdict lives only in the shared cache (no pod-local
+  // positive LRU), so a shared delete reaches every pod at once.
+  try {
+    await cache.provider.delete(ingestTokenCacheKey(tokenHash));
+  } catch {
+    // best-effort; the 60s positive TTL bounds the stale window.
+  }
+  try {
+    await cache.provider.delete(ingestTokenMissKey(tokenHash));
+  } catch {
+    // best-effort; the short negative TTL is the robust guarantee.
+  }
+}
+
+/**
+ * Build the ingest subsystem: the cktr_ push-token authenticator (shared-cache
+ * verdict + per-pod negative cache), the per-stream config resolver, and the
+ * pod-local pipeline (buffer + single-inflight flush loop). Registers the OTLP
+ * and native HTTP handlers at the exact paths the push source type advertises
  * (`/api/tracestream/v1/traces`, `/api/tracestream/ingest`).
  *
- * No token-invalidation bus subscription (unlike metricstream): the API's
- * shared-cache delete on revoke reaches every pod, and the 30s negative-cache TTL
- * is the backstop for a freshly-minted token - tracestream has no per-connection
- * ingest state (HTTP push only) that a broadcast would need to evict.
+ * Subscribes (broadcast mode) to the platform's push-token invalidation hook so
+ * a mint/rotate/revoke on ANY pod converges this pod's ingest-auth caches. This
+ * is NEW wiring: tracestream previously had no invalidation bus subscription, so
+ * a freshly-minted token could be shadowed by another pod's negative LRU for up
+ * to the negative TTL - the "minted" branch fixes that gap.
  */
 export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
-  const { db, storage, recorder, rpc, cacheManager, signalService, logger, onIngestFlush } =
-    deps;
+  const {
+    db,
+    storage,
+    recorder,
+    rpc,
+    cacheManager,
+    signalService,
+    eventBus,
+    verifier,
+    logger,
+    onIngestFlush,
+  } = deps;
 
   const cache = createIngestTokenCache({
     cacheManager,
     pluginId: pluginMetadata.pluginId,
   });
   const auth = createIngestAuthenticator({
-    lookup: (tokenHash) => lookupTokenByHash({ db, tokenHash }),
+    lookup: createTracestreamPushTokenLookup({ verifier }),
     cache,
     hashToken: tokenKit.hashToken,
   });
+
+  // Verified ingest stamps the source's last-seen (throttled + fire-and-forget
+  // inside the verifier). `tokenId` is the push source instance id.
+  const recordSeen = (tokenId: string): void => {
+    void verifier.recordPushSeen(tokenId);
+  };
 
   const configResolver = createStreamConfigResolver({ db, cache });
 
@@ -119,11 +198,11 @@ export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
   pipeline.start();
 
   rpc.registerHttpHandler(
-    createOtlpTracesHandler({ auth, configResolver, pipeline, logger }),
+    createOtlpTracesHandler({ auth, configResolver, pipeline, recordSeen, logger }),
     "/v1/traces",
   );
   rpc.registerHttpHandler(
-    createNativeTracesHandler({ auth, configResolver, pipeline, logger }),
+    createNativeTracesHandler({ auth, configResolver, pipeline, recordSeen, logger }),
     "/ingest",
   );
 
@@ -132,8 +211,32 @@ export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
     configResolver,
     pipeline,
     activity: storage.activity,
+    recordSeen,
     logger,
   });
+
+  // Broadcast-mode subscription: EVERY pod applies push-token invalidations to
+  // its own ingest-auth caches. Fire-and-forget registration; a bus failure
+  // leaves the TTL backstops in place rather than failing init.
+  let unsubscribeInvalidation: HookUnsubscribe | null = null;
+  void eventBus
+    .subscribe(
+      pluginMetadata.pluginId,
+      telemetryPushTokenInvalidatedHook,
+      async (payload: TelemetryPushTokenInvalidatedPayload) => {
+        if (payload.sourceTypeId !== TRACESTREAM_PUSH_SOURCE_TYPE_ID) return;
+        await applyPushTokenInvalidation({ payload, auth, cache });
+      },
+      { mode: "broadcast" },
+    )
+    .then((unsubscribe: HookUnsubscribe) => {
+      unsubscribeInvalidation = unsubscribe;
+    })
+    .catch((error: unknown) => {
+      logger.warn(
+        `tracestream: failed to subscribe to push-token invalidations (falling back to TTLs): ${String(error)}`,
+      );
+    });
 
   let stopped = false;
   return {
@@ -151,6 +254,13 @@ export function registerIngest(deps: RegisterIngestDeps): IngestHandle {
         logger.warn(`tracestream: final flush on teardown failed: ${String(error)}`);
       }
       pipeline.stop();
+      try {
+        await unsubscribeInvalidation?.();
+      } catch (error) {
+        logger.debug(
+          `tracestream: push-token invalidation unsubscribe failed: ${String(error)}`,
+        );
+      }
     },
   };
 }

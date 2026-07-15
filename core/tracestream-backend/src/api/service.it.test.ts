@@ -6,16 +6,12 @@ import {
   createMockLogger,
   type TestDb,
 } from "@checkstack/test-utils-backend";
-import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
 import type { RpcClient } from "@checkstack/backend-api";
-import {
-  TRACESTREAM_TOKEN_PREFIX,
-  DEFAULT_TRACE_STREAM_CONFIG,
-} from "@checkstack/tracestream-common";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
+import { DEFAULT_TRACE_STREAM_CONFIG } from "@checkstack/tracestream-common";
 import * as schema from "../schema";
 import { createStorage, type Storage } from "../storage";
 import type { InsertSpanInput, SummaryFlushInput } from "../storage";
-import { hashToken } from "../token-crypto";
 import { createTracestreamService, type TracestreamService } from "./service";
 
 const MIGRATIONS = path.join(import.meta.dir, "..", "..", "drizzle");
@@ -23,25 +19,6 @@ const STREAM = "stream-svc-it";
 const OTHER = "stream-svc-it-2";
 const NOW = new Date("2026-03-01T12:00:00.000Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
-
-/** Recording in-memory cache: observes the ingest-auth `delete` invalidations. */
-function recordingCache(): { manager: CacheManager; deletes: string[] } {
-  const deletes: string[] = [];
-  const store = new Map<string, unknown>();
-  const provider: CacheProvider = {
-    get: async <T>(k: string) => store.get(k) as T | undefined,
-    set: async <T>(k: string, v: T) => {
-      store.set(k, v);
-    },
-    delete: async (k: string) => {
-      deletes.push(k);
-      store.delete(k);
-    },
-    deleteByPrefix: async () => 0,
-    has: async (k: string) => store.has(k),
-  };
-  return { manager: { getProvider: () => provider } as unknown as CacheManager, deletes };
-}
 
 function span(
   over: Partial<InsertSpanInput> & {
@@ -107,7 +84,6 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
       schema.traceServiceOps,
       schema.traceImportantEvents,
       schema.traceStreamActivity,
-      schema.traceStreamTokens,
       schema.traceStreams,
     ]) {
       await db.delete(table);
@@ -115,14 +91,14 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
   });
 
   function buildService(overrides?: {
-    cacheManager?: CacheManager;
     rpcClient?: RpcClient;
+    sourceLifecycle?: TelemetrySourceLifecycle;
   }): TracestreamService {
     return createTracestreamService({
       storage,
-      cacheManager: overrides?.cacheManager ?? recordingCache().manager,
       logger: createMockLogger(),
       rpcClient: overrides?.rpcClient,
+      sourceLifecycle: overrides?.sourceLifecycle,
       now: () => NOW,
     });
   }
@@ -162,36 +138,7 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
     );
   });
 
-  it("mint then revoke a token: list never leaks secret material, revoke invalidates the ingest-auth cache", async () => {
-    const cache = recordingCache();
-    const service = buildService({ cacheManager: cache.manager });
-    const stream = await service.createStream({ name: "Token stream" });
-
-    const minted = await service.mintToken({ streamId: stream.id, name: "shipper" });
-    expect(minted.secret.startsWith(TRACESTREAM_TOKEN_PREFIX)).toBe(true);
-
-    const listed = await service.listTokens({ streamId: stream.id });
-    expect(listed).toHaveLength(1);
-    expect(listed[0]).not.toHaveProperty("tokenHash");
-    expect(listed[0]).not.toHaveProperty("secret");
-    expect(listed[0]!.revokedAt).toBeNull();
-
-    const tokenHash = hashToken(minted.secret);
-
-    await service.revokeToken({ streamId: stream.id, tokenId: minted.token.id });
-    const after = await service.listTokens({ streamId: stream.id });
-    expect(after[0]!.revokedAt).not.toBeNull();
-    // The shared positive verdict for this token's hash was invalidated so it
-    // stops authenticating on every pod within the cache TTL.
-    expect(cache.deletes.some((k) => k.includes(tokenHash))).toBe(true);
-
-    await expect(
-      service.revokeToken({ streamId: stream.id, tokenId: "nope" }),
-    ).rejects.toThrow(/not found/i);
-  });
-
-  it("deleteStream invalidates every token's ingest-auth cache and cleans grants", async () => {
-    const cache = recordingCache();
+  it("deleteStream cleans grants AND cascades the deletion to bound telemetry sources", async () => {
     let grantCleanup: { objectType: string; objectId: string } | undefined;
     const rpcClient = {
       forPlugin: () => ({
@@ -203,20 +150,37 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
         },
       }),
     } as unknown as RpcClient;
-    const service = buildService({ cacheManager: cache.manager, rpcClient });
+    // Push tokens are platform-owned now: instead of surviving untouched, a
+    // stream deletion drives the telemetry platform's source cascade. Assert the
+    // lifecycle is invoked with this signal + stream id (a stub records it - the
+    // IT harness cannot load telemetry's schema).
+    const streamDeletes: Array<{ signal: string; streamId: string }> = [];
+    const sourceLifecycle = {
+      handleStreamDeleted: async (input: {
+        signal: string;
+        streamId: string;
+      }) => {
+        streamDeletes.push(input);
+      },
+    } as unknown as TelemetrySourceLifecycle;
+    const service = buildService({ rpcClient, sourceLifecycle });
     const stream = await service.createStream({ name: "Doomed" });
-    const minted = await service.mintToken({ streamId: stream.id, name: "s" });
-    const tokenHash = hashToken(minted.secret);
 
     await service.deleteStream({ id: stream.id });
 
-    expect(cache.deletes.some((k) => k.includes(tokenHash))).toBe(true);
     expect(grantCleanup).toEqual({
       objectType: "tracestream.stream",
       objectId: stream.id,
     });
-    // The token row is gone with the stream.
-    expect(await storage.tokens.list({ streamId: stream.id })).toHaveLength(0);
+    // The platform is told to strip this stream's binding from every source and
+    // delete sources left binding-less.
+    expect(streamDeletes).toEqual([
+      { signal: "traces", streamId: stream.id },
+    ]);
+    // The stream row is gone; tracestream no longer owns any token table.
+    await expect(service.getStream({ id: stream.id })).rejects.toThrow(
+      /not found/i,
+    );
   });
 
   it("searchTraces pages across multiple pages via the keyset cursor", async () => {
@@ -353,7 +317,10 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
       streamId: stream.id,
       receivedAt: hoursAgo(1),
       rateEstimate: 42,
+      droppedSpans: 9,
+      droppedTraces: 4,
     });
+    await storage.activity.addInTransitDrops({ streamId: stream.id, dropped: 6 });
     // Seed op buckets for top-services (insert the tier rows directly).
     await test.db.insert(schema.traceOpMinuteBuckets).values([
       {
@@ -386,6 +353,10 @@ describe.skipIf(!isIntegrationEnabled())("tracestream service (integration)", ()
     expect(overview.totals24h.retainedTraces).toBe(2);
     expect(overview.totals24h.spans).toBe(7); // 4 + 2 + 1
     expect(overview.lastReceivedAt?.getTime()).toBe(hoursAgo(1).getTime());
+    // Drop counters flow through from the activity row.
+    expect(overview.droppedSpansCount).toBe(9);
+    expect(overview.droppedTracesCount).toBe(4);
+    expect(overview.droppedInTransitCount).toBe(6);
     // Only retained traces, slowest first.
     expect(overview.slowestRetained.map((t) => t.traceId)).toEqual(["slow", "fast"]);
     // Top services by span volume, descending.

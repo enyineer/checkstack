@@ -52,9 +52,16 @@ export function extractIngestToken({
     return checkstackToken.trim();
   }
   if (authorization) {
-    const match = /^bearer\s+(.+)$/i.exec(authorization.trim());
-    const candidate = match?.[1]?.trim();
-    if (candidate && isTracestreamToken(candidate)) return candidate;
+    // Match only the "Bearer " scheme prefix, then slice the remainder - never
+    // a `\s+(.+)` capture, whose overlapping quantifiers backtrack polynomially
+    // on crafted whitespace (CodeQL js/polynomial-redos). Mirrors
+    // logstream/metricstream-common and the shared source-token kit.
+    const trimmed = authorization.trim();
+    const scheme = /^Bearer\s+/i.exec(trimmed);
+    if (scheme) {
+      const candidate = trimmed.slice(scheme[0].length).trim();
+      if (candidate && isTracestreamToken(candidate)) return candidate;
+    }
   }
   return null;
 }

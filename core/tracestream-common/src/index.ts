@@ -8,6 +8,10 @@ export {
 // Routes
 export { tracestreamRoutes } from "./routes";
 
+// Cross-plugin "View trace" deep-link builder (shared by tracestream's own
+// fillers and metricstream's exemplar jump-off).
+export { buildViewTraceHref } from "./view-trace-link";
+
 // Plugin metadata
 export * from "./plugin-metadata";
 

@@ -1,5 +1,5 @@
 import { resolveRoute } from "@checkstack/common";
-import { tracestreamRoutes } from "@checkstack/tracestream-common";
+import { tracestreamRoutes } from "./routes";
 
 /**
  * Build the deep link that opens a single trace on the trace-stream detail
@@ -7,9 +7,10 @@ import { tracestreamRoutes } from "@checkstack/tracestream-common";
  * hand-concatenated prefix) so a change to `tracestreamRoutes.detail` follows
  * automatically. The `tab`/`trace` search params mirror how
  * `TraceStreamDetailPage` reads the URL: it selects the `traces` tab via `tab`
- * and opens the trace via `trace` (see `pages/TraceStreamDetailPage.tsx`). Pure
- * so the cross-plugin "View trace" fillers share one link builder and a wrong
- * param is caught by a unit test rather than a dead link.
+ * and opens the trace via `trace`. Pure and browser-safe so every cross-plugin
+ * "View trace" jump-off (tracestream's own fillers, metricstream's exemplar
+ * lane) shares ONE link builder and a wrong param is caught by a unit test
+ * rather than a dead link.
  */
 export function buildViewTraceHref({
   streamId,

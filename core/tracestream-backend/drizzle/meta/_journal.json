@@ -29,6 +29,13 @@
       "when": 1784073492112,
       "tag": "0003_graceful_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784112714240,
+      "tag": "0004_peaceful_morlun",
+      "breakpoints": true
     }
   ]
 }

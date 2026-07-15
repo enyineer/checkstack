@@ -27,12 +27,15 @@ export function createNativeTracesHandler({
   auth,
   configResolver,
   pipeline,
+  recordSeen,
   logger,
   now = () => new Date(),
 }: {
   auth: IngestAuthenticator;
   configResolver: StreamConfigResolver;
   pipeline: IngestPipeline;
+  /** Fire-and-forget last-seen stamp for the verified push source (`tokenId`). */
+  recordSeen?: (tokenId: string) => void;
   logger: Logger;
   now?: () => Date;
 }): (request: Request) => Promise<Response> {
@@ -41,6 +44,7 @@ export function createNativeTracesHandler({
 
     const source = await authenticateRequest({ request, auth });
     if (source instanceof Response) return source;
+    recordSeen?.(source.tokenId);
 
     let body: Uint8Array;
     try {

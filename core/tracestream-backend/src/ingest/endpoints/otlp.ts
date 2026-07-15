@@ -33,12 +33,15 @@ export function createOtlpTracesHandler({
   auth,
   configResolver,
   pipeline,
+  recordSeen,
   logger,
   now = () => new Date(),
 }: {
   auth: IngestAuthenticator;
   configResolver: StreamConfigResolver;
   pipeline: IngestPipeline;
+  /** Fire-and-forget last-seen stamp for the verified push source (`tokenId`). */
+  recordSeen?: (tokenId: string) => void;
   logger: Logger;
   now?: () => Date;
 }): (request: Request) => Promise<Response> {
@@ -47,6 +50,7 @@ export function createOtlpTracesHandler({
 
     const source = await authenticateRequest({ request, auth });
     if (source instanceof Response) return source;
+    recordSeen?.(source.tokenId);
 
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
     const isProtobuf =

@@ -554,7 +554,6 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     const stream = await storage.streams.create({ name: "cascade" });
     const streamId = stream.id;
     const now = new Date();
-    await storage.tokens.insert({ streamId, name: "t", tokenHash: "h", tokenPrefix: "cktr_xyz" });
     await storage.spans.insertSpans({ spans: [span({ streamId, traceId: "tr", spanId: "s", startTs: now })] });
     await storage.summaries.upsertFromFlush({ summaries: [flush({ streamId, traceId: "tr", startTs: now, lastSpanAt: now })] });
     await storage.opBuckets.foldSpans({ folds: [{ streamId, serviceName: "svc", spanName: "op", bucketStart: now, durationsMs: [1], errorCount: 0 }] });
@@ -565,7 +564,6 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
 
     await storage.deleteStreamData({ streamId });
 
-    expect(await storage.tokens.list({ streamId })).toHaveLength(0);
     expect(await storage.spans.listSpansForTrace({ streamId, traceId: "tr" })).toHaveLength(0);
     expect(await storage.summaries.getSummary({ streamId, traceId: "tr" })).toBeNull();
     expect(await storage.serviceOps.listServices({ streamId })).toHaveLength(0);

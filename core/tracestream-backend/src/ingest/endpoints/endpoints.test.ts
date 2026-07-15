@@ -60,11 +60,13 @@ function post(url: string, body: string, headers: Record<string, string>): Reque
 const OK_AUTH = auth({ ok: true, resourceId: "s1", tokenId: "t1" });
 
 describe("OTLP traces endpoint", () => {
-  it("401s a request with no token", async () => {
+  it("401s a request with no token and never stamps last-seen", async () => {
+    const seen: string[] = [];
     const handler = createOtlpTracesHandler({
       auth: OK_AUTH,
       configResolver,
       pipeline: pipe(OK_RESULT).pipeline,
+      recordSeen: (tokenId) => seen.push(tokenId),
       logger: createMockLogger(),
     });
     const res = await handler(
@@ -73,6 +75,7 @@ describe("OTLP traces endpoint", () => {
       }),
     );
     expect(res.status).toBe(401);
+    expect(seen).toEqual([]); // no verified source, no stamp
   });
 
   it("401s a revoked token with an actionable message", async () => {
@@ -92,10 +95,13 @@ describe("OTLP traces endpoint", () => {
 
   it("accepts a valid JSON export and reports rejected spans via partialSuccess", async () => {
     const { pipeline, calls } = pipe({ ...OK_RESULT, accepted: 1 });
+    // The verified source instance is stamped last-seen (fire-and-forget).
+    const seen: string[] = [];
     const handler = createOtlpTracesHandler({
       auth: OK_AUTH,
       configResolver,
       pipeline,
+      recordSeen: (tokenId) => seen.push(tokenId),
       logger: createMockLogger(),
     });
     const res = await handler(
@@ -112,6 +118,7 @@ describe("OTLP traces endpoint", () => {
     const body = await res.json();
     expect(body.partialSuccess.rejectedSpans).toBe(1);
     expect(calls[0]!.spans).toBe(1); // only the valid span reached the pipeline
+    expect(seen).toEqual(["t1"]); // verified push source stamped last-seen
   });
 
   it("429s with Retry-After when the pipeline admits nothing", async () => {

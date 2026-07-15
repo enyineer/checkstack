@@ -1,7 +1,4 @@
-import {
-  createSourceTokenKit,
-  type GeneratedSourceToken,
-} from "@checkstack/ingest-utils";
+import { createSourceTokenKit } from "@checkstack/ingest-utils";
 import {
   TRACESTREAM_TOKEN_PREFIX,
   TRACESTREAM_TOKEN_DISPLAY_PREFIX_LENGTH,
@@ -12,7 +9,12 @@ import {
  * minting), built on the shared `@checkstack/ingest-utils` source-token kit and
  * bound to tracestream's `cktr_` prefix.
  *
- * These live in the BACKEND package deliberately: `@checkstack/tracestream-common`
+ * Push-token MINTING is now owned by the telemetry platform; the ingest path
+ * only needs the kit's sha256 `hashToken` to key the ingest-token cache the same
+ * way `createIngestAuthenticator` does. (The tests also mint sample tokens with
+ * the kit to drive the verify path.)
+ *
+ * This lives in the BACKEND package deliberately: `@checkstack/tracestream-common`
  * is imported by the browser bundle, and a top-level `node:crypto` import there
  * (which the kit pulls in) would make Vite externalize the module and break the
  * whole frontend plugin at load time. Keep every node builtin - including this
@@ -21,26 +23,10 @@ import {
  *
  * NEVER log or echo a full secret.
  */
-
 const tokenKit = createSourceTokenKit({
   prefix: TRACESTREAM_TOKEN_PREFIX,
   displayPrefixLength: TRACESTREAM_TOKEN_DISPLAY_PREFIX_LENGTH,
 });
 
-export type GeneratedToken = GeneratedSourceToken;
-
 /** The shared source-token kit (hashing + minting), for the ingest authenticator. */
 export { tokenKit };
-
-/** sha256 hex digest of a full token secret - the stored/compared form. */
-export function hashToken(secret: string): string {
-  return tokenKit.hashToken(secret);
-}
-
-/**
- * Mint a new source token for a stream. Returns the one-time secret plus the
- * hash and display prefix to persist.
- */
-export function generateToken({ streamId }: { streamId: string }): GeneratedToken {
-  return tokenKit.generateToken({ resourceId: streamId });
-}

@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ListTree,
   Network,
+  Radio,
   Settings,
 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -19,22 +20,24 @@ import { TracestreamApi } from "@checkstack/tracestream-common";
 import { OverviewTab } from "../components/tabs/OverviewTab";
 import { TracesTab } from "../components/tabs/TracesTab";
 import { ServicesTab } from "../components/tabs/ServicesTab";
+import { SourcesTab } from "../components/tabs/SourcesTab";
 import { SettingsTab } from "../components/tabs/SettingsTab";
 
-const TAB_IDS = ["overview", "traces", "services", "settings"] as const;
+const TAB_IDS = ["overview", "traces", "services", "sources", "settings"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 const TAB_ITEMS = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="size-4" /> },
   { id: "traces", label: "Traces", icon: <ListTree className="size-4" /> },
   { id: "services", label: "Services", icon: <Network className="size-4" /> },
+  { id: "sources", label: "Sources", icon: <Radio className="size-4" /> },
   { id: "settings", label: "Settings", icon: <Settings className="size-4" /> },
 ];
 
 /**
- * Trace-stream detail with Overview / Traces / Services / Settings tabs. The
- * active tab, the opened trace id and a service deep-link all live in the URL,
- * so a link opens the right tab (and trace) directly.
+ * Trace-stream detail with Overview / Traces / Services / Sources / Settings
+ * tabs. The active tab, the opened trace id and a service deep-link all live in
+ * the URL, so a link opens the right tab (and trace) directly.
  */
 export function TraceStreamDetailPage() {
   const { streamId } = useParams<{ streamId: string }>();
@@ -130,6 +133,10 @@ export function TraceStreamDetailPage() {
 
             <TabPanel id="services" activeTab={activeTab}>
               <ServicesTab streamId={stream.id} />
+            </TabPanel>
+
+            <TabPanel id="sources" activeTab={activeTab}>
+              <SourcesTab stream={stream} />
             </TabPanel>
 
             <TabPanel id="settings" activeTab={activeTab}>
