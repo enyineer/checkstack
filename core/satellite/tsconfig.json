@@ -9,6 +9,9 @@
   },
   "references": [
     {
+      "path": "../../plugins/k8s-events-common"
+    },
+    {
       "path": "../backend-api"
     },
     {

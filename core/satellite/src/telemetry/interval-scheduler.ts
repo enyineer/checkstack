@@ -1,6 +1,6 @@
 /**
- * Shared agent-side interval scheduler for a pushed capability. Both the
- * metric-scrape and telemetry-pull schedulers are the SAME machine: consume a
+ * Shared agent-side interval scheduler for a pushed capability. The
+ * telemetry-pull scheduler is built on this machine: consume a
  * pushed `capability_config` (the items BOUND to this satellite), maintain one
  * interval timer per item (reconciled on every push), run the item's work on
  * each tick, forward its output, and emit per-item health as a
@@ -22,10 +22,12 @@
  * output + status). Keying on the id survives the replacement.
  *
  * SECRETS: config secret fields NEVER ride the pushed config; the item's work
- * fetches each JIT and caches it in the concrete scheduler's own store. That
- * store is FLUSHED on every `applyConfig` (via the `flushSecrets` seam) so a
- * ROTATED secret - which re-pushes an otherwise-identical config that
- * `sameConfig` sees as unchanged - is re-fetched, and on `stop()`.
+ * fetches each JIT. WHERE a concrete scheduler holds cross-run secret state, the
+ * `flushSecrets` seam clears it on every `applyConfig` and on `stop()`; a
+ * scheduler that instead resolves secrets fresh PER RUN (the telemetry-pull one
+ * does, so a rotated secret takes effect on the next run without a config
+ * re-push) passes a no-op `flushSecrets`. Either way the machine calls the seam;
+ * it is the concrete scheduler's choice what, if anything, it clears.
  *
  * STATE & SCALE: timers + counters (+ the concrete scheduler's secret cache)
  * are pod-local transport bookkeeping on a single agent process. The durable
@@ -130,10 +132,10 @@ export class CapabilityIntervalScheduler<
       );
       return;
     }
-    // Flush the JIT secret cache on every push: a secret ROTATION re-pushes an
-    // otherwise-identical config (sameConfig sees no change), so clearing here -
-    // an infrequent event (connect + item CRUD) - guarantees the next run
-    // re-fetches the rotated secret, and drops entries for removed items.
+    // Invoke the flushSecrets seam on every push. For a scheduler that caches
+    // secrets across runs this drops entries for removed items and re-fetches a
+    // ROTATED secret (which re-pushes an otherwise-identical config sameConfig
+    // sees as unchanged); a per-run-resolving scheduler passes a no-op here.
     this.opts.flushSecrets();
     const next = new Map(parsed.items.map((i) => [i.id, i]));
 

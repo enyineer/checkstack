@@ -15,6 +15,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/ingest-utils": "workspace:*",
+    "@checkstack/k8s-events-common": "workspace:*",
     "@checkstack/logstream-common": "workspace:*",
     "@checkstack/metricstream-common": "workspace:*",
     "@checkstack/otlp-wire": "workspace:*",

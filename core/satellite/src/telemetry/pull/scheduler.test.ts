@@ -222,7 +222,7 @@ describe("TelemetryPullScheduler run + forward", () => {
     scheduler.stop();
   });
 
-  it("fetches a secret JIT, passes it to the executor, and caches it across runs", async () => {
+  it("fetches a secret JIT and passes it to the executor", async () => {
     const seen: (string | undefined)[] = [];
     const execute = async (ctx: SatellitePullExecutorContext) => {
       seen.push(await ctx.fetchSecret("apiToken"));
@@ -238,20 +238,46 @@ describe("TelemetryPullScheduler run + forward", () => {
       instances: [instance("a", { secretFields: ["apiToken"] })],
     });
     await flush();
-    // Second run without a config change reuses the cached secret.
-    await scheduler.pullInstance("a");
 
-    expect(fetchSecret).toHaveBeenCalledTimes(1);
     expect(fetchSecret.mock.calls[0]![0]).toEqual({
       kind: TELEMETRY_PULL_CAPABILITY_KIND,
       payload: { instanceId: "a", field: "apiToken" },
     });
-    expect(seen).toEqual(["jit-token", "jit-token"]);
+    expect(seen).toEqual(["jit-token"]);
     scheduler.stop();
   });
 
-  it("re-fetches the secret after a config push (cache flush on reconfigure)", async () => {
+  it("resolves the secret fresh each run and picks up a rotated value (no cross-run cache)", async () => {
+    // Regression: a secret rotation touches no telemetry_sources row, so no
+    // config is re-pushed. A cross-run cache would keep scraping with the OLD
+    // value for the WS connection's lifetime; per-run resolution must re-fetch
+    // and use the rotated value on the very next run.
+    const seen: (string | undefined)[] = [];
     const execute = async (ctx: SatellitePullExecutorContext) => {
+      seen.push(await ctx.fetchSecret("apiToken"));
+      return {};
+    };
+    let value = "token-v1";
+    const fetchSecret = mock<FetchSecretFn>(async () => ({ payload: { value } }));
+    const { scheduler } = harness(fixedExecutor(undefined, { execute }), {
+      fetchSecret,
+    });
+    scheduler.applyConfig({
+      instances: [instance("a", { secretFields: ["apiToken"] })],
+    });
+    await flush();
+    // Rotate at the source (no config re-push), then run again.
+    value = "token-v2";
+    await scheduler.pullInstance("a");
+
+    expect(fetchSecret).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual(["token-v1", "token-v2"]);
+    scheduler.stop();
+  });
+
+  it("memoizes a secret field WITHIN a single run (one request for repeated uses)", async () => {
+    const execute = async (ctx: SatellitePullExecutorContext) => {
+      await ctx.fetchSecret("apiToken");
       await ctx.fetchSecret("apiToken");
       return {};
     };
@@ -266,14 +292,6 @@ describe("TelemetryPullScheduler run + forward", () => {
     });
     await flush();
     expect(fetchSecret).toHaveBeenCalledTimes(1);
-
-    scheduler.applyConfig({
-      instances: [
-        instance("a", { secretFields: ["apiToken"], intervalSeconds: 45 }),
-      ],
-    });
-    await flush();
-    expect(fetchSecret).toHaveBeenCalledTimes(2);
     scheduler.stop();
   });
 

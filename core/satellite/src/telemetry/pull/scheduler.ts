@@ -15,9 +15,13 @@
  *
  * SECRETS: config secret fields NEVER ride the pushed config; the executor
  * fetches each JIT via `ctx.fetchSecret(field)`, which requests it from core over
- * the authenticated socket (`capability_secret_request`). Resolved values are
- * cached in memory per (instance, field) and FLUSHED on every `applyConfig`
- * (see the base's secret-cache lifecycle) so a rotated secret is re-fetched.
+ * the authenticated socket (`capability_secret_request`). Resolution is fresh
+ * PER RUN - memoized only for the duration of a single run (so a field used more
+ * than once in one run costs one round-trip) and NEVER cached across runs. Core
+ * resolves `${{ secrets.NAME }}` references fresh every run, so a rotated secret
+ * (which touches no `telemetry_sources` row and so pushes no new config) must
+ * take effect on the very next run here too, not linger for the WS connection's
+ * lifetime.
  */
 
 import type { TelemetryEnqueuer } from "../enqueuer";
@@ -65,15 +69,10 @@ function sameConfig(
 }
 
 export class TelemetryPullScheduler {
-  /**
-   * In-memory JIT secret cache, keyed by `${instanceId}::${field}`. Value is the
-   * resolved secret (or `undefined` when the field holds none). NEVER persisted;
-   * flushed by the base on every `applyConfig` and `stop()`.
-   */
-  private readonly secretCache = new Map<string, string | undefined>();
   private readonly enqueue: TelemetryEnqueuer;
   private readonly fetchSecret: FetchSecretFn;
   private readonly registry: TelemetryPullExecutorRegistry;
+  private readonly logger: Logger;
   private readonly base: CapabilityIntervalScheduler<
     TelemetryPullInstanceConfig,
     TelemetryPullStatusItem
@@ -92,6 +91,7 @@ export class TelemetryPullScheduler {
     this.enqueue = opts.enqueue;
     this.fetchSecret = opts.fetchSecret;
     this.registry = opts.registry ?? telemetryPullExecutorRegistry;
+    this.logger = opts.logger;
     this.base = new CapabilityIntervalScheduler({
       kind: TELEMETRY_PULL_CAPABILITY_KIND,
       label: "telemetry-pull",
@@ -107,7 +107,9 @@ export class TelemetryPullScheduler {
           : { error: parsed.error.message };
       },
       sameConfig,
-      flushSecrets: () => this.secretCache.clear(),
+      // No cross-run secret cache to flush: secrets resolve fresh per run (see
+      // runPull), so rotation needs no flush-on-push.
+      flushSecrets: () => {},
       runItem: ({ config }) => this.runPull(config),
       buildStatus: ({ config, lastError, consecutiveFailures, at }) => ({
         instanceId: config.id,
@@ -161,13 +163,27 @@ export class TelemetryPullScheduler {
       };
     }
 
+    // Per-RUN secret memoization: resolve each field JIT and cache the pending
+    // resolution only for THIS run (a field used more than once in one run costs
+    // a single round-trip). NEVER cached across runs so a rotated secret takes
+    // effect on the next run - see the file header's SECRETS note.
+    const runSecrets = new Map<string, Promise<string | undefined>>();
+    const fetchSecret = (field: string): Promise<string | undefined> => {
+      const pending = runSecrets.get(field);
+      if (pending) return pending;
+      const resolved = this.resolveSecretForField(config.id, field);
+      runSecrets.set(field, resolved);
+      return resolved;
+    };
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
       const produced = await executor.execute({
         config: config.config,
-        fetchSecret: (field) => this.fetchSecretForField(config.id, field),
+        fetchSecret,
         abortSignal: controller.signal,
+        logger: this.logger,
       });
 
       // Drop records for signals this instance does not route (the core would
@@ -199,17 +215,15 @@ export class TelemetryPullScheduler {
   }
 
   /**
-   * Resolve ONE config secret field JIT for an instance (cached in memory). The
-   * executor calls this for a field it treats as secret; a resolution failure
+   * Resolve ONE config secret field JIT for an instance by requesting it from
+   * core over the authenticated socket. The executor calls this (through the
+   * per-run memoizer) for a field it treats as secret; a resolution failure
    * THROWS so the run fails clearly (we never run with an unresolved secret).
    */
-  private async fetchSecretForField(
+  private async resolveSecretForField(
     instanceId: string,
     field: string,
   ): Promise<string | undefined> {
-    const key = `${instanceId}::${field}`;
-    if (this.secretCache.has(key)) return this.secretCache.get(key);
-
     const resp = await this.fetchSecret({
       kind: TELEMETRY_PULL_CAPABILITY_KIND,
       payload: { instanceId, field } satisfies TelemetryPullSecretRequest,
@@ -221,9 +235,7 @@ export class TelemetryPullScheduler {
     if (!parsed.success) {
       throw new Error("secret unavailable: malformed secret response");
     }
-    const value = parsed.data.value;
-    this.secretCache.set(key, value);
-    return value;
+    return parsed.data.value;
   }
 }
 

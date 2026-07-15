@@ -1,5 +1,5 @@
 /**
- * Composition of the agent's telemetry RECEIVERS + SCRAPER behind their
+ * Composition of the agent's telemetry RECEIVERS + PULL scheduler behind their
  * capability flags. Given the (already-instantiated) telemetry client and agent
  * capability registry, this starts:
  *
@@ -7,8 +7,8 @@
  *   on ONE port when the "log-receivers" capability is advertised (it hosts both
  *   the log and metric HTTP receivers, per the telemetry plan);
  * - the TCP/TLS syslog listener when "syslog" is advertised;
- * - the metric-scrape scheduler (a capability CONSUMER of pushed targets) when
- *   "scrape" is advertised.
+ * - the telemetry-pull scheduler (a capability CONSUMER of pushed source
+ *   instances) when "telemetry-pull" is advertised.
  *
  * Everything forwards into the ONE telemetry client, which owns bounded
  * buffering + the credit window. Returns a handle the composition root stops on
@@ -32,13 +32,9 @@ import {
   type SyslogListener,
 } from "./syslog-listener";
 import {
-  MetricScrapeScheduler,
-  METRIC_SCRAPE_CAPABILITY_KIND,
-  type FetchSecretFn,
-} from "./scrape/scheduler";
-import {
   TelemetryPullScheduler,
   TELEMETRY_PULL_CAPABILITY_KIND,
+  type FetchSecretFn,
 } from "./pull/scheduler";
 
 interface Logger {
@@ -49,7 +45,7 @@ interface Logger {
 }
 
 export interface TelemetryReceivers {
-  /** Stop every started receiver / scraper (idempotent). */
+  /** Stop every started receiver / pull scheduler (idempotent). */
   stop(): void;
 }
 
@@ -71,7 +67,6 @@ export function startTelemetryReceivers({
 }): TelemetryReceivers {
   let httpServer: TelemetryHttpServer | null = null;
   let syslog: SyslogListener | null = null;
-  let scrapeScheduler: MetricScrapeScheduler | null = null;
   let pullScheduler: TelemetryPullScheduler | null = null;
 
   // Log/metric AND trace receivers share ONE HTTP server/port; each capability
@@ -120,20 +115,6 @@ export function startTelemetryReceivers({
     }
   }
 
-  if (capabilities.includes("scrape")) {
-    scrapeScheduler = new MetricScrapeScheduler({
-      enqueue: telemetryClient,
-      emitStatus: (input) => capabilityRegistry.emitStatus(input),
-      fetchSecret,
-      logger,
-    });
-    const scheduler = scrapeScheduler;
-    capabilityRegistry.register({
-      kind: METRIC_SCRAPE_CAPABILITY_KIND,
-      onCapabilityConfig: ({ payload }) => scheduler.applyConfig(payload),
-    });
-  }
-
   if (capabilities.includes("telemetry-pull")) {
     pullScheduler = new TelemetryPullScheduler({
       enqueue: telemetryClient,
@@ -155,7 +136,6 @@ export function startTelemetryReceivers({
       stopped = true;
       httpServer?.stop();
       syslog?.stop();
-      scrapeScheduler?.stop();
       pullScheduler?.stop();
     },
   };
