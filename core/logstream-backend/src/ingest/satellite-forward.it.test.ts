@@ -37,9 +37,11 @@ import { createStorage, sumSeverityBands } from "../storage";
 import { readStreamActivity } from "../storage/activity";
 import { createImportantEventRecorder } from "../events/recorder";
 import { createDrainEngine } from "../drain/engine";
+import { createPushTokenLookup } from "@checkstack/telemetry-backend";
 import { createIngestTokenCache } from "../api/token-cache";
 import { createIngestAuthenticator } from "./auth";
-import { lookupTokenByHash } from "./token-lookup";
+import { LOGSTREAM_PUSH_SOURCE_TYPE_ID } from "./push/source-type";
+import { createStubPushVerifier } from "./push/stub-verifier";
 import { createStreamConfigResolver } from "./stream-config";
 import { createIngestPipeline, type IngestPipeline } from "./pipeline";
 import { createInProcessFlushExecutor } from "./flush-executor";
@@ -143,26 +145,22 @@ describe.skipIf(!isIntegrationEnabled())(
         },
       ]);
 
+      // The push tokens are owned by the telemetry platform now; a stub
+      // verifier plays the promoted `telemetry_sources` rows (one per stream).
       const token = generateToken({ streamId: STREAM });
       tokenSecret = token.secret;
       const token2 = generateToken({ streamId: STREAM2 });
       tokenSecret2 = token2.secret;
-      await db.insert(schema.logStreamTokens).values([
-        {
-          id: "sat-forward-token",
-          streamId: STREAM,
-          name: "satellite shipper",
-          tokenHash: token.tokenHash,
-          tokenPrefix: token.tokenPrefix,
-        },
-        {
-          id: "sat-forward-token-2",
-          streamId: STREAM2,
-          name: "satellite shipper 2",
-          tokenHash: token2.tokenHash,
-          tokenPrefix: token2.tokenPrefix,
-        },
-      ]);
+      const verifier = createStubPushVerifier({
+        sources: [
+          { sourceId: "sat-forward-src", streamId: STREAM, tokenHash: token.tokenHash },
+          {
+            sourceId: "sat-forward-src-2",
+            streamId: STREAM2,
+            tokenHash: token2.tokenHash,
+          },
+        ],
+      });
 
       const logger = createMockLogger();
       const signalService = createMockSignalService();
@@ -191,7 +189,11 @@ describe.skipIf(!isIntegrationEnabled())(
 
       const cache = createIngestTokenCache({ cacheManager });
       const auth = createIngestAuthenticator({
-        lookup: (tokenHash) => lookupTokenByHash({ db, tokenHash }),
+        lookup: createPushTokenLookup({
+          verifier,
+          sourceTypeId: LOGSTREAM_PUSH_SOURCE_TYPE_ID,
+          signal: "logs",
+        }),
         cache,
       });
       const configResolver = createStreamConfigResolver({ db, cache });

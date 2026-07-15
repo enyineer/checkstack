@@ -5,7 +5,6 @@ export type {
   LogStream,
   CreateLogStream,
   UpdateLogStream,
-  LogStreamToken,
   LogEvent,
   LogPattern,
   ImportantEvent,

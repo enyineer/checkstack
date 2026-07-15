@@ -156,6 +156,9 @@ export function createLogstreamTelemetrySink({
 
   return {
     signal: "logs",
+    // The qualified ReBAC resource type of this signal's streams, so the
+    // platform can back-fill / clean up per-stream grants on binding changes.
+    streamResourceType: logstreamResourceTypes.stream,
 
     assertBindable,
     describeStream,

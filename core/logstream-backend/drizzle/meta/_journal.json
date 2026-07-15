@@ -43,6 +43,13 @@
       "when": 1784073347968,
       "tag": "0005_sharp_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784112782391,
+      "tag": "0006_sour_gravity",
+      "breakpoints": true
     }
   ]
 }

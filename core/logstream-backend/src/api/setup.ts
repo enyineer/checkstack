@@ -6,7 +6,7 @@ import type {
   EventBus,
   ResourceResolverRegistry,
 } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import type { SignalService } from "@checkstack/signal-common";
 import { ilike, inArray } from "drizzle-orm";
 import {
@@ -30,10 +30,10 @@ export function registerApi({
   rpc,
   db,
   storage,
-  cacheManager,
   signalService: _signalService,
   logger,
   rpcClient,
+  sourceLifecycle,
   eventBus,
   resourceResolverRegistry,
   ingestCounters,
@@ -42,7 +42,6 @@ export function registerApi({
   rpc: RpcService;
   db: SafeDatabase<typeof schema>;
   storage: Storage;
-  cacheManager: CacheManager;
   signalService: SignalService;
   logger: Logger;
   /**
@@ -51,6 +50,12 @@ export function registerApi({
    * tests can omit it; wire `coreServices.rpcClient` in `index.ts`.
    */
   rpcClient?: RpcClient;
+  /**
+   * Telemetry source-lifecycle service, forwarded to the service so
+   * `deleteStream` cascades the deletion to bound telemetry sources. Optional so
+   * tests can omit it; wire `telemetrySourceLifecycleRef` in `index.ts`.
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
   /**
    * Platform event bus, forwarded to the service so token mutations broadcast
    * `logstream.tokens.invalidated` to every pod's ingest area. Optional so
@@ -74,9 +79,9 @@ export function registerApi({
   const service = createLogstreamService({
     db,
     storage,
-    cacheManager,
     logger,
     rpcClient,
+    sourceLifecycle,
     eventBus,
     ingestCounters,
     // `deletePattern` refuses to orphan a referencing health check; the checker

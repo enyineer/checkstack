@@ -7,7 +7,7 @@ import type {
   EventBus,
 } from "@checkstack/backend-api";
 import { withScopedTransaction } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import { AuthApi } from "@checkstack/auth-common";
 import {
   LogStreamConfigSchema,
@@ -18,8 +18,6 @@ import {
   type LogStream,
   type CreateLogStream,
   type UpdateLogStream,
-  type LogStreamToken,
-  type MintTokenResult,
   type SearchEvents,
   type SearchEventsResult,
   type FindEventsByTraceId,
@@ -56,7 +54,6 @@ import type {
   ListLinkedStreamStatusesResult,
 } from "@checkstack/telemetry-common";
 import type { ListServiceNamesResult } from "@checkstack/logstream-common";
-import { generateToken } from "../token-crypto";
 import {
   createPatternOperations,
   type PatternOperations,
@@ -68,12 +65,7 @@ import {
 import type { FindReferencingChecks } from "../health/pattern-references";
 import * as schema from "../schema";
 import {
-  logstreamTokensInvalidatedHook,
-  type LogstreamTokensInvalidatedPayload,
-} from "../events/bus-hooks";
-import {
   logStreams,
-  logStreamTokens,
   logEvents,
   logSeverityBuckets,
   logPatternBuckets,
@@ -94,14 +86,6 @@ import {
   addSeverityTotals,
   ZERO_SEVERITY_TOTALS,
 } from "./buckets-merge";
-import { createIngestTokenCache, ingestTokenCacheKey } from "./token-cache";
-// The negative (unknown-token) miss-marker key convention is owned by the
-// ingest auth path; the mint path invalidates the SAME shared key so a
-// just-minted token is not shadowed by a stale negative entry. Approved
-// cross-area import (both are the logstream plugin), mirroring how ingest/auth
-// imports the positive-key builder from api/token-cache.
-import { ingestTokenMissKey } from "../ingest/auth";
-import type { CachedScope } from "@checkstack/cache-utils";
 
 /** How many raw rows to delete per statement in the deleteStream cascade. */
 const EVENT_DELETE_BATCH = 10_000;
@@ -130,10 +114,6 @@ export interface LogstreamService {
   listStreamSummaries(): Promise<{ summaries: LogStreamSummary[] }>;
   getStream(input: { id: string }): Promise<LogStream>;
   listStreamsForPicker(): Promise<StreamForPicker[]>;
-
-  listTokens(input: { streamId: string }): Promise<LogStreamToken[]>;
-  mintToken(input: { streamId: string; name: string }): Promise<MintTokenResult>;
-  revokeToken(input: { streamId: string; tokenId: string }): Promise<void>;
 
   searchEvents(input: SearchEvents): Promise<SearchEventsResult>;
   findEventsByTraceId(
@@ -181,9 +161,9 @@ export interface LogstreamService {
 export function createLogstreamService({
   db,
   storage,
-  cacheManager,
   logger,
   rpcClient,
+  sourceLifecycle,
   eventBus,
   ingestCounters,
   findReferencingChecks,
@@ -191,7 +171,6 @@ export function createLogstreamService({
 }: {
   db: SafeDatabase<typeof schema>;
   storage: Storage;
-  cacheManager: CacheManager;
   logger: Logger;
   /**
    * Platform RPC client, used to clean up the deleted stream's team grants via
@@ -201,11 +180,19 @@ export function createLogstreamService({
    */
   rpcClient?: RpcClient;
   /**
-   * Platform event bus, used to broadcast `logstream.tokens.invalidated`
-   * after token mutations so every pod can evict POD-LOCAL token state the
-   * shared-cache invalidation cannot reach (syslog per-connection verdicts,
-   * the negative unknown-token cache). Optional so lightweight tests can omit
-   * it; the pod-local TTLs remain the backstop when absent.
+   * Telemetry source-lifecycle service. `deleteStream` calls
+   * `handleStreamDeleted` best-effort after the stream's own rows and grants are
+   * gone, so the platform strips the deleted stream's binding from every source
+   * and fully deletes sources left binding-less. Optional so lightweight tests
+   * can omit it; when absent, `deleteStream` logs a warning and skips the
+   * cascade (the stream deletion itself already succeeded).
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  /**
+   * Platform event bus, forwarded to the pattern operations so a
+   * `createPattern` / `deletePattern` broadcasts `logstream.patterns.changed`
+   * to every pod's Drain tree. Optional so lightweight tests can omit it; a pod
+   * that misses the event still converges on its next hydration.
    */
   eventBus?: EventBus;
   /** Optional per-pod ingest counter accessor (see {@link IngestCountersReader}). */
@@ -219,8 +206,6 @@ export function createLogstreamService({
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
 }): LogstreamService {
-  const tokenCache: CachedScope = createIngestTokenCache({ cacheManager });
-
   const patternOps: PatternOperations = createPatternOperations({
     db,
     eventBus,
@@ -233,24 +218,6 @@ export function createLogstreamService({
     db,
     now,
   });
-
-  /**
-   * Best-effort post-commit broadcast of a token lifecycle change. Never
-   * throws: the DB is the source of truth and the pod-local TTLs bound the
-   * staleness window if the bus is unavailable.
-   */
-  async function emitTokensInvalidated(
-    payload: LogstreamTokensInvalidatedPayload,
-  ): Promise<void> {
-    if (!eventBus) return;
-    try {
-      await eventBus.emit(logstreamTokensInvalidatedHook, payload);
-    } catch (error) {
-      logger.warn(
-        `logstream: failed to broadcast token invalidation (${payload.reason}): ${String(error)}`,
-      );
-    }
-  }
 
   async function getStreamRowOrThrow(id: string) {
     const [row] = await db
@@ -360,18 +327,13 @@ export function createLogstreamService({
       // Explicit cascade: there are NO FKs (Foundation deviation #2), so every
       // stream-scoped table is cleared by hand in ONE transaction. The
       // high-volume raw table is deleted in bounded batches; the aggregate
-      // tables (bounded by retention) go in a single statement each. Token
-      // hashes are captured first so their ingest-auth cache entries can be
-      // invalidated after commit.
-      const tokenRows = await withScopedTransaction(db, async (tx) => {
-        const rows = await tx
-          .select({
-            tokenId: logStreamTokens.id,
-            tokenHash: logStreamTokens.tokenHash,
-          })
-          .from(logStreamTokens)
-          .where(eq(logStreamTokens.streamId, id));
-
+      // tables (bounded by retention) go in a single statement each.
+      //
+      // Push SOURCES bound to this stream are NOT touched here: the telemetry
+      // platform owns push-instance lifecycle (deleting a stream does not
+      // cascade to its bound sources - the operator deletes/re-binds them in the
+      // Sources UI), so this cascade only clears logstream's own tables.
+      await withScopedTransaction(db, async (tx) => {
         // Batched delete of the raw lines (potentially millions of rows).
         for (;;) {
           const batch = await tx
@@ -390,9 +352,6 @@ export function createLogstreamService({
         }
 
         // Single-statement deletes for the bounded child tables.
-        await tx
-          .delete(logStreamTokens)
-          .where(eq(logStreamTokens.streamId, id));
         await tx
           .delete(logSeverityBuckets)
           .where(eq(logSeverityBuckets.streamId, id));
@@ -416,23 +375,6 @@ export function createLogstreamService({
           .delete(logStreamSystemLinks)
           .where(eq(logStreamSystemLinks.streamId, id));
         await tx.delete(logStreams).where(eq(logStreams.id, id));
-
-        return rows;
-      });
-
-      // After commit: drop each token's cached ingest-auth verdict (shared
-      // cache, reaches every pod's HTTP path immediately) and broadcast so
-      // pods also evict POD-LOCAL state (open syslog connection verdicts).
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
-        logger,
-      });
-      await emitTokensInvalidated({
-        streamId: id,
-        reason: "stream_deleted",
-        tokenIds: tokenRows.map((r) => r.tokenId),
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
       });
 
       // Also clear the stream's ReBAC team grants so they don't orphan (the
@@ -440,6 +382,17 @@ export function createLogstreamService({
       // the relation-tuple store). Best-effort: the DB cascade already
       // committed, so an auth-RPC failure is logged, not rethrown.
       await deleteStreamGrants({ rpcClient, streamId: id, logger });
+
+      // Cascade the deletion to the telemetry platform: strip this stream's
+      // binding from every source and fully delete sources left binding-less
+      // (secrets, schedule, push-token revoke). Best-effort for the same reason
+      // as the grant cleanup - the stream's own deletion already succeeded.
+      await cascadeSourceDeletion({
+        sourceLifecycle,
+        signal: "logs",
+        streamId: id,
+        logger,
+      });
     },
 
     async listStreams() {
@@ -528,98 +481,6 @@ export function createLogstreamService({
         .from(logStreams)
         .orderBy(logStreams.name);
       return rows.map((r) => ({ id: r.id, name: r.name }));
-    },
-
-    async listTokens({ streamId }) {
-      const rows = await db
-        .select()
-        .from(logStreamTokens)
-        .where(eq(logStreamTokens.streamId, streamId))
-        .orderBy(desc(logStreamTokens.createdAt));
-      // NEVER expose `tokenHash` - only the display prefix survives the mapping.
-      return rows.map((row) => mapTokenRow(row));
-    },
-
-    async mintToken({ streamId, name }) {
-      await getStreamRowOrThrow(streamId);
-      const generated = generateToken({ streamId });
-      const id = crypto.randomUUID();
-      const createdAt = now();
-      const [row] = await db
-        .insert(logStreamTokens)
-        .values({
-          id,
-          streamId,
-          name,
-          tokenHash: generated.tokenHash,
-          tokenPrefix: generated.tokenPrefix,
-          createdAt,
-          lastUsedAt: null,
-          revokedAt: null,
-        })
-        .returning();
-      if (!row) {
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          message: "Failed to mint token",
-        });
-      }
-      // Clear any shared negative (unknown-token) miss marker for this hash so
-      // the freshly-minted token authenticates immediately instead of being
-      // shadowed by a stale miss for up to its TTL. Best-effort: a cache error
-      // must never fail the mint (the DB row is the source of truth).
-      try {
-        await tokenCache.invalidate(ingestTokenMissKey(generated.tokenHash));
-      } catch (error) {
-        logger.warn(
-          `logstream: failed to clear ingest-token miss marker on mint: ${String(error)}`,
-        );
-      }
-      // Broadcast so every pod also clears its IN-PROCESS negative cache for
-      // this hash (the shared miss marker above cannot reach those), letting
-      // the fresh token authenticate immediately instead of after the
-      // negative-cache TTL.
-      await emitTokensInvalidated({
-        streamId,
-        reason: "minted",
-        tokenIds: [id],
-        tokenHashes: [generated.tokenHash],
-      });
-
-      // The full secret is returned ONCE here and never persisted or logged.
-      return { secret: generated.secret, token: mapTokenRow(row) };
-    },
-
-    async revokeToken({ streamId, tokenId }) {
-      // Scoped to BOTH the token id AND its parent streamId so a manager of
-      // `streamId` cannot revoke a token belonging to another stream (the
-      // instanceAccess check only proved manage on `streamId`).
-      const [row] = await db
-        .update(logStreamTokens)
-        .set({ revokedAt: now() })
-        .where(
-          and(
-            eq(logStreamTokens.id, tokenId),
-            eq(logStreamTokens.streamId, streamId),
-          ),
-        )
-        .returning({ tokenHash: logStreamTokens.tokenHash });
-      if (!row) {
-        throw new ORPCError("NOT_FOUND", { message: "Token not found" });
-      }
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: [row.tokenHash],
-        logger,
-      });
-      // Broadcast so an already-open syslog connection on any pod drops its
-      // cached verdict for this token immediately instead of after the 60s
-      // per-connection TTL.
-      await emitTokensInvalidated({
-        streamId,
-        reason: "revoked",
-        tokenIds: [tokenId],
-        tokenHashes: [row.tokenHash],
-      });
     },
 
     async searchEvents(input) {
@@ -1088,18 +949,6 @@ function mapStreamRow(row: typeof logStreams.$inferSelect): LogStream {
   };
 }
 
-function mapTokenRow(row: typeof logStreamTokens.$inferSelect): LogStreamToken {
-  return {
-    id: row.id,
-    streamId: row.streamId,
-    name: row.name,
-    tokenPrefix: row.tokenPrefix,
-    createdAt: row.createdAt,
-    lastUsedAt: row.lastUsedAt,
-    revokedAt: row.revokedAt,
-  };
-}
-
 function mapPatternRow(row: typeof logPatterns.$inferSelect): LogPattern {
   return {
     id: row.id,
@@ -1152,33 +1001,6 @@ function mapImportantEventRow(
 }
 
 /**
- * Invalidate the ingest-auth cache entry for each token hash. Best-effort: a
- * cache miss/error must never fail the mutation (the DB write is already the
- * source of truth), so failures are swallowed + logged.
- */
-async function invalidateTokenCaches({
-  tokenCache,
-  tokenHashes,
-  logger,
-}: {
-  tokenCache: CachedScope;
-  tokenHashes: string[];
-  logger: Logger;
-}): Promise<void> {
-  await Promise.all(
-    tokenHashes.map(async (hash) => {
-      try {
-        await tokenCache.invalidate(ingestTokenCacheKey(hash));
-      } catch (error) {
-        logger.warn(
-          `logstream: failed to invalidate ingest-token cache: ${String(error)}`,
-        );
-      }
-    }),
-  );
-}
-
-/**
  * Delete the ReBAC team grants for a removed stream via auth's
  * `deleteObjectRelations`, keyed on the SAME qualified type the access rule
  * grants on (`logstream.stream`). Best-effort: the stream's own DB rows are
@@ -1209,6 +1031,41 @@ async function deleteStreamGrants({
   } catch (error) {
     logger.warn(
       `logstream: failed to delete team grants for stream ${streamId}: ${String(error)}`,
+    );
+  }
+}
+
+/**
+ * Cascade a stream deletion to the telemetry platform via
+ * `handleStreamDeleted`, so every source binding this stream is stripped and
+ * sources left binding-less are fully deleted. Best-effort and idempotent: the
+ * stream's own deletion already succeeded, so a lifecycle failure is logged
+ * rather than rethrown (it would surface an error for an operation that
+ * otherwise completed). When no `sourceLifecycle` is wired, the cascade is
+ * skipped with a warning.
+ */
+async function cascadeSourceDeletion({
+  sourceLifecycle,
+  signal,
+  streamId,
+  logger,
+}: {
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  signal: "logs";
+  streamId: string;
+  logger: Logger;
+}): Promise<void> {
+  if (!sourceLifecycle) {
+    logger.warn(
+      "logstream: telemetry source lifecycle not provided; skipped source cascade for deleted stream (bindings may orphan).",
+    );
+    return;
+  }
+  try {
+    await sourceLifecycle.handleStreamDeleted({ signal, streamId });
+  } catch (error) {
+    logger.warn(
+      `logstream: failed to cascade telemetry source deletion for stream ${streamId}: ${String(error)}`,
     );
   }
 }

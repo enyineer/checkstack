@@ -7,7 +7,6 @@ import {
   bandFromSeverityNumber,
   FindEventsByTraceIdSchema,
   type LogStream,
-  type LogStreamToken,
   type LogPattern,
   type LogEvent,
 } from "@checkstack/logstream-common";
@@ -69,16 +68,6 @@ const event = (id: string, streamId: string): LogEvent => ({
   spanId: null,
 });
 
-const token = (id: string, streamId: string): LogStreamToken => ({
-  id,
-  streamId,
-  name: "shipper",
-  tokenPrefix: "ckls_abc",
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  lastUsedAt: null,
-  revokedAt: null,
-});
-
 /** A LogstreamService stub: canned reads, overridable per test. */
 function stubService(overrides: Partial<LogstreamService> = {}): LogstreamService {
   const notImplemented = (name: string) => () => {
@@ -112,12 +101,6 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
       { id: STREAM_1.id, name: STREAM_1.name },
       { id: STREAM_2.id, name: STREAM_2.name },
     ],
-    listTokens: async ({ streamId }) => [token("tok-1", streamId)],
-    mintToken: async ({ streamId }) => ({
-      secret: "ckls_secret_value",
-      token: token("tok-1", streamId),
-    }),
-    revokeToken: async () => {},
     searchEvents: async () => ({ events: [], nextCursor: null }),
     findEventsByTraceId: async () => ({
       matches: [
@@ -361,67 +344,6 @@ describe("findEventsByTraceId (listKey 'matches') post-filter", () => {
         to: new Date(),
       }).success,
     ).toBe(true);
-  });
-});
-
-describe("token mint/revoke gated on manage", () => {
-  it("a manage grant on the stream may mint", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().mintToken,
-      { streamId: "stream-1", name: "shipper" },
-      { context },
-    );
-    expect(result.secret).toBe("ckls_secret_value");
-  });
-
-  it("no grant on the stream is FORBIDDEN for mint", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth([]),
-    });
-    await expect(
-      call(
-        buildRouter().mintToken,
-        { streamId: "stream-1", name: "shipper" },
-        { context },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-
-  it("no grant on the stream is FORBIDDEN for revoke", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth([]),
-    });
-    await expect(
-      call(
-        buildRouter().revokeToken,
-        { streamId: "stream-1", tokenId: "tok-1" },
-        { context },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-});
-
-describe("listTokens never leaks the secret/hash", () => {
-  it("a manage grant lists tokens without any secret material", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().listTokens,
-      { streamId: "stream-1" },
-      { context },
-    );
-    for (const t of result) {
-      expect(t).not.toHaveProperty("secret");
-      expect(t).not.toHaveProperty("tokenHash");
-    }
   });
 });
 

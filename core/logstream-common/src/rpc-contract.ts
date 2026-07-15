@@ -15,10 +15,6 @@ import {
   LogStreamSchema,
   CreateLogStreamSchema,
   UpdateLogStreamSchema,
-  LogStreamTokenSchema,
-  MintTokenSchema,
-  MintTokenResultSchema,
-  RevokeTokenSchema,
   SearchEventsSchema,
   SearchEventsResultSchema,
   FindEventsByTraceIdSchema,
@@ -50,8 +46,9 @@ import {
  * Log stream RPC contract (oRPC contract-first). Every write proc declares
  * exactly one `instanceAccess` mode so team-scoping stays coherent with the
  * frontend gates (see `.claude/rules/rlac.md`). Streams are the only
- * team-scopable resource; tokens/events/patterns/buckets are all scoped by
- * their owning `streamId`.
+ * team-scopable resource; events/patterns/buckets are all scoped by their
+ * owning `streamId`. Push-token management is owned by the telemetry platform
+ * (the `logstream.push` source type), not by this contract.
  */
 export const logstreamContract = {
   // ==========================================================================
@@ -134,39 +131,6 @@ export const logstreamContract = {
     access: [logstreamAccess.read],
     instanceAccess: { typeScoped: {} },
   }).output(z.array(StreamForPickerSchema)),
-
-  // ==========================================================================
-  // SOURCE TOKENS (manage; scoped by the owning stream id)
-  // ==========================================================================
-
-  listTokens: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [logstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(z.object({ streamId: z.string() }))
-    .output(z.array(LogStreamTokenSchema)),
-
-  /** Mint a token; returns the full secret ONCE plus the persisted row. */
-  mintToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [logstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(MintTokenSchema)
-    .output(MintTokenResultSchema),
-
-  /** Revoke a token. The handler MUST invalidate the ingest auth cache entry. */
-  revokeToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [logstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(RevokeTokenSchema)
-    .output(z.void()),
 
   // ==========================================================================
   // SYSTEM LINKS (explicit stream -> catalog-system mapping; shared schemas

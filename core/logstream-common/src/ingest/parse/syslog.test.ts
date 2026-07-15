@@ -1,9 +1,57 @@
 import { describe, it, expect } from "bun:test";
-import { DEFAULT_LOG_STREAM_CONFIG } from "../../schemas";
-import { parseSyslog5424, syslogToIngestedLine } from "./syslog";
+import type { NormalizedLogRecord } from "@checkstack/telemetry-common";
+import { DEFAULT_LOG_STREAM_CONFIG, type LogStreamConfig } from "../../schemas";
+import {
+  applySeverityValueMap,
+  capAttributes,
+  clampEventTimestamp,
+  resolveSeverity,
+  truncateBody,
+} from "../normalize";
+import {
+  parseSyslog5424,
+  syslogToIngestedLine,
+  syslogToNormalizedLogRecord,
+} from "./syslog";
 
 const config = DEFAULT_LOG_STREAM_CONFIG;
 const now = new Date("2026-07-12T12:00:00.000Z");
+
+/**
+ * Reference re-implementation of the logstream SINK's inbound normalization
+ * (`createLogstreamTelemetrySink`'s private `toIngestedLine`), built from the
+ * SAME public helpers the real sink uses. The parity test feeds a
+ * `NormalizedLogRecord` through this to prove the new SOURCE path (parse ->
+ * normalized record -> sink) stores the identical line the old direct-to-
+ * pipeline `syslogToIngestedLine` produced. Kept in the test (not imported) so a
+ * cross-package leak is not needed; the real sink is covered by its own test.
+ */
+function referenceSinkLine({
+  record,
+  streamConfig,
+  observedAt,
+}: {
+  record: NormalizedLogRecord;
+  streamConfig: LogStreamConfig;
+  observedAt: Date;
+}) {
+  const severity = resolveSeverity({
+    severityNumber: record.severityNumber,
+    level: record.severityText,
+  });
+  const band = applySeverityValueMap({
+    band: severity.band,
+    rawValue: record.severityText,
+    valueMap: streamConfig.severityRules?.valueMap,
+  });
+  const body = truncateBody({
+    body: record.body,
+    maxBytes: streamConfig.maxLineBytes,
+  });
+  const attributes = capAttributes({ attributes: record.attributes });
+  const { ts } = clampEventTimestamp({ ts: record.ts, observedAt });
+  return { ts, severityNumber: severity.severityNumber, band, body, attributes };
+}
 
 describe("parseSyslog5424", () => {
   it("parses a full RFC 5424 line with SD token and maps PRI to a band", () => {
@@ -112,5 +160,96 @@ describe("syslogToIngestedLine", () => {
       now,
     });
     expect(line.band).toBe("info");
+  });
+});
+
+describe("syslogToNormalizedLogRecord", () => {
+  it("emits source facts only: PRI-derived number, keyword text, raw body, attrs", () => {
+    const raw =
+      '<11>1 2026-07-12T10:00:00.000Z host app 4711 ID1 ' +
+      '[exampleSDID@32473 iut="3"] disk failure';
+    const parsed = parseSyslog5424(raw)!;
+    const record = syslogToNormalizedLogRecord({ parsed, now });
+
+    expect(record.severityNumber).toBe(parsed.severityNumber);
+    // The RFC 5424 keyword, preserved for valueMap keying (severity 3 -> "err").
+    expect(record.severityText).toBe("err");
+    expect(record.body).toBe("disk failure");
+    expect(record.ts.toISOString()).toBe("2026-07-12T10:00:00.000Z");
+    expect(record.attributes?.["host.name"]).toBe("host");
+    expect(record.attributes?.["app.name"]).toBe("app");
+    expect(record.attributes?.["proc.id"]).toBe("4711");
+    expect(record.attributes?.["msg.id"]).toBe("ID1");
+    expect(record.attributes?.["sd.exampleSDID@32473.iut"]).toBe("3");
+  });
+
+  it("falls back to now for a nil timestamp and drops the checkstack SD element", () => {
+    const raw =
+      '<14>1 - host - - - [checkstack@50501 token="ckls_x"] hi there';
+    const parsed = parseSyslog5424(raw)!;
+    const record = syslogToNormalizedLogRecord({ parsed, now });
+    expect(record.ts).toEqual(now);
+    // The checkstack SD element never leaks into attributes on the platform path.
+    expect(
+      Object.keys(record.attributes ?? {}).some((k) => k.includes("checkstack")),
+    ).toBe(false);
+  });
+
+  it("yields undefined attributes when the line carries none", () => {
+    const parsed = parseSyslog5424("<14>1 - - - - - - bare")!;
+    const record = syslogToNormalizedLogRecord({ parsed, now });
+    expect(record.attributes).toBeUndefined();
+  });
+
+  // PARITY: a syslog line taken through the NEW source path (parse -> normalized
+  // record -> sink normalization) stores the SAME line the OLD direct-to-pipeline
+  // `syslogToIngestedLine` produced. band / severityNumber / body / attributes /
+  // ts are byte-identical across all eight severities; the ONE intentional
+  // difference is that the new path additionally preserves the syslog keyword as
+  // `severityText` (the old path discarded it), which is required to keep the
+  // keyword-based `valueMap` override working.
+  describe("parity with syslogToIngestedLine (old direct path)", () => {
+    for (let pri = 8; pri <= 15; pri += 1) {
+      it(`stores an identical line for PRI ${pri}`, () => {
+        const raw = `<${pri}>1 2026-07-12T10:00:00.000Z host app 4711 ID1 [sd@1 a="b"] the message`;
+        const parsed = parseSyslog5424(raw)!;
+
+        const oldLine = syslogToIngestedLine({ parsed, config, now });
+        const record = syslogToNormalizedLogRecord({ parsed, now });
+        const newLine = referenceSinkLine({
+          record,
+          streamConfig: config,
+          observedAt: now,
+        });
+
+        expect(newLine.band).toBe(oldLine.band);
+        expect(newLine.severityNumber).toBe(oldLine.severityNumber);
+        expect(newLine.body).toBe(oldLine.body);
+        expect(newLine.attributes).toEqual(oldLine.attributes);
+        expect(newLine.ts).toEqual(oldLine.ts);
+      });
+    }
+
+    it("preserves the keyword-based valueMap override through the sink path", () => {
+      // PRI 11 -> "err"; a stream remapping syslog errors to fatal must still fire.
+      const parsed = parseSyslog5424("<11>1 - - - - - - disk failure")!;
+      const streamConfig: LogStreamConfig = {
+        ...config,
+        severityRules: { valueMap: { err: "fatal" } },
+      };
+      const oldLine = syslogToIngestedLine({ parsed, config: streamConfig, now });
+      const record = syslogToNormalizedLogRecord({ parsed, now });
+      const newLine = referenceSinkLine({ record, streamConfig, observedAt: now });
+      expect(oldLine.band).toBe("fatal");
+      expect(newLine.band).toBe("fatal");
+    });
+
+    it("enriches severityText with the syslog keyword the old path dropped", () => {
+      const parsed = parseSyslog5424("<11>1 - - - - - - disk failure")!;
+      const oldLine = syslogToIngestedLine({ parsed, config, now });
+      const record = syslogToNormalizedLogRecord({ parsed, now });
+      expect(oldLine.severityText).toBeUndefined();
+      expect(record.severityText).toBe("err");
+    });
   });
 });

@@ -64,22 +64,6 @@ export function createLogstreamRouter({
       service.listStreamsForPicker(),
     ),
 
-    // ── Source tokens ───────────────────────────────────────────────────
-    listTokens: os.listTokens.handler(async ({ input }) =>
-      service.listTokens({ streamId: input.streamId }),
-    ),
-
-    mintToken: os.mintToken.handler(async ({ input }) =>
-      service.mintToken({ streamId: input.streamId, name: input.name }),
-    ),
-
-    revokeToken: os.revokeToken.handler(async ({ input }) => {
-      await service.revokeToken({
-        streamId: input.streamId,
-        tokenId: input.tokenId,
-      });
-    }),
-
     // ── Viewer reads ────────────────────────────────────────────────────
     searchEvents: os.searchEvents.handler(async ({ input }) =>
       service.searchEvents(input),

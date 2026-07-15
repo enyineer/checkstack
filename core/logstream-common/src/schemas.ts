@@ -240,43 +240,6 @@ export const UpdateLogStreamSchema = z.object({
 export type UpdateLogStream = z.infer<typeof UpdateLogStreamSchema>;
 
 // =============================================================================
-// SOURCE TOKENS
-// =============================================================================
-
-/** A source token as returned by list/read - NEVER carries the secret. */
-export const LogStreamTokenSchema = z.object({
-  id: z.string(),
-  streamId: z.string(),
-  name: z.string(),
-  /** First 8 chars of the full secret, for display/disambiguation. */
-  tokenPrefix: z.string(),
-  createdAt: z.date(),
-  lastUsedAt: z.date().nullable(),
-  revokedAt: z.date().nullable(),
-});
-export type LogStreamToken = z.infer<typeof LogStreamTokenSchema>;
-
-export const MintTokenSchema = z.object({
-  streamId: z.string(),
-  name: z.string().min(1).max(255),
-});
-export type MintToken = z.infer<typeof MintTokenSchema>;
-
-/** Mint response: the full secret (shown ONCE) plus the persisted token row. */
-export const MintTokenResultSchema = z.object({
-  /** The full `ckls_...` secret. Displayed once; never retrievable again. */
-  secret: z.string(),
-  token: LogStreamTokenSchema,
-});
-export type MintTokenResult = z.infer<typeof MintTokenResultSchema>;
-
-export const RevokeTokenSchema = z.object({
-  streamId: z.string(),
-  tokenId: z.string(),
-});
-export type RevokeToken = z.infer<typeof RevokeTokenSchema>;
-
-// =============================================================================
 // NORMALIZED INGESTED LINE (shared shape between ingest parsers and storage)
 // =============================================================================
 

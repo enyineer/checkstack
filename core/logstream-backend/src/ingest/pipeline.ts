@@ -6,14 +6,13 @@
  * (important events, the health fast-path hook, and a debounced activity
  * signal).
  *
- * STATE & SCALE: the buffer, sampler, rate limiter, token-use tracker and
- * counters are all pod-local and short-lived - a write buffer and bookkeeping,
- * never a queryable source of truth. Each pod flushes its own intake to the
- * shared database; a read of durable state (buckets/events) is identical on
- * every pod. See buffer.ts and state-and-scale.md.
+ * STATE & SCALE: the buffer, sampler, rate limiter and counters are all
+ * pod-local and short-lived - a write buffer and bookkeeping, never a queryable
+ * source of truth. Each pod flushes its own intake to the shared database; a
+ * read of durable state (buckets/events) is identical on every pod. See
+ * buffer.ts and state-and-scale.md.
  */
 
-import { eq, sql } from "drizzle-orm";
 import {
   DEFAULT_LOG_STREAM_CONFIG,
   LOGSTREAM_ACTIVITY,
@@ -29,15 +28,14 @@ import {
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import * as schema from "../schema";
-import { logStreamTokens } from "../schema";
 import type { Storage } from "../storage";
 import type { DrainEngine } from "../drain/engine";
 import type { ImportantEventRecorder } from "../events/recorder";
 import type { OnIngestFlush } from "../health/setup";
+import type { LogDeriveTap } from "./derive-tap";
 import { createFlushLoop } from "@checkstack/ingest-utils";
 import { IngestBuffer } from "./buffer";
 import { RateLimiter } from "./rate-limit";
-import { TokenUseTracker } from "./token-use";
 import { IngestCountersRegistry, ingestCounters } from "./counters";
 import { writeFlush, detectSpike, type FlushPlan } from "./flush";
 import {
@@ -75,6 +73,13 @@ export interface IngestPipeline {
     streamId: string;
     lines: import("@checkstack/logstream-common").IngestedLine[];
     config: LogStreamConfig;
+    /**
+     * The push SOURCE id the request authenticated as, when it came through a
+     * push token (the OTLP/native endpoints, a satellite-forwarded batch). When
+     * present AND lines are accepted, `recordPushSeen` stamps the source's
+     * activity. Absent for the telemetry SINK path (routed by binding, not a
+     * push token).
+     */
     tokenId?: string;
     now?: Date;
   }): IngestResult;
@@ -101,7 +106,9 @@ export function createIngestPipeline({
   signalService,
   logger,
   onIngestFlush,
+  onDeriveFlush,
   getReferencedPatternIds,
+  recordPushSeen,
   counters = ingestCounters,
   now = () => new Date(),
   rng,
@@ -131,8 +138,23 @@ export function createIngestPipeline({
   signalService: SignalService;
   logger: Logger;
   onIngestFlush: OnIngestFlush;
+  /**
+   * Optional post-commit derive tap: handed the stream's flushed lines AFTER the
+   * write commits, to feed the telemetry platform's derive dispatcher
+   * (log-to-metric / log-to-trace). Best-effort, error-isolated AND detached
+   * (fired without await) - a slow or failing deriver never slows or breaks the
+   * flush. Absent (no-op) on deployments without the telemetry plugin.
+   */
+  onDeriveFlush?: LogDeriveTap["onDeriveFlush"];
   /** Optional protected-set resolver; refreshed per stream on the flush cycle. */
   getReferencedPatternIds?: GetReferencedPatternIds;
+  /**
+   * Stamp push-source activity (`lastRunAt`) when a push-authenticated request
+   * is admitted (lines accepted). Fire-and-forget; the platform throttles the
+   * underlying write. Absent on paths without the telemetry verifier (unit
+   * tests, the sink path).
+   */
+  recordPushSeen?: (sourceId: string) => void;
   counters?: IngestCountersRegistry;
   now?: () => Date;
   rng?: () => number;
@@ -146,7 +168,6 @@ export function createIngestPipeline({
   const executor =
     providedExecutor ?? createInProcessFlushExecutor({ drain, logger, rng });
   const rateLimiter = new RateLimiter();
-  const tokenUse = new TokenUseTracker();
   const streamConfigs = new Map<string, LogStreamConfig>();
   const activity = new Map<string, ActivityState>();
   // Per-stream protected-set refresh bookkeeping. `lastAttemptMs` bounds the
@@ -188,7 +209,9 @@ export function createIngestPipeline({
     counters.addReceived(streamId, push.accepted);
     const dropped = limit.rejected + push.rejected;
     if (dropped > 0) counters.addDropped(streamId, dropped);
-    if (tokenId && push.accepted > 0) tokenUse.record({ tokenId, at });
+    // Stamp push-source activity on admit (accepted > 0). The platform throttles
+    // the write; sink writes carry no tokenId, so they never stamp here.
+    if (recordPushSeen && tokenId && push.accepted > 0) recordPushSeen(tokenId);
 
     if (buffer.size >= flushSizeThreshold) void loop.flushNow();
 
@@ -201,9 +224,6 @@ export function createIngestPipeline({
   }
 
   async function runCycle(): Promise<void> {
-    const uses = tokenUse.drain();
-    if (uses.length > 0) await persistTokenUses(uses);
-
     const drained = buffer.drain();
     for (const [streamId, lines] of drained) {
       await flushStream(streamId, lines);
@@ -281,6 +301,18 @@ export function createIngestPipeline({
       });
     } catch (error) {
       logger.warn(`logstream: onIngestFlush hook failed: ${String(error)}`);
+    }
+
+    // Feed the derive dispatcher the flushed lines POST-COMMIT (all lines admitted
+    // into this flush, so storage sampling never biases a derived metric).
+    // DETACHED: we deliberately do NOT await the dispatch, so a slow or stuck
+    // deriver can never lengthen this flush cycle. Still fully error-isolated - a
+    // deriver failure is caught here (and recorded on the derive instance), so it
+    // can never break or slow this stream's ingest.
+    if (onDeriveFlush) {
+      void onDeriveFlush({ streamId, lines }).catch((error: unknown) => {
+        logger.warn(`logstream: derive tap failed: ${String(error)}`);
+      });
     }
 
     maybeBroadcastActivity(streamId, plan.linesClassified, plan.worstBand, flushAt);
@@ -363,28 +395,6 @@ export function createIngestPipeline({
         `logstream: spike detection failed for ${plan.streamId}: ${String(error)}`,
       );
       return [];
-    }
-  }
-
-  async function persistTokenUses(
-    uses: { tokenId: string; at: Date }[],
-  ): Promise<void> {
-    try {
-      await withScopedTransaction(db, async (tx) => {
-        for (const use of uses) {
-          // Advance `lastUsedAt` monotonically (`greatest`) so a clock-skewed
-          // pod cannot move it backward - matches `touchStreamActivity`'s
-          // `lastReceivedAt` handling in storage/activity.ts.
-          await tx
-            .update(logStreamTokens)
-            .set({
-              lastUsedAt: sql`greatest(${logStreamTokens.lastUsedAt}, ${use.at})`,
-            })
-            .where(eq(logStreamTokens.id, use.tokenId));
-        }
-      });
-    } catch (error) {
-      logger.warn(`logstream: failed to update token lastUsedAt: ${String(error)}`);
     }
   }
 

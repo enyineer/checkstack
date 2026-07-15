@@ -1,5 +1,4 @@
 import { describe, it, expect, mock } from "bun:test";
-import { SQL } from "drizzle-orm";
 import {
   createMockLogger,
   createMockSignalService,
@@ -90,6 +89,12 @@ function harness({ db = mockDb(), retryBackoffMs = 0, drain = mockDrain(), ...op
   flushIntervalMs?: number;
   now?: () => Date;
   getReferencedPatternIds?: (streamId: string) => Promise<readonly string[]>;
+  recordPushSeen?: (sourceId: string) => void;
+  onDeriveFlush?: (input: {
+    streamId: string;
+    lines: IngestedLine[];
+  }) => Promise<void>;
+  logger?: ReturnType<typeof createMockLogger>;
 } = {}) {
   const storage = mockStorage();
   const signal = createMockSignalService();
@@ -128,6 +133,74 @@ describe("createIngestPipeline", () => {
     // Debounced activity signal broadcast once.
     expect(signal.getRecordedSignals()).toHaveLength(1);
     expect(signal.getRecordedSignals()[0]!.payload).toMatchObject({ streamId: "s1" });
+  });
+
+  it("hands the flushed lines to the derive tap post-commit", async () => {
+    const seen: { streamId: string; count: number }[] = [];
+    const { pipeline } = harness({
+      onDeriveFlush: async ({ streamId, lines }) =>
+        void seen.push({ streamId, count: lines.length }),
+    });
+    pipeline.ingest({
+      streamId: "s1",
+      lines: [line("info", "a"), line("error", "boom 1")],
+      config: DEFAULT_LOG_STREAM_CONFIG,
+    });
+    await pipeline.flushNow();
+    expect(seen).toEqual([{ streamId: "s1", count: 2 }]);
+  });
+
+  it("does not let a derive tap failure break the flush", async () => {
+    const { pipeline, storage, onIngestFlush } = harness({
+      onDeriveFlush: async () => {
+        throw new Error("derive boom");
+      },
+    });
+    pipeline.ingest({
+      streamId: "s1",
+      lines: [line("info", "a")],
+      config: DEFAULT_LOG_STREAM_CONFIG,
+    });
+    await pipeline.flushNow();
+    // The write committed and the ingest hook still fired despite the tap throw.
+    expect(storage.insertLogEventsBatch).toHaveBeenCalledTimes(1);
+    expect(onIngestFlush).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not extend the flush when the derive tap never resolves (detached)", async () => {
+    // A deriver whose dispatch never settles must not stall the flush cycle:
+    // the pipeline fires it detached, so flushNow resolves promptly regardless.
+    const { pipeline, storage, onIngestFlush } = harness({
+      onDeriveFlush: () => new Promise<void>(() => {}),
+    });
+    pipeline.ingest({
+      streamId: "s1",
+      lines: [line("info", "a")],
+      config: DEFAULT_LOG_STREAM_CONFIG,
+    });
+    await pipeline.flushNow();
+    expect(storage.insertLogEventsBatch).toHaveBeenCalledTimes(1);
+    expect(onIngestFlush).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a warn and never throws into the flush when the derive tap rejects (detached)", async () => {
+    const logger = createMockLogger();
+    const { pipeline, storage } = harness({
+      logger,
+      onDeriveFlush: async () => {
+        throw new Error("derive boom");
+      },
+    });
+    pipeline.ingest({
+      streamId: "s1",
+      lines: [line("info", "a")],
+      config: DEFAULT_LOG_STREAM_CONFIG,
+    });
+    await pipeline.flushNow();
+    // The detached rejection settles on a later microtask; let it run.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(storage.insertLogEventsBatch).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalled();
   });
 
   it("auto-flushes when the buffer reaches the size threshold", async () => {
@@ -182,36 +255,31 @@ describe("createIngestPipeline", () => {
     expect(onIngestFlush).not.toHaveBeenCalled();
   });
 
-  it("advances token lastUsedAt with greatest() (monotonic), not a blind Date set", async () => {
-    const captured: Record<string, unknown>[] = [];
-    const tx = {
-      select: () => ({
-        from: () => ({
-          where: () => ({ orderBy: () => ({ limit: async () => [] }) }),
-        }),
-      }),
-      update: () => ({
-        set: (payload: Record<string, unknown>) => {
-          captured.push(payload);
-          return { where: async () => {} };
-        },
-      }),
-    };
-    const db = {
-      transaction: async <R>(fn: (t: unknown) => Promise<R>) => fn(tx),
-    } as unknown as SafeDatabase<typeof schema>;
-    const { pipeline } = harness({ db });
+  it("stamps push-source activity (recordPushSeen) on an admitted push request", async () => {
+    const recordPushSeen = mock((_sourceId: string) => {});
+    const { pipeline } = harness({ recordPushSeen });
+    // A push request carries the source id as `tokenId`; an admit (accepted > 0)
+    // stamps it. No flush needed - the stamp fires on admit.
     pipeline.ingest({
       streamId: "s1",
       lines: [line("info", "a")],
       config: DEFAULT_LOG_STREAM_CONFIG,
-      tokenId: "tok-1",
+      tokenId: "src-1",
     });
-    await pipeline.flushNow();
-    expect(captured).toHaveLength(1);
-    // A greatest(...) expression is a drizzle SQL object, NOT a raw Date - this
-    // is what keeps lastUsedAt monotonic under clock skew.
-    expect(captured[0]!.lastUsedAt).toBeInstanceOf(SQL);
+    expect(recordPushSeen).toHaveBeenCalledTimes(1);
+    expect(recordPushSeen).toHaveBeenCalledWith("src-1");
+  });
+
+  it("does not stamp push activity for a sink write (no tokenId)", async () => {
+    const recordPushSeen = mock((_sourceId: string) => {});
+    const { pipeline } = harness({ recordPushSeen });
+    // The telemetry sink path routes by binding and passes no tokenId.
+    pipeline.ingest({
+      streamId: "s1",
+      lines: [line("info", "a")],
+      config: DEFAULT_LOG_STREAM_CONFIG,
+    });
+    expect(recordPushSeen).not.toHaveBeenCalled();
   });
 
   it("a final flush before stop persists buffered lines (graceful drain)", async () => {

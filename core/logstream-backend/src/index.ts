@@ -4,7 +4,13 @@ import {
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
-import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
+import {
+  telemetrySinkExtensionPoint,
+  telemetrySourceExtensionPoint,
+  telemetryDeriveTapExtensionPoint,
+  telemetryPushTokenVerifierRef,
+  telemetrySourceLifecycleRef,
+} from "@checkstack/telemetry-backend";
 import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
@@ -23,6 +29,9 @@ import { createImportantEventRecorder } from "./events/recorder";
 import { createDrainEngine } from "./drain/engine";
 import { registerHealthIntegration } from "./health/setup";
 import { registerIngestEndpoints } from "./ingest/setup";
+import { syslogSourceType } from "./ingest/syslog/source-type";
+import { pushSourceType } from "./ingest/push/source-type";
+import { createLogDeriveTap } from "./ingest/derive-tap";
 import { getIngestCounters } from "./ingest";
 import { registerApi } from "./api/setup";
 
@@ -37,6 +46,34 @@ export default createBackendPlugin({
 
   register(env) {
     env.registerAccessRules(logstreamAccessRules);
+
+    // Contribute the SYSLOG listener source type to the telemetry platform
+    // (the first listener registrant): instances carry port/TLS config and a
+    // stream BINDING - no env vars, no in-message tokens. Buffered, so load
+    // order does not matter.
+    env
+      .getExtensionPoint(telemetrySourceExtensionPoint)
+      .registerSourceType(syslogSourceType, pluginMetadata);
+
+    // Contribute the PUSH source type: shippers authenticate to the OTLP/native
+    // ingest endpoints with a per-instance bearer token the PLATFORM mints. This
+    // replaces logstream's former `log_stream_tokens` table - telemetry
+    // migration 0002 promoted every non-revoked token to a `logstream.push`
+    // instance. The verify path is wired in `registerIngestEndpoints` via the
+    // push-token verifier.
+    env
+      .getExtensionPoint(telemetrySourceExtensionPoint)
+      .registerSourceType(pushSourceType, pluginMetadata);
+
+    // Connect the logs DERIVE TAP: the platform hands back the dispatch fn
+    // once its derive dispatcher exists; the pipeline (built in init) calls
+    // the tap post-commit with each flushed batch so log-to-metric /
+    // log-to-trace sources can consume it. One holder shared by both phases.
+    const deriveTap = createLogDeriveTap();
+    env.getExtensionPoint(telemetryDeriveTapExtensionPoint).connectTap(
+      { signal: "logs", onReady: (dispatch) => deriveTap.connect(dispatch) },
+      pluginMetadata,
+    );
 
     // Bridges init() -> afterPluginsReady(): maintenance scheduling must wait
     // until every plugin's router is registered, because the retention pass
@@ -60,6 +97,12 @@ export default createBackendPlugin({
         collectorRegistry: coreServices.collectorRegistry,
         instanceRuntime: coreServices.instanceRuntime,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
+        // The platform push-token verifier: drives the ingest authenticator's
+        // token lookup over the `logstream.push` source type.
+        pushTokenVerifier: telemetryPushTokenVerifierRef,
+        // The platform source-lifecycle service: `deleteStream` calls
+        // `handleStreamDeleted` so deleting a stream cascades to bound sources.
+        sourceLifecycle: telemetrySourceLifecycleRef,
       },
       init: async ({
         database,
@@ -75,6 +118,8 @@ export default createBackendPlugin({
         collectorRegistry,
         instanceRuntime,
         resourceResolverRegistry,
+        pushTokenVerifier,
+        sourceLifecycle,
       }) => {
         // The runtime injects the plugin's schema-scoped db typed as
         // `SafeDatabase<Record<string, unknown>>`; narrow it to this plugin's
@@ -118,9 +163,10 @@ export default createBackendPlugin({
           cacheManager,
           signalService,
           logger,
-          instanceRuntime,
           eventBus,
+          verifier: pushTokenVerifier,
           onIngestFlush: health.onIngestFlush,
+          onDeriveFlush: deriveTap.onDeriveFlush,
           // Healthcheck-referenced pattern ids feed the Drain protected set so
           // a pattern a check asserts on is never evicted/re-mined under a
           // fresh id (and retention never deletes it).
@@ -197,12 +243,12 @@ export default createBackendPlugin({
           rpc,
           db,
           storage,
-          cacheManager,
           signalService,
           logger,
           resourceResolverRegistry,
           ingestCounters: getIngestCounters,
           rpcClient,
+          sourceLifecycle,
           eventBus,
           internalUrl: process.env.INTERNAL_URL || "http://localhost:3000",
         });

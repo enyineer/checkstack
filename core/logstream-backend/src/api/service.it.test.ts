@@ -8,7 +8,6 @@ import {
   type TestDb,
 } from "@checkstack/test-utils-backend";
 import { createMockRpcContext, type RpcContext } from "@checkstack/backend-api";
-import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
 import { DEFAULT_LOG_STREAM_CONFIG } from "@checkstack/logstream-common";
 import type { EventCursor } from "@checkstack/logstream-common";
 import * as schema from "../schema";
@@ -19,19 +18,6 @@ import type { SystemLinkAuthorizer } from "./system-links-auth";
 
 const MIGRATIONS = path.join(import.meta.dir, "..", "..", "drizzle");
 
-/** A no-op in-memory cache manager: the service only touches it to invalidate
- * ingest-token entries after a delete, which is a plain `delete(key)` here. */
-function noopCacheManager(): CacheManager {
-  const provider: CacheProvider = {
-    get: async () => undefined,
-    set: async () => {},
-    delete: async () => {},
-    deleteByPrefix: async () => 0,
-    has: async () => false,
-  };
-  return { getProvider: () => provider } as unknown as CacheManager;
-}
-
 describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () => {
   let test: TestDb<typeof schema>;
   let service: LogstreamService;
@@ -41,7 +27,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
     service = createLogstreamService({
       db: test.db,
       storage: createStorage({ db: test.db }),
-      cacheManager: noopCacheManager(),
       logger: createMockLogger(),
     });
   });
@@ -399,13 +384,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
         createdAt: TS,
         updatedAt: TS,
       });
-      await db.insert(schema.logStreamTokens).values({
-        id: `${id}-tok`,
-        streamId: id,
-        name: "shipper",
-        tokenHash: `${id}-hash`,
-        tokenPrefix: `${id}-pre`,
-      });
       await db.insert(schema.logEvents).values([
         {
           streamId: id,
@@ -478,7 +456,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
       await db.delete(schema.logSeverityBuckets);
       await db.delete(schema.logPatterns);
       await db.delete(schema.logEvents);
-      await db.delete(schema.logStreamTokens);
       await db.delete(schema.logStreamActivity);
       await db.delete(schema.logStreams);
       await seedStream(TARGET);
@@ -494,7 +471,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
       // table's own row type.
       const [
         streams,
-        tokens,
         events,
         patterns,
         sevBuckets,
@@ -505,7 +481,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
         activity,
       ] = await Promise.all([
         db.select().from(schema.logStreams),
-        db.select().from(schema.logStreamTokens),
         db.select().from(schema.logEvents),
         db.select().from(schema.logPatterns),
         db.select().from(schema.logSeverityBuckets),
@@ -525,7 +500,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
       expect(streams.map((r) => r.id)).toEqual([SURVIVOR]);
 
       // Not a single target-scoped row survives in any child table.
-      expect(forTarget(tokens)).toBe(0);
       expect(forTarget(events)).toBe(0);
       expect(forTarget(patterns)).toBe(0);
       expect(forTarget(sevBuckets)).toBe(0);
@@ -537,7 +511,6 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
 
       // The survivor keeps all of its rows (delete was correctly scoped).
       expect(forSurvivor(events)).toBe(2);
-      expect(forSurvivor(tokens)).toBe(1);
       expect(forSurvivor(patterns)).toBe(1);
       expect(forSurvivor(important)).toBe(1);
       expect(forSurvivor(activity)).toBe(1);

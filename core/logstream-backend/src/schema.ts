@@ -38,36 +38,6 @@ export const logStreams = pgTable("log_streams", {
 });
 
 /**
- * Per-stream source tokens. Only the sha256 hash and an 8-char display prefix
- * are stored; the full secret is shown once at mint. `tokenHash` is uniquely
- * indexed - it is the ingest auth lookup key.
- */
-export const logStreamTokens = pgTable(
-  "log_stream_tokens",
-  {
-    id: text("id").primaryKey(),
-    // No FK to log_streams: like every other stream-scoped table here
-    // (events/buckets/patterns), cleanup on stream delete is done explicitly in
-    // deleteStream. This keeps the schema uniform and avoids drizzle-kit
-    // emitting a `public`-qualified FK target, which breaks the plugin's
-    // schema-scoped migration (plugins do not run in the `public` schema).
-    streamId: text("stream_id").notNull(),
-    name: text("name").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    tokenPrefix: text("token_prefix").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  },
-  (t) => [
-    index("log_stream_tokens_hash_uq").on(t.tokenHash),
-    index("log_stream_tokens_stream_idx").on(t.streamId),
-  ],
-);
-
-/**
  * Capped raw log lines. `id` is a bigint identity (cheap, monotonic) used as
  * the keyset tiebreak in `(ts, id)` search pagination. Indexes are kept to the
  * minimum needed for search + retention delete to keep write cost low.

@@ -96,9 +96,11 @@ import { readStreamActivity, sumSeverityBands } from "../storage";
 import { createImportantEventRecorder } from "../events/recorder";
 import { createDrainEngine } from "../drain/engine";
 import { createLogstreamService, type LogstreamService } from "../api/service";
+import { createPushTokenLookup } from "@checkstack/telemetry-backend";
 import { createIngestTokenCache } from "../api/token-cache";
 import { createIngestAuthenticator } from "./auth";
-import { lookupTokenByHash } from "./token-lookup";
+import { LOGSTREAM_PUSH_SOURCE_TYPE_ID } from "./push/source-type";
+import { createStubPushVerifier } from "./push/stub-verifier";
 import { createStreamConfigResolver } from "./stream-config";
 import { createIngestPipeline, type IngestPipeline } from "./pipeline";
 import {
@@ -191,14 +193,14 @@ describe.skipIf(!isLoadTestEnabled())(
         updatedAt: CREATED,
       });
 
+      // Push tokens are platform-owned; a stub verifier plays the promoted
+      // `telemetry_sources` row for this stream.
       const token = generateToken({ streamId: STREAM });
       tokenSecret = token.secret;
-      await db.insert(schema.logStreamTokens).values({
-        id: "load-guard-token",
-        streamId: STREAM,
-        name: "load shipper",
-        tokenHash: token.tokenHash,
-        tokenPrefix: token.tokenPrefix,
+      const verifier = createStubPushVerifier({
+        sources: [
+          { sourceId: "load-guard-src", streamId: STREAM, tokenHash: token.tokenHash },
+        ],
       });
 
       const logger = createMockLogger();
@@ -244,7 +246,11 @@ describe.skipIf(!isLoadTestEnabled())(
 
       const cache = createIngestTokenCache({ cacheManager });
       const auth = createIngestAuthenticator({
-        lookup: (tokenHash) => lookupTokenByHash({ db, tokenHash }),
+        lookup: createPushTokenLookup({
+          verifier,
+          sourceTypeId: LOGSTREAM_PUSH_SOURCE_TYPE_ID,
+          signal: "logs",
+        }),
         cache,
       });
       const configResolver = createStreamConfigResolver({ db, cache });
@@ -253,7 +259,6 @@ describe.skipIf(!isLoadTestEnabled())(
       service = createLogstreamService({
         db,
         storage,
-        cacheManager,
         logger,
       });
     });

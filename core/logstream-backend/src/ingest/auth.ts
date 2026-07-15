@@ -1,20 +1,24 @@
 /**
- * Source-token authentication for the logstream ingest endpoints. The mechanism
+ * Push-token authentication for the logstream ingest endpoints. The mechanism
  * (positive verdict cache, bounded negative cache, cross-pod miss marker,
  * constant-time hash confirm) lives in `@checkstack/ingest-utils`; this module
- * binds it to logstream's `TokenRow` shape (a token grants access to a
- * `streamId`) and its `hashToken`, preserving logstream's exported names and the
- * `streamId`-shaped {@link AuthResult} the ingest endpoints consume.
+ * binds it to logstream's `hashToken` and the `streamId`-shaped
+ * {@link AuthResult} the ingest endpoints consume. The token LOOKUP itself is
+ * the platform's `createPushTokenLookup` (an `IngestTokenLookup` over the
+ * `logstream.push` source type), wired in `./setup.ts`.
  *
  * The token-cache KEY convention is OWNED by the API area (see
- * `../api/token-cache`) so its revoke/delete-stream path invalidates the SAME
- * key this path caches under; both delegate to the shared ingest-utils builders.
+ * `../api/token-cache`) so the platform's push-token invalidation converges the
+ * SAME key this path caches under; both delegate to the shared ingest-utils
+ * builders.
  */
 
 import type { CachedScope } from "@checkstack/cache-utils";
-import { createIngestAuthenticator as createGenericIngestAuthenticator } from "@checkstack/ingest-utils";
+import {
+  createIngestAuthenticator as createGenericIngestAuthenticator,
+  type IngestTokenLookup,
+} from "@checkstack/ingest-utils";
 import { hashToken } from "../token-crypto";
-import type { TokenRow } from "./token-lookup";
 
 // The negative-cache class, key builders, and TTL/size constants are owned by
 // `@checkstack/ingest-utils`; re-exported here under logstream's names so the
@@ -39,8 +43,12 @@ export interface IngestAuthenticator {
   clearNegative?(tokenHash: string): Promise<void>;
 }
 
-/** Resolve a token hash to its row (or null). Injected for testability. */
-export type TokenLookup = (tokenHash: string) => Promise<TokenRow | null>;
+/**
+ * Resolve a token hash to its row (or null). The production lookup is the
+ * platform's `createPushTokenLookup`; tests inject their own. Re-exported as
+ * logstream's own name so the existing tests and wiring keep a single import.
+ */
+export type TokenLookup = IngestTokenLookup;
 
 export function createIngestAuthenticator({
   lookup,
@@ -53,17 +61,7 @@ export function createIngestAuthenticator({
   now?: () => number;
 }): IngestAuthenticator {
   const inner = createGenericIngestAuthenticator({
-    lookup: async (tokenHash) => {
-      const row = await lookup(tokenHash);
-      return row
-        ? {
-            tokenId: row.tokenId,
-            resourceId: row.streamId,
-            tokenHash: row.tokenHash,
-            revokedAt: row.revokedAt,
-          }
-        : null;
-    },
+    lookup,
     cache,
     hashToken,
     now,

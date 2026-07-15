@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Search,
   Boxes,
+  Radio,
   Settings,
 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -20,22 +21,25 @@ import { EXPLORE_PARAMS, EXPLORE_TAB_VALUE } from "../lib/explore-link";
 import { OverviewTab } from "../components/tabs/OverviewTab";
 import { ExploreTab } from "../components/tabs/ExploreTab";
 import { PatternsTab } from "../components/tabs/PatternsTab";
+import { SourcesTab } from "../components/tabs/SourcesTab";
 import { SettingsTab } from "../components/tabs/SettingsTab";
 
-const TAB_IDS = ["overview", "explore", "patterns", "settings"] as const;
+const TAB_IDS = ["overview", "explore", "patterns", "sources", "settings"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 const TAB_ITEMS = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="size-4" /> },
   { id: "explore", label: "Explore", icon: <Search className="size-4" /> },
   { id: "patterns", label: "Patterns", icon: <Boxes className="size-4" /> },
+  { id: "sources", label: "Sources", icon: <Radio className="size-4" /> },
   { id: "settings", label: "Settings", icon: <Settings className="size-4" /> },
 ];
 
 /**
- * Stream detail with Overview / Explore / Patterns / Settings tabs. The active
- * tab and the explorer's deep-link filters live in the URL, so a link to a
- * pattern (or an important event) opens the explorer already filtered.
+ * Stream detail with Overview / Explore / Patterns / Sources / Settings tabs.
+ * The active tab and the explorer's deep-link filters live in the URL, so a
+ * link to a pattern (or an important event) opens the explorer already
+ * filtered.
  */
 export function LogStreamDetailPage() {
   const { streamId } = useParams<{ streamId: string }>();
@@ -169,6 +173,10 @@ export function LogStreamDetailPage() {
                 streamId={stream.id}
                 onExplorePattern={(patternId) => goToExplore({ patternId })}
               />
+            </TabPanel>
+
+            <TabPanel id="sources" activeTab={activeTab}>
+              <SourcesTab stream={stream} />
             </TabPanel>
 
             <TabPanel id="settings" activeTab={activeTab}>
