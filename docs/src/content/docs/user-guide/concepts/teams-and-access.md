@@ -82,13 +82,13 @@ Every team-related action maps to an access rule (granted via a role) and, for s
 | Grant or revoke a team's access to a resource (the **Team access** editor, **Scope to team**) | `auth.teams.manage` (admin) |
 | Make a resource **team-only** (private) | `auth.teams.manage` |
 | Allow a team to **create** a resource type (create-capability) | `auth.teams.manage` |
-| Create a resource **owned by a team** | one of: the global `<plugin>.<resource>.manage` rule; membership of a team that has a create-capability grant for that type; or (incidents/maintenances) manage access to the target system |
+| Create a resource **owned by a team** | one of: the global `<plugin>.<resource>.manage` rule; membership of a team that has a create-capability grant for that type; a create-capability grant on a **sibling** type (e.g. a team that may create Systems may also create catalog Groups and Environments); or (incidents/maintenances) manage access to the target system |
 
 Key takeaways:
 
 - **Team managers** are about running a team (members + managers), not about handing out resource access. Granting a team access to a system, or the right to create a resource type, is an admin (`auth.teams.manage`) action.
-- **Reading** is broad: anyone with `auth.teams.read` can see teams and what manages a resource. Read of the resources themselves stays global unless the resource is marked team-only.
-- **Creating** a team-owned resource has three independent paths (global manage, a per-type create grant, or managing the parent system) - a user needs only one of them.
+- **Reading** is broad: anyone with `auth.teams.read` can see teams and what manages a resource. Read of the resources themselves stays global unless the resource is marked team-only. Catalog **Groups** and **Environments** follow this: everyone still sees them (they are shared organizing labels), but creating, renaming, and deleting them is team-scoped.
+- **Creating** a team-owned resource has four independent paths (global manage, a per-type create grant, a sibling-type create grant, or managing the parent system) - a user needs only one of them. The sibling path is what lets a team that can create Systems also create the Groups and Environments those systems belong to, without a separate grant.
 
 ## How resource access is enforced
 

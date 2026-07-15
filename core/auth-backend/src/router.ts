@@ -1946,6 +1946,39 @@ export const createAuthRouter = (
     },
   );
 
+  const listObjectRelationsBulk = os.listObjectRelationsBulk.handler(
+    async ({ input }) => {
+      if (input.objectIds.length === 0) return { objects: [] };
+      const results = await tupleStore.listObjectRelationsBulk({
+        objectType: input.objectType,
+        objectIds: input.objectIds,
+      });
+      // Resolve every referenced team name in ONE query across all objects.
+      const allTeamIds = [
+        ...new Set(results.flatMap((r) => r.teams.map((t) => t.teamId))),
+      ];
+      const nameById = new Map<string, string>();
+      if (allTeamIds.length > 0) {
+        const nameRows = await internalDb
+          .select({ id: schema.team.id, name: schema.team.name })
+          .from(schema.team)
+          .where(inArray(schema.team.id, allTeamIds));
+        for (const r of nameRows) nameById.set(r.id, r.name);
+      }
+      return {
+        objects: results.map((r) => ({
+          objectId: r.objectId,
+          teams: r.teams.map((t) => ({
+            teamId: t.teamId,
+            teamName: nameById.get(t.teamId) ?? t.teamId,
+            relation: asRelation(t.relation),
+          })),
+          isPublic: r.isPublic,
+        })),
+      };
+    },
+  );
+
   const writeRelation = os.writeRelation.handler(async ({ input }) => {
     assertKnownResourceType(input.objectType);
     await tupleStore.setTeamRelation({
@@ -2175,10 +2208,45 @@ export const createAuthRouter = (
     },
   );
 
+  // The single definition of type-level create capability: does one of these
+  // teams hold a `creator` grant on `objectType`? Consumed by the S2S
+  // `hasCreateCapability` (which backs the `create.alsoAcceptCreatorOf` seam) and
+  // by the frontend `canCreate` verdict, so both agree by construction.
+  const teamsHoldCreatorGrant = async (
+    objectType: string,
+    userTeamIds: string[],
+  ) => {
+    const creatorTeamIds = await tupleStore.creatorTeamIds({
+      objectType,
+      userTeamIds,
+    });
+    return creatorTeamIds.length > 0;
+  };
+
+  // S2S: strictly the type-level `creator` capability for `objectType` (an
+  // instance editor/owner grant does NOT count). Backs the middleware
+  // `create.alsoAcceptCreatorOf` sibling gate.
+  const hasCreateCapability = os.hasCreateCapability.handler(
+    async ({ input }) => {
+      const userTeamIds = await resolveUserTeamIds(
+        input.userId,
+        input.userType,
+      );
+      if (userTeamIds.length === 0) return { hasCapability: false };
+      return {
+        hasCapability: await teamsHoldCreatorGrant(
+          input.objectType,
+          userTeamIds,
+        ),
+      };
+    },
+  );
+
   // Frontend-facing mirror of the team-derived branch of `authorizeCreate`: does
   // the caller belong to a team that may create `objectType` — either via a
-  // per-type `creator` grant, or (when `parentType` is given) by managing at
-  // least one object of that parent type (the parent gate). The global-RBAC
+  // per-type `creator` grant (or a `creator` grant on any of `alsoAcceptCreatorOf`,
+  // the sibling self-service seam), or (when `parentType` is given) by managing
+  // at least one object of that parent type (the parent gate). The global-RBAC
   // path is intentionally NOT resolved here; the frontend ORs `useAccess(rule)`
   // with this. Anonymous callers and users with no teams get `false`.
   const canCreate = os.canCreate.handler(async ({ context, input }) => {
@@ -2189,12 +2257,17 @@ export const createAuthRouter = (
     const userTeamIds = await resolveUserTeamIds(user.id, user.type);
     if (userTeamIds.length === 0) return { allowed: false };
 
-    // Per-type create capability.
-    const creatorTeamIds = await tupleStore.creatorTeamIds({
-      objectType: input.objectType,
-      userTeamIds,
-    });
-    if (creatorTeamIds.length > 0) return { allowed: true };
+    // Per-type create capability, then any sibling type whose creator grant
+    // also authorizes (mirrors the backend `create.alsoAcceptCreatorOf`).
+    const creatorTypes = [
+      input.objectType,
+      ...(input.alsoAcceptCreatorOf ?? []),
+    ];
+    for (const objectType of creatorTypes) {
+      if (await teamsHoldCreatorGrant(objectType, userTeamIds)) {
+        return { allowed: true };
+      }
+    }
 
     // Parent gate: managing any object of the parent type authorizes creating
     // the child for it (e.g. manage a system -> open an incident/maintenance).
@@ -2475,6 +2548,7 @@ export const createAuthRouter = (
     addTeamManager,
     removeTeamManager,
     listObjectRelations,
+    listObjectRelationsBulk,
     writeRelation,
     removeRelation,
     setObjectPublic,
@@ -2493,6 +2567,7 @@ export const createAuthRouter = (
     canCreate,
     myManageableTypes,
     listMyAccessibleResources,
+    hasCreateCapability,
     authorizeCreate,
     setOwner,
   });

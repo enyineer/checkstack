@@ -40,6 +40,12 @@ export interface RowActionProps {
    * remove); `success` is green (resolve, complete, approve).
    */
   tone?: "default" | "destructive" | "success";
+  /**
+   * Optional small count/indicator shown next to the icon (e.g. a "3 assigned"
+   * badge). When set the button grows from the fixed square to fit the badge;
+   * omit for the normal icon-only action.
+   */
+  badge?: React.ReactNode;
 }
 
 /**
@@ -48,14 +54,15 @@ export interface RowActionProps {
  * loud filled button. Use inside {@link RowActions}.
  */
 export const RowAction = React.forwardRef<HTMLButtonElement, RowActionProps>(
-  ({ icon: Icon, label, onClick, disabled, title, tone = "default" }, ref) => (
+  ({ icon: Icon, label, onClick, disabled, title, tone = "default", badge }, ref) => (
     <Button
       ref={ref}
       type="button"
       variant="ghost"
       size="sm"
       className={cn(
-        "h-7 w-7 p-0",
+        "h-7 p-0",
+        badge == null ? "w-7" : "w-auto min-w-7 gap-0.5 px-1.5",
         tone === "destructive" &&
           "text-destructive hover:bg-destructive/10 hover:text-destructive/90",
         tone === "success" &&
@@ -67,6 +74,11 @@ export const RowAction = React.forwardRef<HTMLButtonElement, RowActionProps>(
       onClick={onClick}
     >
       <Icon className="h-3.5 w-3.5" />
+      {badge != null && (
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold text-muted-foreground">
+          {badge}
+        </span>
+      )}
     </Button>
   ),
 );

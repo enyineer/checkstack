@@ -493,6 +493,69 @@ export class RelationTupleStore {
     };
   }
 
+  /**
+   * Batched variant of {@link listObjectRelations}: resolves team grants and the
+   * privacy marker for MANY objects of ONE type in a SINGLE query, so a table
+   * can render an owner indicator per row without an N+1. Every requested id
+   * gets an entry back — an id with no tuples returns an empty team list and
+   * `isPublic: true` (the default-open state).
+   */
+  async listObjectRelationsBulk({
+    objectType,
+    objectIds,
+  }: {
+    objectType: string;
+    objectIds: string[];
+  }): Promise<
+    Array<{
+      objectId: string;
+      teams: Array<{ teamId: string; relation: string }>;
+      isPublic: boolean;
+    }>
+  > {
+    if (objectIds.length === 0) return [];
+    const rows = await this.db
+      .select({
+        objectId: schema.relationTuple.objectId,
+        relation: schema.relationTuple.relation,
+        subjectType: schema.relationTuple.subjectType,
+        subjectId: schema.relationTuple.subjectId,
+      })
+      .from(schema.relationTuple)
+      .where(
+        and(
+          eq(schema.relationTuple.objectType, objectType),
+          inArray(schema.relationTuple.objectId, objectIds),
+        ),
+      );
+    const byObject = new Map<
+      string,
+      Array<{ relation: string; subjectType: string; subjectId: string }>
+    >();
+    for (const row of rows) {
+      const list = byObject.get(row.objectId);
+      if (list) list.push(row);
+      else byObject.set(row.objectId, [row]);
+    }
+    return objectIds.map((objectId) => {
+      const tuples = byObject.get(objectId) ?? [];
+      const isPrivate = tuples.some(
+        (t) =>
+          t.subjectType === PUBLIC_SUBJECT_TYPE &&
+          t.relation === PRIVATE_RELATION,
+      );
+      return {
+        objectId,
+        teams: tuples
+          .filter(
+            (t) => t.subjectType === "team" && READ_RELATIONS.has(t.relation),
+          )
+          .map((t) => ({ teamId: t.subjectId, relation: t.relation })),
+        isPublic: !isPrivate,
+      };
+    });
+  }
+
   /** Concrete-object grants held by a team (powers the Teams-page grant list). */
   async listSubjectRelations({
     teamId,

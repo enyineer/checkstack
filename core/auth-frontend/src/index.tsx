@@ -139,6 +139,29 @@ export { teamCreateErrorMessage } from "./lib/teamCreateError";
 export { ResourceManagedBy } from "./components/ResourceManagedBy";
 export type { ResourceManagedByProps } from "./components/ResourceManagedBy";
 
+// Reusable per-row "Scope to team" quick action for any team-scoped resource
+// type (systems, groups, environments, ...). Self-gates on `auth.teams.manage`.
+export { ScopeToTeamAction } from "./components/ScopeToTeamAction";
+export type { ScopeToTeamActionProps } from "./components/ScopeToTeamAction";
+
+// Multi-select counterpart for a management bulk bar: grant a team on many
+// resources of one type at once (systems, groups, environments, ...).
+export { BulkScopeToTeamAction } from "./components/BulkScopeToTeamAction";
+export type { BulkScopeToTeamActionProps } from "./components/BulkScopeToTeamAction";
+
+// Batched per-row owner indicator for management TABLES (no N+1): a hook that
+// resolves ownership for many resources of one type in one query, plus a
+// compact badge that renders it. Use on a table; use ResourceManagedBy on a
+// single detail page.
+export { useResourcesManagedBy } from "./hooks/useResourcesManagedBy";
+export type {
+  UseResourcesManagedByParams,
+  UseResourcesManagedByResult,
+  ResourceOwnership,
+} from "./hooks/useResourcesManagedBy";
+export { ResourceOwnerBadge } from "./components/ResourceOwnerBadge";
+export type { ResourceOwnerBadgeProps } from "./components/ResourceOwnerBadge";
+
 // Safe-by-default RLAC picker primitive (see .claude/rules/rlac.md): filter a
 // resource picker to exactly what the backend will accept, so a team-scoped user
 // is never offered a resource the submit would reject. (Capability GATING of

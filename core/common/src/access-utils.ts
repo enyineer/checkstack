@@ -140,6 +140,19 @@ export interface InstanceAccessConfig {
       resourceType: string;
       idParam: string;
     };
+    /**
+     * Optional SIBLING gate: authorize the create when the caller holds a
+     * `creator` (create-capability) grant on ANY of these other qualified types,
+     * in addition to this type's own creator grant. Type-scoped, NOT instance-
+     * scoped: unlike `parent` (which needs a parent id in the payload and checks
+     * MANAGE on that instance), this needs no id and checks only the type-level
+     * `creator` capability. Use for sibling self-service, e.g. "a caller who may
+     * create `catalog.system` may also create `catalog.group` / `catalog.environment`".
+     * When a sibling capability matches, the per-type create-capability is not
+     * required; the owning team is still resolved (teamIdParam / membership), and
+     * the result is still globally readable.
+     */
+    alsoAcceptCreatorOf?: string[];
   };
 
   /**

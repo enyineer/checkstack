@@ -143,6 +143,23 @@ describe("resolveProcedureGate", () => {
       ),
     });
     expect(gate.parentAccessRule).toBeUndefined();
+    expect(gate.alsoAcceptCreatorOf).toBeUndefined();
+  });
+
+  it("surfaces create.alsoAcceptCreatorOf sibling types on the gate", () => {
+    const gate = resolveProcedureGate({
+      procedure: procedure(
+        meta([automationAccess.manage], {
+          create: {
+            teamIdParam: "teamId",
+            idField: "id",
+            alsoAcceptCreatorOf: ["catalog.system"],
+          },
+        }),
+      ),
+    });
+    expect(gate.kind).toBe("create");
+    expect(gate.alsoAcceptCreatorOf).toEqual(["catalog.system"]);
   });
 
   it("classifies typeScoped and defaults its action to the rule level", () => {

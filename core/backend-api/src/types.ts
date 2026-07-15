@@ -115,6 +115,20 @@ export interface AuthService {
     includeCreator?: boolean;
   }): Promise<{ hasGrant: boolean }>;
   /**
+   * Whether the caller holds a type-level `creator` (create-capability) grant on
+   * `objectType` for at least one of their teams. Strictly the `creator` grant -
+   * an `editor`/`owner` grant on some concrete instance does NOT count (that is
+   * instance manage, covered by `check`/`create.parent`). Backs the
+   * `create.alsoAcceptCreatorOf` seam (sibling self-service: a caller who may
+   * create type A is authorized to create type B) and the frontend `canCreate`
+   * verdict, so both consult ONE definition of "can create this type".
+   */
+  hasCreateCapability(params: {
+    userId: string;
+    userType: "user" | "application";
+    objectType: string;
+  }): Promise<{ hasCapability: boolean }>;
+  /**
    * Decide whether a caller may CREATE an object of `objectType` and which team
    * (if any) should own it. Resolves the create-authorization matrix (global
    * manage, `creator` grants, single vs multi eligible team). Throws FORBIDDEN /

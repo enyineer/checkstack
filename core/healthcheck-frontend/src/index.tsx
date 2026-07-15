@@ -4,6 +4,7 @@ import {
 } from "@checkstack/frontend-api";
 import { Activity } from "lucide-react";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
+import { CatalogBrowseHealthCheckDataFiller } from "./components/CatalogBrowseHealthCheckDataFiller";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
 import { autoChartExtension } from "./auto-charts/extension";
@@ -11,6 +12,7 @@ import { autoChartExtension } from "./auto-charts/extension";
 import {
   SystemDetailsSlot,
   CatalogSystemActionsSlot,
+  CatalogBrowseDataBoundarySlot,
   SystemStateBadgesSlot,
   CatalogBrowseHealthSlot,
   SystemSignalsSlot,
@@ -195,6 +197,13 @@ export default createFrontendPlugin({
     createSlotExtension(CatalogSystemActionsSlot, {
       id: "healthcheck.catalog.system-actions",
       component: SystemHealthCheckAssignment,
+    }),
+    // Bulk-fills the catalog browse/manage tree so the per-row health-check
+    // action reads its gate + assigned-count from context once, instead of each
+    // row running two access hooks + a counts query (the Systems tab lag).
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "healthcheck.catalog.browse-healthcheck-data",
+      component: CatalogBrowseHealthCheckDataFiller,
     }),
     // Auto-generated charts based on schema metadata
     autoChartExtension,

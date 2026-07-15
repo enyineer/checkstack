@@ -457,6 +457,53 @@ export default createBackendPlugin({
           },
         });
 
+        // Groups and environments are team-manageable too (their WRITES are
+        // team-scoped), so their grants (`catalog.group:<id>` /
+        // `catalog.environment:<id>`) must render by name in the Teams admin UI.
+        resourceResolverRegistry.register("catalog.group", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({ id: schema.groups.id, name: schema.groups.name })
+              .from(schema.groups)
+              .where(inArray(schema.groups.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({ id: schema.groups.id, name: schema.groups.name })
+              .from(schema.groups)
+              .where(ilike(schema.groups.name, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
+
+        resourceResolverRegistry.register("catalog.environment", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({
+                id: schema.environments.id,
+                name: schema.environments.name,
+              })
+              .from(schema.environments)
+              .where(inArray(schema.environments.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({
+                id: schema.environments.id,
+                name: schema.environments.name,
+              })
+              .from(schema.environments)
+              .where(ilike(schema.environments.name, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
+
         // Publish the EntityService for the PLUGIN-BACKED catalog entity
         // `read` accessors (defined in register()). Mutations only run from
         // here onward, so the lazy `read` closures always find it resolved.

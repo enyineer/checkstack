@@ -5,7 +5,7 @@ import {
   accessApiRef,
   usePluginClient,
 } from "@checkstack/frontend-api";
-import { System, Environment, CatalogApi } from "../api";
+import { System, Environment, Group, CatalogApi } from "../api";
 import {
   catalogAccess,
   catalogResourceTypes,
@@ -76,11 +76,8 @@ export const CatalogConfigPage = () => {
       accessRule: catalogAccess.system.manage,
       objectType: catalogResourceTypes.system,
     });
-  // Environment CRUD is gated on its own access rule, independent of the
-  // system-level manage permission that gates the rest of this page.
-  const { allowed: canManageEnvironments } = accessApi.useAccess(
-    catalogAccess.environment.manage,
-  );
+  // Environment create/manage gating now lives in EnvironmentsTab (create verdict
+  // for the Add button, per-instance manage for row actions), matching GroupsTab.
 
   const [activeTab, setActiveTab] = useState<ManageTab>("systems");
 
@@ -88,6 +85,7 @@ export const CatalogConfigPage = () => {
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<System | undefined>();
   const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<Group | undefined>();
   const [isEnvironmentEditorOpen, setIsEnvironmentEditorOpen] = useState(false);
   const [editingEnvironment, setEditingEnvironment] = useState<
     Environment | undefined
@@ -249,11 +247,12 @@ export const CatalogConfigPage = () => {
     onSuccess: () => {
       toastSuccess(toast, "Group created successfully");
       setIsGroupEditorOpen(false);
+      setEditingGroup(undefined);
       void refetchGroups();
     },
-    onError: (error) => {
-      toastError(toast, "Failed to create group", error);
-    },
+    // Error handled in GroupEditor's catch (inline for team-create errors,
+    // generic toast otherwise). No onError here to avoid double-reporting when
+    // mutateAsync throws.
   });
 
   const deleteGroupMutation = catalogClient.deleteGroup.useMutation({
@@ -278,12 +277,13 @@ export const CatalogConfigPage = () => {
 
   const updateGroupMutation = catalogClient.updateGroup.useMutation({
     onSuccess: () => {
-      toastSuccess(toast, "Group name updated successfully");
+      toastSuccess(toast, "Group updated successfully");
+      setIsGroupEditorOpen(false);
+      setEditingGroup(undefined);
       void refetchGroups();
     },
     onError: (error) => {
-      toastError(toast, "Failed to update group name", error);
-      throw error;
+      toastError(toast, "Failed to update group", error);
     },
   });
 
@@ -314,9 +314,9 @@ export const CatalogConfigPage = () => {
       setIsEnvironmentEditorOpen(false);
       setEditingEnvironment(undefined);
     },
-    onError: (error) => {
-      toastError(toast, "Failed to create environment", error);
-    },
+    // Error handled in EnvironmentEditor's catch (inline for team-create errors,
+    // generic toast otherwise). No onError here to avoid double-reporting when
+    // mutateAsync throws.
   });
 
   const updateEnvironmentMutation = catalogClient.updateEnvironment.useMutation({
@@ -375,8 +375,16 @@ export const CatalogConfigPage = () => {
     }
   };
 
-  const handleCreateGroup = async (data: { name: string }) => {
-    createGroupMutation.mutate(data);
+  const handleSaveGroup = async (data: { name: string; teamId?: string }) => {
+    if (editingGroup) {
+      // Edit never carries teamId (create-only); strip it defensively.
+      const { teamId: _teamId, ...updateData } = data;
+      updateGroupMutation.mutate({ id: editingGroup.id, data: updateData });
+    } else {
+      // mutateAsync so team-create errors propagate to GroupEditor's catch
+      // (inline OWNER_TEAM_REQUIRED routing to the TeamOwnershipPicker).
+      await createGroupMutation.mutateAsync(data);
+    }
   };
 
   const handleDeleteSystem = (id: string) => {
@@ -411,7 +419,23 @@ export const CatalogConfigPage = () => {
       isOpen: true,
       title: "Delete Group",
       message: `Are you sure you want to delete "${group?.name}"? This action cannot be undone.`,
-      onConfirm: () => deleteGroupMutation.mutate(id),
+      onConfirm: () => deleteGroupMutation.mutate({ id }),
+    });
+  };
+
+  const handleBulkDeleteGroups = (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (ids.length === 1) {
+      handleDeleteGroup(ids[0]);
+      return;
+    }
+    setConfirmModal({
+      isOpen: true,
+      title: `Delete ${ids.length} groups`,
+      message: `Are you sure you want to delete these ${ids.length} groups? This action cannot be undone.`,
+      onConfirm: () => {
+        for (const id of ids) deleteGroupMutation.mutate({ id });
+      },
     });
   };
 
@@ -423,22 +447,22 @@ export const CatalogConfigPage = () => {
     removeSystemFromGroupMutation.mutate({ groupId, systemId });
   };
 
-  const handleUpdateGroupName = (id: string, newName: string) => {
-    updateGroupMutation.mutate({ id, data: { name: newName } });
-  };
-
   const handleSaveEnvironment = async (data: {
     name: string;
     description?: string;
+    teamId?: string;
     metadata?: Record<string, string>;
   }) => {
     if (editingEnvironment) {
+      // Edit never carries teamId (create-only); strip it defensively.
+      const { teamId: _teamId, ...updateData } = data;
       updateEnvironmentMutation.mutate({
         environmentId: editingEnvironment.id,
-        data,
+        data: updateData,
       });
     } else {
-      createEnvironmentMutation.mutate(data);
+      // mutateAsync so team-create errors propagate to EnvironmentEditor's catch.
+      await createEnvironmentMutation.mutateAsync(data);
     }
   };
 
@@ -450,6 +474,36 @@ export const CatalogConfigPage = () => {
       message: `Are you sure you want to delete "${environment?.name}"? This will remove it from all systems.`,
       onConfirm: () => deleteEnvironmentMutation.mutate({ environmentId: id }),
     });
+  };
+
+  const handleBulkDeleteEnvironments = (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (ids.length === 1) {
+      handleDeleteEnvironment(ids[0]);
+      return;
+    }
+    setConfirmModal({
+      isOpen: true,
+      title: `Delete ${ids.length} environments`,
+      message: `Are you sure you want to delete these ${ids.length} environments? This will remove them from all systems.`,
+      onConfirm: () => {
+        for (const id of ids) deleteEnvironmentMutation.mutate({ environmentId: id });
+      },
+    });
+  };
+
+  // Attach ONE system to many environments in a single desired-set write. Env
+  // membership is stored as the system's env set (setSystemEnvironments is a
+  // read-modify-write), so looping per env would race on the shared systemId and
+  // only the last add would stick; union up-front and write once instead.
+  const handleAttachSystemToEnvironments = (
+    systemId: string,
+    environmentIds: string[],
+  ) => {
+    const current = systemEnvMap.get(systemId) ?? [];
+    const next = [...new Set([...current, ...environmentIds])];
+    if (next.length === current.length) return;
+    setSystemEnvironmentsMutation.mutate({ systemId, environmentIds: next });
   };
 
   const handleAddSystemEnvironment = (
@@ -569,9 +623,16 @@ export const CatalogConfigPage = () => {
           orderedGroups={groups}
           totalCount={groups.length}
           allSystems={systems}
-          onAddGroup={() => setIsGroupEditorOpen(true)}
+          onAddGroup={() => {
+            setEditingGroup(undefined);
+            setIsGroupEditorOpen(true);
+          }}
+          onEditGroup={(group) => {
+            setEditingGroup(group);
+            setIsGroupEditorOpen(true);
+          }}
           onDeleteGroup={handleDeleteGroup}
-          onRenameGroup={handleUpdateGroupName}
+          onBulkDeleteGroups={handleBulkDeleteGroups}
           onReorderGroups={(orderedIds) =>
             reorderGroupsMutation.mutate({ orderedIds })
           }
@@ -585,10 +646,10 @@ export const CatalogConfigPage = () => {
         <EnvironmentsTab
           environments={visibleEnvironments}
           totalCount={environments.length}
-          canManage={canManageEnvironments}
           allSystems={systems}
           onAddSystemToEnvironment={handleAddSystemEnvironment}
           onRemoveSystemFromEnvironment={handleRemoveSystemEnvironment}
+          onAttachSystemToEnvironments={handleAttachSystemToEnvironments}
           onAddEnvironment={() => {
             setEditingEnvironment(undefined);
             setIsEnvironmentEditorOpen(true);
@@ -598,6 +659,7 @@ export const CatalogConfigPage = () => {
             setIsEnvironmentEditorOpen(true);
           }}
           onDeleteEnvironment={handleDeleteEnvironment}
+          onBulkDeleteEnvironments={handleBulkDeleteEnvironments}
           onClearFilters={browse.clearFilters}
         />
       )}
@@ -624,8 +686,14 @@ export const CatalogConfigPage = () => {
 
       <GroupEditor
         open={isGroupEditorOpen}
-        onClose={() => setIsGroupEditorOpen(false)}
-        onSave={handleCreateGroup}
+        onClose={() => {
+          setIsGroupEditorOpen(false);
+          setEditingGroup(undefined);
+        }}
+        onSave={handleSaveGroup}
+        initialData={
+          editingGroup ? { name: editingGroup.name } : undefined
+        }
       />
 
       <EnvironmentEditor

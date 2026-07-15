@@ -564,10 +564,39 @@ export const autoAuthMiddleware = os.middleware(
           }
         }
 
+        // Sibling-gated create: a caller who holds a `creator` capability on any
+        // of the listed sibling TYPES is authorized to create this resource,
+        // without a per-type create-capability grant of its own (e.g. a
+        // `catalog.system` creator may also create `catalog.group`). Skipped when
+        // a global-manage holder or the parent gate already authorized. Strictly
+        // the type-level creator grant - an instance manage grant does not count
+        // here (that is what `parent` is for).
+        let siblingAuthorized = false;
+        if (
+          !hasGlobalManage &&
+          !parentAuthorized &&
+          createCfg.alsoAcceptCreatorOf &&
+          createCfg.alsoAcceptCreatorOf.length > 0
+        ) {
+          const siblingChecks = await Promise.all(
+            createCfg.alsoAcceptCreatorOf.map((siblingType) =>
+              context.auth
+                .hasCreateCapability({
+                  userId,
+                  userType,
+                  objectType: siblingType,
+                })
+                .then((r) => r.hasCapability)
+                .catch(() => false),
+            ),
+          );
+          siblingAuthorized = siblingChecks.some(Boolean);
+        }
+
         // Propagates ORPCError (FORBIDDEN / BAD_REQUEST OWNER_TEAM_REQUIRED) to
         // the caller. Not fail-open: a create that cannot be authorized must be
         // rejected. `alreadyAuthorized` short-circuits the per-type
-        // create-capability requirement when the parent gate already passed.
+        // create-capability requirement when the parent or sibling gate passed.
         const { ownerTeamId, isPrivate } =
           await context.auth.authorizeCreate({
             userId,
@@ -575,7 +604,7 @@ export const autoAuthMiddleware = os.middleware(
             objectType: rule.qualifiedResourceType,
             requestedTeamId,
             hasGlobalManage,
-            alreadyAuthorized: parentAuthorized,
+            alreadyAuthorized: parentAuthorized || siblingAuthorized,
           });
 
         if (ownerTeamId) {

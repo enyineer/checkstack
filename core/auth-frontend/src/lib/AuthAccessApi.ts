@@ -276,7 +276,11 @@ export class AuthAccessApi implements AccessApi {
     const teamEnabled = !rulesLoading && !globalAllowed && isAuthenticated;
 
     const createQuery = authClient.canCreate.useQuery(
-      { objectType: gate.objectType, parentType: gate.parentType },
+      {
+        objectType: gate.objectType,
+        parentType: gate.parentType,
+        alsoAcceptCreatorOf: gate.alsoAcceptCreatorOf,
+      },
       { enabled: teamEnabled && gate.kind === "create" },
     );
     const typesQuery = authClient.myManageableTypes.useQuery(

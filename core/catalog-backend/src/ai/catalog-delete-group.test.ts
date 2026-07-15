@@ -65,7 +65,7 @@ describe("catalog.deleteGroup tool", () => {
     ).rejects.toThrow(/No group found/);
   });
 
-  test("execute (apply) deletes via deleteGroup with the POSITIONAL id", async () => {
+  test("execute (apply) deletes via deleteGroup with the { id } input", async () => {
     const deleteGroup = mock(() => Promise.resolve({ success: true }));
     const rpcClient = fakeRpcClient({
       getGroups: mock(() => Promise.resolve([group])),
@@ -77,7 +77,7 @@ describe("catalog.deleteGroup tool", () => {
       principal,
       rpcClient,
     });
-    expect(deleteGroup).toHaveBeenCalledWith("grp1");
+    expect(deleteGroup).toHaveBeenCalledWith({ id: "grp1" });
     expect(result).toEqual({ id: "grp1", deleted: true });
   });
 });

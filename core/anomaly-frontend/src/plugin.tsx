@@ -13,10 +13,12 @@ import {
   SystemStateBadgesSlot,
   SystemDetailsSlot,
   SystemSignalsSlot,
+  CatalogBrowseDataBoundarySlot,
 } from "@checkstack/catalog-common";
 import { registerSubscriptionSubControls } from "@checkstack/notification-frontend";
 import { anomalySystemSubscription } from "@checkstack/anomaly-common";
 import { SystemAnomalyBadge } from "./components/SystemAnomalyBadge";
+import { CatalogBrowseAnomalyDataFiller } from "./components/CatalogBrowseAnomalyDataFiller";
 import { SystemAnomalyWidget } from "./components/SystemAnomalyWidget";
 import { AnomalyFieldMuteList } from "./components/AnomalyFieldMuteList";
 import { IDETreeNode } from "@checkstack/ui";
@@ -46,6 +48,13 @@ export const plugin: FrontendPlugin = {
     createSlotExtension(SystemStateBadgesSlot, {
       id: "anomaly.system-badge",
       component: SystemAnomalyBadge,
+    }),
+    // Bulk-fills the catalog browse/manage tree so the per-row anomaly badges
+    // read an O(1) lookup from context instead of each instantiating two live
+    // query observers + scanning the anomaly arrays (the SystemsTab mount cost).
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "anomaly.catalog.browse-anomaly-data",
+      component: CatalogBrowseAnomalyDataFiller,
     }),
     createSlotExtension(SystemSignalsSlot, {
       id: "anomaly.dashboard.signals",

@@ -119,6 +119,7 @@ export function DataTable<TData>({
             key={col.id}
             className={cn(
               col.desktopOnly && "hidden md:table-cell",
+              col.truncate && "w-full max-w-0",
               col.headClassName,
             )}
             aria-sort={
@@ -169,6 +170,7 @@ export function DataTable<TData>({
             key={col.id}
             className={cn(
               col.desktopOnly && "hidden md:table-cell",
+              col.truncate && "w-full max-w-0",
               col.cellClassName,
             )}
           >

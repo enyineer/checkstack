@@ -324,6 +324,26 @@ export function registerCoreServices({
         }
       },
 
+      hasCreateCapability: async (params) => {
+        try {
+          const rpcClient = await registry.get(coreServices.rpcClient, {
+            pluginId: "core",
+          });
+          const authClient = rpcClient.forPlugin(AuthApi);
+          return await authClient.hasCreateCapability(params);
+        } catch (error) {
+          // Fail-Closed: this is an ADDITIONAL authorizer ORed into the create
+          // gate. Reporting no capability never wrongly grants a create (the
+          // primary `authorizeCreate` still rejects a truly unauthorized caller);
+          // it only risks a spurious 403 for a legitimate sibling-creator during
+          // a transient auth outage — the safe direction.
+          rootLogger.error(
+            `[auth] hasCreateCapability: S2S call failed for type ${params.objectType}. Reporting no capability (Fail-Closed). Error: ${error}`,
+          );
+          return { hasCapability: false };
+        }
+      },
+
       authorizeCreate: async (params) => {
         // Fail-Closed: a create authorization that cannot be resolved must NOT
         // silently succeed. Re-throw so the create is rejected.

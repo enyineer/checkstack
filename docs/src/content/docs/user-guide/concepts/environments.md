@@ -30,6 +30,10 @@ You can manage environments from the catalog config page, or declaratively with 
 
 In the UI, open **Catalog management**, use the **Environments** panel to create, edit, and delete environments and their custom fields, and set which environments a system belongs to from the **Systems** tab (the per-row environment chips) or by attaching systems from the **Environments** panel.
 
+Everyone still **sees** every environment (they are a shared browse facet), but **creating, editing, and deleting** them is team-scoped: you need the global environment-manage rule, an environment create-capability grant, or - because a system creator may also create environments - a System create-capability grant. New environments are owned by your team, and you can only edit or delete the ones your team owns. See [Teams and access](/checkstack/user-guide/concepts/teams-and-access/).
+
+Each row on the **Catalog -> Environments** manage page carries an **owned by \<team\>** badge showing which team may edit or delete it, and a team admin can re-assign an environment to another team with the per-row **Scope to team** action (the same control systems have). Selecting the checkbox on rows you manage reveals a bulk bar to **scope to team**, **attach a system to**, or **delete** many environments at once.
+
 With GitOps, declare an environment with the `Environment` kind and attach systems with the `System.environments` extension:
 
 ```yaml

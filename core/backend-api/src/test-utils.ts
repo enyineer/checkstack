@@ -61,6 +61,9 @@ export function createMockRpcContext(
       // not "categorically unauthorized" (403). Tests targeting the 403 path
       // override this to return { hasGrant: false }.
       hasAnyTypeGrant: mock().mockResolvedValue({ hasGrant: true }),
+      // Default: no sibling create-capability. Tests exercising the
+      // `create.alsoAcceptCreatorOf` gate override this to { hasCapability: true }.
+      hasCreateCapability: mock().mockResolvedValue({ hasCapability: false }),
       authorizeCreate: mock().mockResolvedValue({
         ownerTeamId: null,
         isPrivate: false,

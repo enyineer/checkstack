@@ -67,6 +67,12 @@ export interface ProcedureGate {
    * gates with no parent.
    */
   parentAccessRule?: AccessRule;
+  /**
+   * For a `create.alsoAcceptCreatorOf` gate, the sibling qualified types whose
+   * `creator` capability also authorizes this create. Passed to the `canCreate`
+   * query so the team-side verdict matches the backend sibling gate.
+   */
+  alsoAcceptCreatorOf?: string[];
   /** The access level the check runs at (`read` / `manage`). */
   action: "read" | "manage";
   /**
@@ -177,6 +183,9 @@ export function resolveProcedureGate({
       // or team). Carry the synthetic parent-manage rule so the global path ORs
       // it in; the team side is covered by the `canCreate` query's parentType.
       parentAccessRule: parentType ? syntheticRule(parentType, "manage") : undefined,
+      // A sibling-gated create is also authorized by a `creator` grant on any of
+      // these types; the team side is covered by the `canCreate` query.
+      alsoAcceptCreatorOf: ia.create.alsoAcceptCreatorOf,
       action: "manage",
     };
   }
