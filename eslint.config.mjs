@@ -130,6 +130,18 @@ export default tseslint.config(
       "checkstack/no-extraneous-runtime-deps": "error",
       "checkstack/enforce-package-metadata": "error",
       "checkstack/no-eslint-disable-any": "error",
+      // Test-runner isolation soundness (scripts/run-tests.ts). The runner keeps
+      // the suite fast by running the bulk in ONE shared process and pulling only
+      // the files that pollute process globals into a separate `--isolate` pass,
+      // detecting that set by grepping each TEST file for `mock.module` / global
+      // assignment / `spyOn(global*)`. That detection is defeated if such a call
+      // hides in an importable NON-test module, so this rule forbids those calls
+      // outside `*.test.*` files (the sanctioned `test-preload.ts` aside). Test
+      // files themselves are unaffected (they are in the top-level `ignores` and
+      // are isolated by the runner). Severity is `error`: the codebase already
+      // conforms and a violation silently breaks the runner's partition, leaking
+      // a mock into unrelated suites - a correctness risk, not a style nit.
+      "checkstack/no-shared-process-test-pollution": "error",
       // Reactive automation engine backstop (plan §6.4, §15.6). Severity is
       // intentionally `warn` and MUST NOT be escalated to `error`: it informs
       // authors that entity state should flow through `defineEntity`, it does

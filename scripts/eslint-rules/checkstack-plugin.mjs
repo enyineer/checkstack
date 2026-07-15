@@ -18,6 +18,7 @@ import { noDirectRoleMembershipWrites } from "./no-direct-role-membership-writes
 import { noDirectSystemStatusRead } from "./no-direct-system-status-read.mjs";
 import { noDirectHealthRunInsert } from "./no-direct-health-run-insert.mjs";
 import { noStateSeedInEffect } from "./no-state-seed-in-effect.mjs";
+import { noSharedProcessTestPollution } from "./no-shared-process-test-pollution.mjs";
 
 export default {
   rules: {
@@ -35,5 +36,6 @@ export default {
     "no-direct-system-status-read": noDirectSystemStatusRead,
     "no-direct-health-run-insert": noDirectHealthRunInsert,
     "no-state-seed-in-effect": noStateSeedInEffect,
+    "no-shared-process-test-pollution": noSharedProcessTestPollution,
   },
 };
