@@ -375,12 +375,22 @@ describe.skipIf(!ENABLED)("satellite <-> core telemetry (real two-process)", () 
             displayPrefixLength: TOKEN_DISPLAY_PREFIX_LENGTH,
           });
           const streamToken = tokenKit.generateToken({ resourceId: streamId });
+          // Push tokens are platform-owned now: seed a `logstream.push` telemetry
+          // SOURCE bound to this stream, carrying the sha256 token hash (copied
+          // verbatim, as telemetry migration 0002 promotes legacy tokens). The
+          // ingest endpoints verify presented bearers against
+          // `telemetry_sources.push_token_hash`.
           await seedSql`
-            INSERT INTO plugin_logstream.log_stream_tokens
-              (id, stream_id, name, token_hash, token_prefix)
+            INSERT INTO plugin_telemetry.telemetry_sources
+              (id, source_type_id, name, config, bindings, enabled,
+               push_token_hash, push_token_prefix)
             VALUES (
-              ${`sat-e2e-token-${crypto.randomUUID()}`}, ${streamId},
-              ${"sat-e2e shipper"}, ${streamToken.tokenHash}, ${streamToken.tokenPrefix}
+              ${`sat-e2e-log-source-${crypto.randomUUID()}`}, ${"logstream.push"},
+              ${"sat-e2e shipper"}, ${"{}"}::jsonb,
+              jsonb_build_array(
+                jsonb_build_object('signal', 'logs', 'streamId', ${streamId})
+              ),
+              ${true}, ${streamToken.tokenHash}, ${streamToken.tokenPrefix}
             )
           `;
 
@@ -434,12 +444,22 @@ describe.skipIf(!ENABLED)("satellite <-> core telemetry (real two-process)", () 
             displayPrefixLength: TRACESTREAM_TOKEN_DISPLAY_PREFIX_LENGTH,
           });
           const streamToken = tokenKit.generateToken({ resourceId: streamId });
+          // Push tokens are platform-owned now: seed a `tracestream.push`
+          // telemetry SOURCE bound to this stream, carrying the sha256 token hash
+          // (copied verbatim, as telemetry migration 0002 promotes legacy
+          // tokens). The ingest endpoints verify presented bearers against
+          // `telemetry_sources.push_token_hash`.
           await seedSql`
-            INSERT INTO plugin_tracestream.trace_stream_tokens
-              (id, stream_id, name, token_hash, token_prefix)
+            INSERT INTO plugin_telemetry.telemetry_sources
+              (id, source_type_id, name, config, bindings, enabled,
+               push_token_hash, push_token_prefix)
             VALUES (
-              ${`sat-e2e-trace-token-${crypto.randomUUID()}`}, ${streamId},
-              ${"sat-e2e shipper"}, ${streamToken.tokenHash}, ${streamToken.tokenPrefix}
+              ${`sat-e2e-trace-source-${crypto.randomUUID()}`}, ${"tracestream.push"},
+              ${"sat-e2e shipper"}, ${"{}"}::jsonb,
+              jsonb_build_array(
+                jsonb_build_object('signal', 'traces', 'streamId', ${streamId})
+              ),
+              ${true}, ${streamToken.tokenHash}, ${streamToken.tokenPrefix}
             )
           `;
 

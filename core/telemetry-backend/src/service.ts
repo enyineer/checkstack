@@ -12,20 +12,24 @@
  */
 
 import { ORPCError } from "@orpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { extractErrorMessage, isSecretClearSentinel } from "@checkstack/common";
 import type {
   AuthUser,
   EventBus,
   Logger,
+  RpcClient,
   SafeDatabase,
 } from "@checkstack/backend-api";
-import type { SourceTokenKit } from "@checkstack/ingest-utils";
+import { AuthApi } from "@checkstack/auth-common";
+import { createSourceTokenKit, type SourceTokenKit } from "@checkstack/ingest-utils";
 import type { SignalService } from "@checkstack/signal-common";
 import {
   TELEMETRY_SOURCE_CHANGED,
+  telemetryResourceTypes,
   type BindableStream,
   type CreateTelemetrySource,
+  type PushInfo,
   type SourceBinding,
   type SourceTypeDescriptor,
   type TelemetrySignal,
@@ -36,7 +40,10 @@ import {
 } from "@checkstack/telemetry-common";
 import * as schema from "./schema";
 import { telemetrySources, type TelemetrySourceRow } from "./schema";
-import { telemetrySourceReconcileHook } from "./events";
+import {
+  telemetryPushTokenInvalidatedHook,
+  telemetrySourceReconcileHook,
+} from "./events";
 import {
   listSecretFields,
   stripSecretsForRead,
@@ -78,7 +85,32 @@ export interface SatelliteConfigPush {
   notifyConfigChanged(input: { satelliteId: string }): void;
 }
 
-export interface TelemetryService {
+/**
+ * The narrow source-lifecycle surface a SIGNAL-OWNING plugin consumes (via
+ * `telemetrySourceLifecycleRef`) to keep source bindings coherent when it
+ * deletes a stream. Dependency direction is preserved: the stream plugin
+ * imports the platform and calls IN; the platform never imports a stream plugin.
+ */
+export interface TelemetrySourceLifecycle {
+  /**
+   * React to a stream being deleted in the owning plugin: every source bound to
+   * `{ signal, streamId }` has that binding stripped. A source left with NO
+   * bindings is fully deleted (secret cleanup, unschedule, reconcile broadcast,
+   * push-token "revoked"); a source that keeps other bindings is persisted with
+   * the reduced set and its cached push verdict is evicted ("revoked"), since
+   * the removed binding may be embedded in a warm pod's cached verdict.
+   *
+   * Idempotent and best-effort-safe: a `streamId` matching no source is a no-op,
+   * and it is safe to call AFTER the stream row itself is already gone (the
+   * platform only touches its own `telemetry_sources` rows).
+   */
+  handleStreamDeleted(input: {
+    signal: TelemetrySignal;
+    streamId: string;
+  }): Promise<void>;
+}
+
+export interface TelemetryService extends TelemetrySourceLifecycle {
   listSourceTypes(input?: {
     signal?: TelemetrySignal;
   }): Promise<{ sourceTypes: SourceTypeDescriptor[] }>;
@@ -87,7 +119,7 @@ export interface TelemetryService {
     user: AuthUser | undefined;
     /** Caller's request headers, forwarded to the satellite-binding gate. */
     requestHeaders?: Headers;
-  }): Promise<TelemetrySource & { webhook?: WebhookInfo }>;
+  }): Promise<TelemetrySource & { webhook?: WebhookInfo; push?: PushInfo }>;
   updateSource(input: {
     id: string;
     body: UpdateTelemetrySource;
@@ -113,6 +145,12 @@ export interface TelemetryService {
     user: AuthUser | undefined;
   }): Promise<{ streams: BindableStream[] }>;
   rotateWebhookSecret(input: { id: string }): Promise<WebhookInfo>;
+  /**
+   * Rotate a push-mode instance's bearer token. The previous token stops
+   * verifying (a "revoked" invalidation for its hash) and a new one is minted
+   * ("minted" for the new hash); the new token is shown ONCE.
+   */
+  rotatePushToken(input: { id: string }): Promise<PushInfo>;
   /** Resolve a stored config's secrets to plaintext and parse for a run. */
   resolveRunnableConfig(input: {
     sourceId: string;
@@ -200,6 +238,7 @@ export function createTelemetryService({
   reconcile,
   assertSatelliteBindable,
   satellitePush,
+  rpcClient,
   logger,
   now = () => new Date(),
   lookupFn,
@@ -223,12 +262,55 @@ export function createTelemetryService({
   assertSatelliteBindable: SatelliteBindingAuthorizer;
   /** Optional post-CRUD satellite re-push hook (wired in setup). */
   satellitePush?: SatelliteConfigPush;
+  /**
+   * S2S RPC client, used to delete a source's team relations via
+   * `AuthApi.deleteObjectRelations` when it is fully removed (delete or an
+   * orphaning stream-deletion cascade). Optional so lightweight tests can omit
+   * it; when absent, grant cleanup is skipped with a warning.
+   */
+  rpcClient?: RpcClient;
   logger: Logger;
   now?: () => Date;
   /** DNS resolver seam for guarded fetch in the config test (tests inject). */
   lookupFn?: GuardedLookupFn;
 }): TelemetryService {
   const secretStore = internalSecretsStore;
+
+  /**
+   * One {@link SourceTokenKit} per push token prefix, built lazily and memoized
+   * (each push type carries a stable `tokenPrefix`). Mirrors the single shared
+   * `webhookKit`, but keyed per type since prefixes differ across push types.
+   */
+  const pushKits = new Map<string, SourceTokenKit>();
+  function pushKitFor(prefix: string): SourceTokenKit {
+    let kit = pushKits.get(prefix);
+    if (!kit) {
+      kit = createSourceTokenKit({ prefix });
+      pushKits.set(prefix, kit);
+    }
+    return kit;
+  }
+
+  /**
+   * Emit the cross-pod push-token invalidation hook so every endpoint owner's
+   * ingest-auth caches converge (see {@link telemetryPushTokenInvalidatedHook}).
+   * Best-effort: a bus failure is logged and never fails the mutation; the 60s
+   * positive-cache TTL bounds the stale window if the event is lost.
+   */
+  async function emitPushTokenInvalidated(input: {
+    sourceTypeId: string;
+    sourceId: string;
+    tokenHash: string;
+    reason: "minted" | "revoked";
+  }): Promise<void> {
+    try {
+      await eventBus?.emit(telemetryPushTokenInvalidatedHook, input);
+    } catch (error) {
+      logger.warn(
+        `telemetry: failed to emit push-token invalidation (${input.reason}) for ${input.sourceId}: ${String(error)}`,
+      );
+    }
+  }
 
   function requireType(sourceTypeId: string): RegisteredTelemetrySourceType {
     const type = sourceRegistry.get(sourceTypeId);
@@ -285,6 +367,100 @@ export function createTelemetryService({
     for (const satelliteId of new Set(ids)) {
       if (satelliteId) satellitePush.notifyConfigChanged({ satelliteId });
     }
+  }
+
+  /**
+   * Fully remove a source row and everything hanging off it: stored secrets, its
+   * pull schedule, and its push-token verdict. Shared by {@link deleteSource} and
+   * the empty-bindings branch of {@link handleStreamDeleted} so both take the
+   * exact same teardown path.
+   */
+  async function purgeSource(existing: TelemetrySourceRow): Promise<void> {
+    await db
+      .delete(telemetrySources)
+      .where(eq(telemetrySources.id, existing.id));
+    try {
+      await secretStore.clearAll({
+        config: existing.config,
+        sourceId: existing.id,
+      });
+      // Clear any stored HMAC key too (idempotent; a no-op for plain-secret or
+      // non-webhook types that never stored one).
+      await secretStore.clearWebhookSecret({ sourceId: existing.id });
+    } catch (error) {
+      logger.warn(
+        `telemetry: failed to clear secrets for deleted source ${existing.id}: ${String(error)}`,
+      );
+    }
+    await reconcile.unscheduleSource({ sourceId: existing.id });
+    await broadcastChanged(existing.id, "deleted");
+    // Delete the source's team relations so no grant orphans remain. Idempotent
+    // (deletes every tuple for the object; a second call is a no-op), so it is
+    // safe on BOTH the RPC delete path and the stream-deletion cascade.
+    await deleteSourceGrants(existing.id);
+    // A deleted push instance's token stops verifying: revoke its hash so every
+    // pod drops the positive cache (TTL-bounded if the event is lost).
+    if (existing.pushTokenHash) {
+      await emitPushTokenInvalidated({
+        sourceTypeId: existing.sourceTypeId,
+        sourceId: existing.id,
+        tokenHash: existing.pushTokenHash,
+        reason: "revoked",
+      });
+    }
+    notifySatellites([existing.satelliteId]);
+  }
+
+  /**
+   * Best-effort delete of a source's ReBAC team grants via auth's
+   * `deleteObjectRelations`, keyed on the SAME qualified type the access rule
+   * grants on (`telemetry.source`). The row is already gone, so an auth-RPC
+   * failure is logged, never rethrown. Skipped (with a warning) when no
+   * rpcClient is wired.
+   */
+  async function deleteSourceGrants(sourceId: string): Promise<void> {
+    if (!rpcClient) {
+      logger.warn(
+        `telemetry: rpcClient not provided; skipped team-grant cleanup for deleted source ${sourceId} (grants may orphan).`,
+      );
+      return;
+    }
+    try {
+      await rpcClient.forPlugin(AuthApi).deleteObjectRelations({
+        objectType: telemetryResourceTypes.source,
+        objectId: sourceId,
+      });
+    } catch (error) {
+      logger.warn(
+        `telemetry: failed to delete team grants for source ${sourceId}: ${String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Persist a REDUCED binding set on a source that still has bindings after a
+   * stream it referenced was deleted, and evict its cached push verdict (the
+   * removed binding may be embedded in a warm pod's cached verdict).
+   */
+  async function unbindAndPersist(
+    existing: TelemetrySourceRow,
+    remaining: SourceBinding[],
+  ): Promise<void> {
+    await db
+      .update(telemetrySources)
+      .set({ bindings: remaining, updatedAt: now() })
+      .where(eq(telemetrySources.id, existing.id));
+    await reconcile.scheduleSource({ sourceId: existing.id });
+    await broadcastChanged(existing.id, "updated");
+    if (existing.pushTokenHash) {
+      await emitPushTokenInvalidated({
+        sourceTypeId: existing.sourceTypeId,
+        sourceId: existing.id,
+        tokenHash: existing.pushTokenHash,
+        reason: "revoked",
+      });
+    }
+    notifySatellites([existing.satelliteId]);
   }
 
   return {
@@ -348,6 +524,21 @@ export function createTelemetryService({
         }
       }
 
+      // Mint the push bearer token once for a push-capable type (hash-only
+      // storage, shown once). Endpoint owners verify presented tokens through
+      // the push-token verifier service.
+      let push: PushInfo | undefined;
+      let pushTokenHash: string | null = null;
+      let pushTokenPrefix: string | null = null;
+      if (type.push) {
+        const generated = pushKitFor(type.push.tokenPrefix).generateToken({
+          resourceId: id,
+        });
+        pushTokenHash = generated.tokenHash;
+        pushTokenPrefix = generated.tokenPrefix;
+        push = { token: generated.secret, endpoints: type.push.endpoints };
+      }
+
       await secretStore.apply({ sourceId: id, toStore, toClear: [] });
 
       const createdAt = now();
@@ -365,6 +556,8 @@ export function createTelemetryService({
           satelliteId,
           webhookSecretHash,
           webhookSecretPrefix,
+          pushTokenHash,
+          pushTokenPrefix,
           createdAt,
           updatedAt: createdAt,
         })
@@ -377,13 +570,28 @@ export function createTelemetryService({
 
       await reconcile.scheduleSource({ sourceId: id });
       await broadcastChanged(id, "created");
+      // A freshly-minted push token: clear any negative cache on every pod so a
+      // shipper using it immediately is not shadowed by a miss ("minted" maps to
+      // a `clearNegative`, a safe no-op even if the instance starts disabled).
+      if (pushTokenHash) {
+        await emitPushTokenInvalidated({
+          sourceTypeId: input.sourceTypeId,
+          sourceId: id,
+          tokenHash: pushTokenHash,
+          reason: "minted",
+        });
+      }
       notifySatellites([satelliteId]);
       const [enriched] = await enrichBindingStreamNames({
         sources: [mapRow(row)],
         sinkRegistry,
         logger,
       });
-      return { ...enriched!, ...(webhook ? { webhook } : {}) };
+      return {
+        ...enriched!,
+        ...(webhook ? { webhook } : {}),
+        ...(push ? { push } : {}),
+      };
     },
 
     async updateSource({ id, body, user, requestHeaders }) {
@@ -455,6 +663,41 @@ export function createTelemetryService({
 
       await reconcile.scheduleSource({ sourceId: id });
       await broadcastChanged(id, "updated");
+      // Push-token cache coherence for the CURRENT hash. Two independent causes,
+      // both eviction-driven (a cached ingest verdict embeds the bound streamId):
+      //   - BINDINGS changed (re-bind stream A->B, fix empty bindings): the warm
+      //     verdict now routes to the wrong stream, so "revoked" evicts it and
+      //     the next request re-resolves + re-caches against the new binding.
+      //   - ENABLED flipped: "revoked" on disable (drop the positive verdict),
+      //     "minted" on re-enable (clear the negative cache).
+      // Emit at most one of each reason; a simultaneous rebind + re-enable emits
+      // both (evict the stale verdict AND clear the negative cache).
+      if (existing.pushTokenHash) {
+        const enabledChanged =
+          body.enabled !== undefined && body.enabled !== existing.enabled;
+        const bindingsChanged =
+          body.bindings !== undefined &&
+          !sourceBindingsEqual(existing.bindings, body.bindings);
+        const shouldRevoke =
+          bindingsChanged || (enabledChanged && body.enabled === false);
+        const shouldMint = enabledChanged && body.enabled === true;
+        if (shouldRevoke) {
+          await emitPushTokenInvalidated({
+            sourceTypeId: existing.sourceTypeId,
+            sourceId: id,
+            tokenHash: existing.pushTokenHash,
+            reason: "revoked",
+          });
+        }
+        if (shouldMint) {
+          await emitPushTokenInvalidated({
+            sourceTypeId: existing.sourceTypeId,
+            sourceId: id,
+            tokenHash: existing.pushTokenHash,
+            reason: "minted",
+          });
+        }
+      }
       // Re-push to BOTH the old and new satellite on a move (either may be null).
       notifySatellites([existing.satelliteId, satelliteId]);
       const [enriched] = await enrichBindingStreamNames({
@@ -466,22 +709,33 @@ export function createTelemetryService({
     },
 
     async deleteSource({ id }) {
-      const existing = await loadRowOrThrow(id);
-      await db.delete(telemetrySources).where(eq(telemetrySources.id, id));
+      await purgeSource(await loadRowOrThrow(id));
+    },
 
-      try {
-        await secretStore.clearAll({ config: existing.config, sourceId: id });
-        // Clear any stored HMAC key too (idempotent; a no-op for plain-secret
-        // or non-webhook types that never stored one).
-        await secretStore.clearWebhookSecret({ sourceId: id });
-      } catch (error) {
-        logger.warn(
-          `telemetry: failed to clear secrets for deleted source ${id}: ${String(error)}`,
+    async handleStreamDeleted({ signal, streamId }) {
+      // Every source carrying a binding for exactly this {signal, streamId}.
+      // jsonb containment (`@>`) is an indexable, set-based match, so a stream
+      // with no bound sources costs one empty query (idempotent no-op).
+      const rows = await db
+        .select()
+        .from(telemetrySources)
+        .where(
+          sql`${telemetrySources.bindings} @> ${JSON.stringify([
+            { signal, streamId },
+          ])}::jsonb`,
         );
+      for (const existing of rows) {
+        const remaining = existing.bindings.filter(
+          (b) => !(b.signal === signal && b.streamId === streamId),
+        );
+        // Defensive: containment matched but nothing was actually stripped.
+        if (remaining.length === existing.bindings.length) continue;
+        // No bindings left -> the source can never route again, so fully purge
+        // it; otherwise persist the reduced set and evict its cached verdict.
+        await (remaining.length === 0
+          ? purgeSource(existing)
+          : unbindAndPersist(existing, remaining));
       }
-      await reconcile.unscheduleSource({ sourceId: id });
-      await broadcastChanged(id, "deleted");
-      notifySatellites([existing.satelliteId]);
     },
 
     async getSource({ id }) {
@@ -558,6 +812,50 @@ export function createTelemetryService({
       }
       await broadcastChanged(id, "updated");
       return { path: webhookPath(id), secret: generated.secret };
+    },
+
+    async rotatePushToken({ id }) {
+      const existing = await loadRowOrThrow(id);
+      const type = requireType(existing.sourceTypeId);
+      if (!type.push) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "This source type has no push endpoint",
+        });
+      }
+      const oldHash = existing.pushTokenHash;
+      const generated = pushKitFor(type.push.tokenPrefix).generateToken({
+        resourceId: id,
+      });
+      await db
+        .update(telemetrySources)
+        .set({
+          pushTokenHash: generated.tokenHash,
+          pushTokenPrefix: generated.tokenPrefix,
+          updatedAt: now(),
+        })
+        .where(eq(telemetrySources.id, id));
+      // Revoke the OLD hash first (consumers evict its positive verdict + miss
+      // marker), then mint the NEW one (consumers clear the negative cache).
+      // This does NOT make the old token stop verifying instantly: warm pods
+      // keep serving it until the best-effort "revoked" event lands, and if that
+      // event is dropped, until its 60s positive-cache TTL expires - so the
+      // guarantee is TTL-bounded convergence, not an atomic cutover.
+      if (oldHash) {
+        await emitPushTokenInvalidated({
+          sourceTypeId: existing.sourceTypeId,
+          sourceId: id,
+          tokenHash: oldHash,
+          reason: "revoked",
+        });
+      }
+      await emitPushTokenInvalidated({
+        sourceTypeId: existing.sourceTypeId,
+        sourceId: id,
+        tokenHash: generated.tokenHash,
+        reason: "minted",
+      });
+      await broadcastChanged(id, "updated");
+      return { token: generated.secret, endpoints: type.push.endpoints };
     },
 
     async resolveRunnableConfig({ sourceId, sourceTypeId, config }) {
@@ -931,6 +1229,24 @@ export function mapRow(row: TelemetrySourceRow): TelemetrySource {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * Order-independent equality of two binding sets (at most one binding per
+ * signal, so a `signal streamId` key set comparison is exact). Used to
+ * detect a binding change on update so the push-token verdict is evicted.
+ */
+export function sourceBindingsEqual(
+  a: SourceBinding[],
+  b: SourceBinding[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const key = (list: SourceBinding[]) =>
+    list
+      .map((x) => `${x.signal} ${x.streamId}`)
+      .toSorted()
+      .join("|");
+  return key(a) === key(b);
 }
 
 function matchesBindingFilter({

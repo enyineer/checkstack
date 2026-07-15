@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   TelemetryPullBatchSchema,
   TelemetryPullConfigSchema,
+  WireMetricPointSchema,
   WireSpanSchema,
   countWireRecords,
   filterWireRecordsToSignals,
@@ -13,7 +14,7 @@ import {
   wirePullRecordsToNormalized,
   wireSpanToNormalized,
 } from "./pull-capability";
-import type { NormalizedSpan } from "../records";
+import type { NormalizedMetricPoint, NormalizedSpan } from "../records";
 
 const span: NormalizedSpan = {
   traceId: "0af7651916cd43dd8448eb211c80319c",
@@ -52,6 +53,35 @@ describe("wire record round-trips", () => {
     };
     const wire = normalizedMetricPointToWire(normalized);
     expect(wireMetricPointToNormalized(wire)).toEqual(normalized);
+  });
+
+  it("round-trips a metric point WITH exemplars through JSON, keeping Dates", () => {
+    const normalized: NormalizedMetricPoint = {
+      name: "http_request_duration_seconds",
+      type: "gauge",
+      labels: { route: "/charge" },
+      value: 0.25,
+      ts: new Date("2026-07-14T11:59:00.000Z"),
+      exemplars: [
+        {
+          traceId: "0af7651916cd43dd8448eb211c80319c",
+          spanId: "b7ad6b7169203331",
+          value: 0.25,
+          ts: new Date("2026-07-14T11:59:00.123Z"),
+        },
+      ],
+    };
+    // Serialize -> JSON round-trip (the satellite WS hop) -> schema parse.
+    const wire = normalizedMetricPointToWire(normalized);
+    const overWire: unknown = JSON.parse(JSON.stringify(wire));
+    const parsed = WireMetricPointSchema.safeParse(overWire);
+    expect(parsed.success).toBe(true);
+    // The exemplar Date survives as an ISO string on the wire...
+    expect(wire.exemplars?.[0]?.ts).toBe("2026-07-14T11:59:00.123Z");
+    // ...and converts back to the exact same normalized point (Dates restored).
+    expect(wireMetricPointToNormalized(parsed.success ? parsed.data : wire)).toEqual(
+      normalized,
+    );
   });
 
   it("round-trips a span, including bigint nanos and event timestamps", () => {

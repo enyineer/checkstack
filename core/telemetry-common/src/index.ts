@@ -28,6 +28,10 @@ export * from "./satellite/pull-capability";
 // Frontend slots
 export * from "./slots";
 
+// Built-in derive source type ids (shared by the platform backend registration
+// and the frontend config-slot fillers)
+export * from "./derive-types";
+
 // Shared schemas for explicit stream -> catalog-system links
 export * from "./system-links";
 

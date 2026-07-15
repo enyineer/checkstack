@@ -26,7 +26,10 @@ import {
   type TestDb,
 } from "@checkstack/test-utils-backend";
 import { configString } from "@checkstack/backend-api";
-import type { InternalSecretsService } from "@checkstack/secrets-backend";
+import {
+  createSecretResolverService,
+  type InternalSecretsService,
+} from "@checkstack/secrets-backend";
 import type {
   TelemetryPullConfig,
   WireLogRecord,
@@ -77,6 +80,42 @@ function sourceRegistry() {
   const registry = createTelemetrySourceRegistry();
   registry.register(edgeType, { pluginId: "p" });
   registry.register(coreOnlyType, { pluginId: "p" });
+  return registry;
+}
+
+interface HookCalls {
+  failure: { consecutiveFailures: number; sourceName: string }[];
+  recovery: { sourceName: string }[];
+}
+
+/** A registry whose edge type records its pull health-hook invocations. */
+function hookedSourceRegistry(hookCalls: HookCalls) {
+  const registry = createTelemetrySourceRegistry();
+  registry.register(
+    defineTelemetrySourceType({
+      id: "edge",
+      displayName: "Edge",
+      description: "",
+      signals: ["logs"],
+      configSchema: z.object({
+        url: z.string(),
+        apiToken: configString({ "x-secret": true }).optional(),
+      }),
+      supportsSatellite: true,
+      pull: {
+        defaultIntervalSeconds: 60,
+        minIntervalSeconds: 30,
+        execute: async () => {},
+        onRunFailure: async ({ consecutiveFailures, sourceName }) => {
+          hookCalls.failure.push({ consecutiveFailures, sourceName });
+        },
+        onRunRecovery: async ({ sourceName }) => {
+          hookCalls.recovery.push({ sourceName });
+        },
+      },
+    }),
+    { pluginId: "p" },
+  );
   return registry;
 }
 
@@ -176,10 +215,31 @@ describe.skipIf(!isIntegrationEnabled())(
         sourceRegistry: sourceRegistry(),
         sinkRegistry: sinks.registry,
         secretStore,
+        secretResolver: createSecretResolverService({
+          secretStore: { resolve: async (name: string) => `resolved:${name}` },
+        }),
         logger: createMockLogger(),
         now: () => NOW,
       });
       return { handler, secretStore, calls: sinks.calls, getCalls: secrets.getCalls };
+    }
+
+    /** A handler whose edge type records its pull health-hook invocations. */
+    function buildHookedHandler(hookCalls: HookCalls) {
+      const secrets = memInternalSecrets();
+      const sinks = recordingSinks();
+      const handler = createTelemetryPullCapabilityHandler({
+        db: test.db,
+        sourceRegistry: hookedSourceRegistry(hookCalls),
+        sinkRegistry: sinks.registry,
+        secretStore: createSourceSecretStore({ internalSecrets: secrets.service }),
+        secretResolver: createSecretResolverService({
+          secretStore: { resolve: async (name: string) => `resolved:${name}` },
+        }),
+        logger: createMockLogger(),
+        now: () => NOW,
+      });
+      return { handler };
     }
 
     // ─── buildCapabilityConfig ────────────────────────────────────────────
@@ -266,6 +326,52 @@ describe.skipIf(!isIntegrationEnabled())(
       });
       expect(notSecret.error).toBeTruthy();
       expect(getCalls).toHaveLength(1);
+    });
+
+    it("resolves a ${{ secrets.NAME }} REFERENCE on an x-secret field JIT (never ships the template)", async () => {
+      const { handler } = buildHandler();
+      await insertSource({
+        id: "a-ref",
+        satelliteId: SAT_A,
+        config: {
+          url: "https://a",
+          // A reference, not a stored marker: the platform resolver must
+          // resolve it core-side - the agent must never see the template.
+          apiToken: "${{ secrets.SCRAPE_BEARER }}",
+        },
+      });
+
+      // buildCapabilityConfig treats the reference as a secret: omitted from
+      // the pushed config, listed as a JIT field.
+      // The registry interface types the payload opaquely; narrow to the wire
+      // shape this handler emits (same pattern as the build test above).
+      const config = (await handler.buildCapabilityConfig!({
+        satelliteId: SAT_A,
+      })) as TelemetryPullConfig;
+      const instance = config.instances.find((entry) => entry.id === "a-ref");
+      expect(instance?.config["apiToken"]).toBeUndefined();
+      expect(instance?.secretFields).toContain("apiToken");
+
+      // resolveSecret resolves the reference via the platform resolver.
+      const resolved = await handler.resolveSecret!({
+        satelliteId: SAT_A,
+        payload: { instanceId: "a-ref", field: "apiToken" },
+      });
+      expect(resolved).toEqual({
+        payload: { value: "resolved:SCRAPE_BEARER" },
+      });
+
+      // A reference on a NON-secret field never resolves (x-secret only).
+      await insertSource({
+        id: "a-ref-nonsecret",
+        satelliteId: SAT_A,
+        config: { url: "${{ secrets.NOT_A_SECRET_FIELD }}" },
+      });
+      const refused = await handler.resolveSecret!({
+        satelliteId: SAT_A,
+        payload: { instanceId: "a-ref-nonsecret", field: "url" },
+      });
+      expect(refused.error).toBeTruthy();
     });
 
     it("refuses to resolve for an instance bound to a different satellite (store untouched)", async () => {
@@ -433,6 +539,36 @@ describe.skipIf(!isIntegrationEnabled())(
         .where(eq(telemetrySources.id, "a-off"));
       expect(row!.lastError).toBeNull();
       expect(row!.consecutiveFailures).toBe(0);
+    });
+
+    it("fires onRunFailure with the just-stored count when a status raises failures", async () => {
+      await insertSource({ id: "a-bound", satelliteId: SAT_A, consecutiveFailures: 2 });
+      const hookCalls: HookCalls = { failure: [], recovery: [] };
+      const { handler } = buildHookedHandler(hookCalls);
+      await handler.handleCapabilityStatus!({
+        satelliteId: SAT_A,
+        payload: [
+          { instanceId: "a-bound", lastError: "connection refused", consecutiveFailures: 3 },
+        ],
+      });
+      expect(hookCalls.failure).toEqual([
+        { consecutiveFailures: 3, sourceName: "a-bound" },
+      ]);
+      expect(hookCalls.recovery).toEqual([]);
+    });
+
+    it("fires onRunRecovery once when a status clears failures back to zero", async () => {
+      await insertSource({ id: "a-bound", satelliteId: SAT_A, consecutiveFailures: 5 });
+      const hookCalls: HookCalls = { failure: [], recovery: [] };
+      const { handler } = buildHookedHandler(hookCalls);
+      await handler.handleCapabilityStatus!({
+        satelliteId: SAT_A,
+        payload: [
+          { instanceId: "a-bound", lastRunAt: NOW.toISOString(), consecutiveFailures: 0 },
+        ],
+      });
+      expect(hookCalls.recovery).toEqual([{ sourceName: "a-bound" }]);
+      expect(hookCalls.failure).toEqual([]);
     });
 
     it("mirrors health for every bound entry in a multi-entry payload", async () => {

@@ -82,14 +82,14 @@ describe("createTelemetrySourceRegistry", () => {
     ).toThrow(/declares no signals/);
   });
 
-  it("rejects a type with no pull, webhook or listener seam", () => {
+  it("rejects a type with no pull, webhook, listener, derive or push seam", () => {
     const registry = createTelemetrySourceRegistry();
     expect(() =>
       registry.register(
         { ...validPull, id: "seamless", pull: undefined },
         otherMeta,
       ),
-    ).toThrow(/none of pull, webhook or listener/);
+    ).toThrow(/none of pull, webhook, listener, derive or push/);
   });
 
   it("accepts a top-level x-secret string field (marker round-trips)", () => {

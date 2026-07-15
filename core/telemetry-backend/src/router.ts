@@ -79,6 +79,10 @@ export function createTelemetryRouter({
       service.rotateWebhookSecret({ id: input.id }),
     ),
 
+    rotatePushToken: os.rotatePushToken.handler(async ({ input }) =>
+      service.rotatePushToken({ id: input.id }),
+    ),
+
     testSourceConfig: os.testSourceConfig.handler(async ({ input, context }) => {
       if (input.sourceId) {
         await assertCanManageSource({ context, sourceId: input.sourceId });

@@ -56,6 +56,13 @@ export const telemetrySources = pgTable(
      */
     webhookSecretHash: text("webhook_secret_hash"),
     webhookSecretPrefix: text("webhook_secret_prefix"),
+    /**
+     * sha256 hash of the per-instance push bearer token (push-mode types
+     * only). Same shown-once/hash-only model as the webhook secret; indexed
+     * because the ingest hot path resolves tokens by hash.
+     */
+    pushTokenHash: text("push_token_hash"),
+    pushTokenPrefix: text("push_token_prefix"),
     /** Consecutive pull failures; drives failure surfacing at a threshold. */
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
@@ -70,6 +77,7 @@ export const telemetrySources = pgTable(
   (t) => [
     index("telemetry_sources_type_idx").on(t.sourceTypeId),
     index("telemetry_sources_enabled_idx").on(t.enabled),
+    index("telemetry_sources_push_hash_idx").on(t.pushTokenHash),
   ],
 );
 

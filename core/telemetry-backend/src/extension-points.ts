@@ -7,6 +7,8 @@ import {
 } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
 import type {
+  PushEndpointDescriptor,
+  SourceBinding,
   SourceTypeDescriptor,
   TelemetryRecord,
   TelemetrySignal,
@@ -56,6 +58,16 @@ export interface TelemetrySinkContribution<
   S extends TelemetrySignal = TelemetrySignal,
 > {
   signal: S;
+  /**
+   * The qualified ReBAC resource type of THIS signal's streams (e.g.
+   * `logstream.stream`) - the same `qualifyResourceType(pluginId, resource)`
+   * value the owning plugin keys its stream team grants on. Used by the
+   * platform's team-grant backfill/cleanup to read a bound stream's team
+   * relations and mirror them onto the source. OPTIONAL during rollout: a sink
+   * that has not declared it makes the backfill skip that binding (logged),
+   * never guess a type.
+   */
+  streamResourceType?: string;
   /**
    * Throw (FORBIDDEN / NOT_FOUND oRPC errors preferred) unless `user` may
    * MANAGE the stream - global manage rule OR a team grant on the instance.
@@ -303,8 +315,30 @@ export interface TelemetryListenerContext<Config = unknown> {
 }
 
 /**
- * A contributed source type. At least one seam (`pull`, `webhook`) must be
- * implemented; a type may implement both. Config schemas mark secret fields
+ * Context for one DERIVE invocation: a post-flush batch of the INPUT signal's
+ * normalized records from the instance's configured input stream. The deriver
+ * transforms them and emits DIFFERENT signals through the bound sink (its
+ * instance bindings carry the OUTPUT streams). Runs best-effort AFTER the
+ * input stream's own flush committed - a deriver can never fail or slow the
+ * ingest path, and a failure is recorded as the instance's `lastError`.
+ *
+ * `records` is typed as the union of all signals' normalized records;
+ * implementations narrow by their declared `fromSignal` (a type whose
+ * `fromSignal` is `"logs"` only ever receives `NormalizedLogRecord`s).
+ */
+export interface TelemetryDeriveContext<Config = unknown> {
+  config: Config;
+  /** The INPUT stream the batch was flushed for. */
+  streamId: string;
+  /** One flushed batch of the input signal's normalized records. */
+  records: readonly TelemetryRecord<TelemetrySignal>[];
+  sink: BoundTelemetrySink;
+  logger: Logger;
+}
+
+/**
+ * A contributed source type. At least one seam (`pull`, `webhook`, `listener`,
+ * `derive`) must be implemented; a type may implement several. Config schemas mark secret fields
  * with backend-api's `configString({ "x-secret": true })` so the platform
  * encrypts them at rest and the editor masks them.
  *
@@ -326,6 +360,35 @@ export interface TelemetrySourceTypeDefinition<Config = unknown> {
     minIntervalSeconds: number;
     /** Execute one run, writing via `ctx.sink`. Throw on transport failure. */
     execute(ctx: TelemetryPullContext<Config>): Promise<void>;
+    /**
+     * Optional health hook: invoked AFTER the platform records a run failure,
+     * with the consecutive-failure count it just stored - on BOTH
+     * core-scheduled runs and satellite-reported run results. Lets the owning
+     * plugin surface source health in its own domain (e.g. metricstream
+     * records a `scrape_failing` important event on the bound metrics
+     * stream once the count crosses its threshold). Best-effort: a throw is
+     * logged and never affects the run bookkeeping. `config` is the STORED
+     * config (secret markers unresolved - do not use secret fields here).
+     */
+    onRunFailure?(input: {
+      sourceId: string;
+      sourceName: string;
+      config: Config;
+      error: string;
+      consecutiveFailures: number;
+      bindings: readonly SourceBinding[];
+    }): Promise<void>;
+    /**
+     * Optional health hook: invoked after the FIRST successful run following
+     * one or more recorded failures (not on every success). Same best-effort
+     * and stored-config semantics as {@link onRunFailure}.
+     */
+    onRunRecovery?(input: {
+      sourceId: string;
+      sourceName: string;
+      config: Config;
+      bindings: readonly SourceBinding[];
+    }): Promise<void>;
   };
   webhook?: {
     /**
@@ -354,9 +417,102 @@ export interface TelemetrySourceTypeDefinition<Config = unknown> {
      */
     start(ctx: TelemetryListenerContext<Config>): Promise<() => void | Promise<void>>;
   };
+  derive?: {
+    /**
+     * The signal this type CONSUMES. `signals` (above) stays the set the type
+     * EMITS - a log-to-metric deriver has `fromSignal: "logs"` and
+     * `signals: ["metrics"]`.
+     */
+    fromSignal: TelemetrySignal;
+    /**
+     * Resolve the INPUT stream an instance derives from, out of its validated
+     * config. First-class (not a naming convention) so the platform's derive
+     * dispatcher can match flushed batches to instances without knowing any
+     * type's config shape.
+     */
+    getInputStreamId(config: Config): string;
+    /**
+     * Transform one flushed batch and emit derived records via `ctx.sink`.
+     * Best-effort post-commit: a throw is recorded as the instance's
+     * `lastError` and never affects the input stream's ingest.
+     */
+    process(ctx: TelemetryDeriveContext<Config>): Promise<void>;
+  };
+  /**
+   * PUSH: the OWNING PLUGIN serves an inbound endpoint (OTLP, a native ingest
+   * route, ...) and shippers authenticate with a per-instance bearer token the
+   * PLATFORM mints. Creating an instance mints the token (hash-only storage,
+   * shown once, rotatable via `rotatePushToken`); the endpoint owner verifies
+   * presented tokens through the platform's push-token verifier service
+   * (`createPushTokenLookup` + the shared `IngestAuthenticator`), so ANY
+   * plugin can contribute a push type - the built-in stream plugins are
+   * ordinary consumers of the same seam. Tokens are scoped to their source
+   * TYPE: a token minted for one push type never verifies for another.
+   */
+  push?: {
+    /**
+     * Prefix minted tokens carry (e.g. `ckms_`). Stable per type - it is the
+     * only routing hint a raw token exposes and existing shipper tokens keep
+     * their historical prefixes across the platform migration.
+     */
+    tokenPrefix: string;
+    /** Inbound endpoints the UI renders setup snippets for. */
+    endpoints: PushEndpointDescriptor[];
+  };
   /** Whether a pull instance may bind a satellite for edge execution. */
   supportsSatellite?: boolean;
 }
+
+// =============================================================================
+// DERIVE TAP (sink-owning plugins hand their post-flush batches to the
+// platform's derive dispatcher)
+// =============================================================================
+
+/**
+ * Dispatch one post-flush batch of a signal's normalized records to the
+ * enabled derive sources configured on that input stream. Pod-local and
+ * best-effort by contract: the caller invokes it AFTER its own flush
+ * committed, MUST NOT await it on the ingest hot path (detach with a caught
+ * promise - error isolation happens inside the dispatcher), and a dispatch
+ * failure only ever surfaces on the derive INSTANCE (`lastError`), not on
+ * the input stream.
+ *
+ * `records` may be the array itself or a LAZY thunk producing it. Pass a
+ * thunk whenever building the normalized records costs real work (e.g.
+ * mapping a flush's row shape back to `NormalizedLogRecord`s): the
+ * dispatcher materializes it ONLY when at least one enabled derive instance
+ * matches the batch's stream, so streams without derive sources pay nothing.
+ */
+export type TelemetryDeriveDispatch = (input: {
+  streamId: string;
+  records:
+    | readonly TelemetryRecord<TelemetrySignal>[]
+    | (() => readonly TelemetryRecord<TelemetrySignal>[]);
+}) => Promise<void>;
+
+/**
+ * Extension point a SINK-OWNING plugin uses to connect its post-flush record
+ * tap to the platform's derive dispatcher. Registration is buffered, so the
+ * owner calls `connectTap` in `register()`/`init()` regardless of load order;
+ * the platform invokes `onReady` with the dispatch function once the derive
+ * dispatcher exists. A plugin that never connects a tap simply has no derive
+ * sources over its signal - the seam is opt-in per signal.
+ */
+export interface TelemetryDeriveTapExtensionPoint {
+  connectTap(
+    input: {
+      /** The signal whose flushed batches the caller will dispatch. */
+      signal: TelemetrySignal;
+      onReady(dispatch: TelemetryDeriveDispatch): void;
+    },
+    meta: PluginMetadata,
+  ): void;
+}
+
+export const telemetryDeriveTapExtensionPoint =
+  createExtensionPoint<TelemetryDeriveTapExtensionPoint>(
+    "telemetry.deriveTapExtensionPoint",
+  );
 
 /**
  * Identity helper so a source author gets full `Config` inference on the seam
@@ -403,10 +559,28 @@ export function createTelemetrySourceRegistry(): TelemetrySourceRegistry {
           `telemetry: source type "${qualifiedId}" declares no signals`,
         );
       }
-      if (!def.pull && !def.webhook && !def.listener) {
+      if (
+        !def.pull &&
+        !def.webhook &&
+        !def.listener &&
+        !def.derive &&
+        !def.push
+      ) {
         throw new Error(
-          `telemetry: source type "${qualifiedId}" implements none of pull, webhook or listener`,
+          `telemetry: source type "${qualifiedId}" implements none of pull, webhook, listener, derive or push`,
         );
+      }
+      if (def.push) {
+        if (def.push.tokenPrefix.length === 0) {
+          throw new Error(
+            `telemetry: source type "${qualifiedId}" declares a push seam with an empty tokenPrefix`,
+          );
+        }
+        if (def.push.endpoints.length === 0) {
+          throw new Error(
+            `telemetry: source type "${qualifiedId}" declares a push seam with no endpoints`,
+          );
+        }
       }
       if (def.pull) {
         const { defaultIntervalSeconds, minIntervalSeconds } = def.pull;
@@ -482,6 +656,8 @@ export function toSourceTypeDescriptor(
   if (registered.pull) modes.push("pull");
   if (registered.webhook) modes.push("webhook");
   if (registered.listener) modes.push("listener");
+  if (registered.derive) modes.push("derive");
+  if (registered.push) modes.push("push");
   return {
     id: registered.qualifiedId,
     ownerPluginId: registered.ownerPluginId,
@@ -496,6 +672,9 @@ export function toSourceTypeDescriptor(
           defaultIntervalSeconds: registered.pull.defaultIntervalSeconds,
           minIntervalSeconds: registered.pull.minIntervalSeconds,
         }
+      : undefined,
+    push: registered.push
+      ? { endpoints: registered.push.endpoints }
       : undefined,
     supportsSatellite: registered.supportsSatellite ?? false,
   };

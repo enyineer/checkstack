@@ -30,6 +30,7 @@ export const MAX_LAST_ERROR_CHARS = 2000;
 export interface PullRunRow {
   id: string;
   sourceTypeId: string;
+  name: string;
   enabled: boolean;
   satelliteId: string | null;
   config: Record<string, unknown>;
@@ -39,15 +40,24 @@ export interface PullRunRow {
 /**
  * Seam over the shared row: load a run's row and stamp its success/failure
  * bookkeeping. DB-backed in production; faked in unit tests.
+ *
+ * `markFailure` atomically increments and RETURNS the new consecutive-failure
+ * count; `markSuccess` reports whether this success RECOVERED the source from a
+ * non-zero failure count (a returning-based conditional reset, so recovery is
+ * detected exactly once even across pods). The runner uses both to drive the
+ * type's optional `pull.onRunFailure` / `pull.onRunRecovery` health hooks.
  */
 export interface PullRunStore {
   load(sourceId: string): Promise<PullRunRow | null>;
-  markSuccess(input: { sourceId: string; at: Date }): Promise<void>;
+  markSuccess(input: {
+    sourceId: string;
+    at: Date;
+  }): Promise<{ recovered: boolean }>;
   markFailure(input: {
     sourceId: string;
     at: Date;
     error: string;
-  }): Promise<void>;
+  }): Promise<{ consecutiveFailures: number }>;
 }
 
 export interface PullRunner {
@@ -89,6 +99,40 @@ export function createPullRunner({
 
       const type = sourceRegistry.get(row.sourceTypeId);
       if (!type?.pull) return;
+      const pull = type.pull;
+      // A non-null binding of the narrowed row, so the nested closure below keeps
+      // it non-null (control-flow narrowing does not cross a function boundary).
+      const runRow = row;
+
+      /**
+       * Record a run failure, then best-effort-invoke the type's `onRunFailure`
+       * health hook with the just-stored consecutive-failure count. A throw in
+       * the hook is logged and never affects run bookkeeping. `config` is the
+       * STORED config (secret markers unresolved) per the hook contract.
+       */
+      async function recordFailure(rawMessage: string): Promise<void> {
+        const message = truncateError(rawMessage);
+        const { consecutiveFailures } = await store.markFailure({
+          sourceId,
+          at: now(),
+          error: message,
+        });
+        if (!pull.onRunFailure) return;
+        try {
+          await pull.onRunFailure({
+            sourceId: runRow.id,
+            sourceName: runRow.name,
+            config: runRow.config,
+            error: message,
+            consecutiveFailures,
+            bindings: runRow.bindings,
+          });
+        } catch (error) {
+          logger.warn(
+            `telemetry: pull onRunFailure hook failed for ${sourceId}: ${String(error)}`,
+          );
+        }
+      }
 
       let config: unknown;
       try {
@@ -98,11 +142,7 @@ export function createPullRunner({
         });
         config = type.configSchema.parse(resolved);
       } catch (error) {
-        await store.markFailure({
-          sourceId,
-          at: now(),
-          error: truncateError(`config resolution failed: ${String(error)}`),
-        });
+        await recordFailure(`config resolution failed: ${String(error)}`);
         return;
       }
 
@@ -120,23 +160,35 @@ export function createPullRunner({
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        await type.pull.execute({
+        await pull.execute({
           config,
           sink,
           fetch: fetchImpl,
           logger,
           abortSignal: controller.signal,
         });
-        await store.markSuccess({ sourceId, at: now() });
+        const { recovered } = await store.markSuccess({ sourceId, at: now() });
+        // A success that cleared a non-zero failure count is the FIRST success
+        // after failures - fire the recovery hook (best-effort) exactly once.
+        if (recovered && pull.onRunRecovery) {
+          try {
+            await pull.onRunRecovery({
+              sourceId: row.id,
+              sourceName: row.name,
+              config: row.config,
+              bindings: row.bindings,
+            });
+          } catch (error) {
+            logger.warn(
+              `telemetry: pull onRunRecovery hook failed for ${sourceId}: ${String(error)}`,
+            );
+          }
+        }
       } catch (error) {
         const message = controller.signal.aborted
           ? `pull run timed out after ${timeoutMs}ms`
           : String(error);
-        await store.markFailure({
-          sourceId,
-          at: now(),
-          error: truncateError(message),
-        });
+        await recordFailure(message);
       } finally {
         clearTimeout(timer);
       }

@@ -17,6 +17,7 @@ import type {
   TelemetrySourceRegistry,
 } from "../extension-points";
 import { createTelemetryPullCapabilityHandler } from "./pull-capability";
+import type { SecretResolverService } from "@checkstack/secrets-backend";
 
 export function registerSatellitePullCapability({
   registry,
@@ -24,6 +25,7 @@ export function registerSatellitePullCapability({
   sourceRegistry,
   sinkRegistry,
   secretStore,
+  secretResolver,
   logger,
 }: {
   registry: SatelliteCapabilityRegistry;
@@ -31,6 +33,7 @@ export function registerSatellitePullCapability({
   sourceRegistry: TelemetrySourceRegistry;
   sinkRegistry: TelemetrySinkRegistry;
   secretStore: SourceSecretStore;
+  secretResolver: SecretResolverService;
   logger: Logger;
 }): void {
   registry.registerCapability(
@@ -39,6 +42,7 @@ export function registerSatellitePullCapability({
       sourceRegistry,
       sinkRegistry,
       secretStore,
+      secretResolver,
       logger,
     }),
     pluginMetadata,

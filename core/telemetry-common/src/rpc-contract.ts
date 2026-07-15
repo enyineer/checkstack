@@ -8,6 +8,7 @@ import {
   UpdateTelemetrySourceSchema,
   SourceTypeDescriptorSchema,
   WebhookInfoSchema,
+  PushInfoSchema,
   TestSourceConfigSchema,
   TestSourceConfigResultSchema,
   BindableStreamSchema,
@@ -65,7 +66,11 @@ export const telemetryContract = {
   })
     .input(CreateTelemetrySourceSchema.extend({ teamId: z.string().optional() }))
     .output(
-      TelemetrySourceSchema.extend({ webhook: WebhookInfoSchema.optional() }),
+      TelemetrySourceSchema.extend({
+        webhook: WebhookInfoSchema.optional(),
+        /** For push-mode types: the minted bearer token, shown ONCE. */
+        push: PushInfoSchema.optional(),
+      }),
     ),
 
   updateSource: proc({
@@ -152,6 +157,20 @@ export const telemetryContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(WebhookInfoSchema),
+
+  /**
+   * Rotate a push-mode instance's bearer token. The previous token stops
+   * verifying immediately (cross-pod caches are invalidated); the new one is
+   * shown ONCE.
+   */
+  rotatePushToken: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [telemetryAccess.manage],
+    instanceAccess: { idParam: "id" },
+  })
+    .input(z.object({ id: z.string() }))
+    .output(PushInfoSchema),
 
   // ==========================================================================
   // CONFIG TEST

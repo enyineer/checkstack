@@ -16,9 +16,17 @@
  * (broadcast): every pod reconciles the affected source on create/update/delete,
  * so a newly-enabled listener starts, a disabled/deleted one stops, and a config
  * change restarts - everywhere at once.
+ *
+ * PARALLEL INSTANCES (see `.claude/rules/pr-preview.md`): a listener binds a
+ * host port, which - unlike redis/queue state - cannot be namespaced. A
+ * secondary (namespaced) instance shares the host with the default dev instance,
+ * so it would RACE it for the same listener ports. The manager therefore starts
+ * NO listeners at all on a non-default instance (the semantics the deleted
+ * logstream syslog listener carried per-listener, re-homed here so it covers
+ * EVERY listener source type uniformly).
  */
 
-import type { Logger } from "@checkstack/backend-api";
+import type { Logger, InstanceRuntime } from "@checkstack/backend-api";
 import type { EventBus, HookUnsubscribe } from "@checkstack/backend-api";
 import { pluginMetadata, type SourceBinding } from "@checkstack/telemetry-common";
 import { createBoundSink } from "./bound-sink";
@@ -70,6 +78,7 @@ export function createListenerManager({
   sourceRegistry,
   sinkRegistry,
   secretStore,
+  instanceRuntime,
   eventBus,
   logger,
   now = () => new Date(),
@@ -78,6 +87,9 @@ export function createListenerManager({
   sourceRegistry: TelemetrySourceRegistry;
   sinkRegistry: TelemetrySinkRegistry;
   secretStore: SourceSecretStore;
+  /** Tells the manager whether it runs as the default instance; a namespaced
+   * secondary instance starts NO listeners (host-port isolation). */
+  instanceRuntime: InstanceRuntime;
   eventBus?: EventBus;
   logger: Logger;
   now?: () => Date;
@@ -151,6 +163,16 @@ export function createListenerManager({
   return {
     reconcileSource,
     async start() {
+      // A namespaced secondary instance (PR preview) shares the host with the
+      // default instance; host-bound listener ports cannot be namespaced, so it
+      // starts none - and does NOT subscribe to the convergence hook, so a later
+      // source CRUD cannot start one on this instance either.
+      if (!instanceRuntime.isDefault) {
+        logger.info(
+          "telemetry: listeners not started on a secondary instance (port isolation)",
+        );
+        return;
+      }
       const rows = await store.listStartable();
       for (const row of rows) {
         if (!row.enabled) continue;

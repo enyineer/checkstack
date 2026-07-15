@@ -77,6 +77,25 @@ export const TelemetryCounterKindSchema = z.enum(TELEMETRY_COUNTER_KINDS);
 export type TelemetryCounterKind = z.infer<typeof TelemetryCounterKindSchema>;
 
 /** One normalized scalar metric sample. */
+/** Max exemplars carried per metric point (OTLP allows many; a handful is
+ * plenty for a chart-to-trace jump and bounds storage). */
+export const MAX_EXEMPLARS_PER_POINT = 4;
+
+/**
+ * An OTLP exemplar: a sampled measurement attached to a metric point that
+ * carries the W3C trace context of the request that produced it - the bridge
+ * from a chart point to the exact trace behind it.
+ */
+export const MetricExemplarSchema = z.object({
+  /** W3C trace id (32 lowercase hex chars). */
+  traceId: z.string().length(32),
+  spanId: z.string().length(16).optional(),
+  /** The sampled measurement value. */
+  value: z.number(),
+  ts: z.date(),
+});
+export type MetricExemplar = z.infer<typeof MetricExemplarSchema>;
+
 export const NormalizedMetricPointSchema = z.object({
   name: z.string().min(1),
   type: TelemetryMetricTypeSchema,
@@ -92,6 +111,8 @@ export const NormalizedMetricPointSchema = z.object({
    * OTLP normalizer folds OTLP resource attrs.
    */
   resource: TelemetryResourceSchema.optional(),
+  /** Trace-context exemplars sampled on this point (capped). */
+  exemplars: z.array(MetricExemplarSchema).max(MAX_EXEMPLARS_PER_POINT).optional(),
 });
 export type NormalizedMetricPoint = z.infer<typeof NormalizedMetricPointSchema>;
 

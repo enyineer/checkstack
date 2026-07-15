@@ -36,6 +36,7 @@ import {
   wirePullRecordsToNormalized,
   type TelemetryPullConfig,
   type TelemetryPullInstanceConfig,
+  type SourceBinding,
   type TelemetryPullSecretResponse,
   type TelemetryRecordMap,
   type TelemetrySignal,
@@ -47,9 +48,12 @@ import { loadSourceRow, listSatelliteBoundSourceRows } from "../service";
 import type { BoundTelemetrySink } from "../extension-points";
 import {
   isSecretMarkerFor,
+  listSecretFields,
   stripSecretsForRead,
   type SourceSecretStore,
 } from "../secrets";
+import { isSecretReference } from "@checkstack/secrets-common";
+import type { SecretResolverService } from "@checkstack/secrets-backend";
 import { clampInterval } from "../reconciler";
 import { DEFAULT_PULL_TIMEOUT_MS } from "../runner";
 import { createBoundSink } from "../bound-sink";
@@ -85,11 +89,74 @@ async function emitSignal<S extends TelemetrySignal>({
   return { accepted: result.accepted, rejected: result.rejected };
 }
 
+/**
+ * Drive the type's optional `pull.onRunFailure` / `pull.onRunRecovery` health
+ * hooks off the failure-count TRANSITION a satellite status report implies - so
+ * satellite-executed pulls surface source health exactly like the core-scheduled
+ * runner does. A count that went UP is a just-recorded failure; a count that
+ * returned to zero from a non-zero previous is a recovery. Both are best-effort:
+ * `config` is the STORED config (secret markers unresolved), and a throw is
+ * logged, never affecting status bookkeeping. Module-level and exported so the
+ * transition-to-hook mapping is unit-testable without a database.
+ */
+export async function invokePullHealthHooks({
+  sourceRegistry,
+  logger,
+  row,
+  previousFailures,
+  nextFailures,
+  error,
+}: {
+  sourceRegistry: TelemetrySourceRegistry;
+  logger: Logger;
+  row: {
+    id: string;
+    sourceTypeId: string;
+    name: string;
+    config: Record<string, unknown>;
+    bindings: SourceBinding[];
+  };
+  previousFailures: number;
+  nextFailures: number;
+  error: string | null;
+}): Promise<void> {
+  const pull = sourceRegistry.get(row.sourceTypeId)?.pull;
+  if (!pull) return;
+  try {
+    if (nextFailures > previousFailures && pull.onRunFailure) {
+      await pull.onRunFailure({
+        sourceId: row.id,
+        sourceName: row.name,
+        config: row.config,
+        error: error ?? "pull run failed",
+        consecutiveFailures: nextFailures,
+        bindings: row.bindings,
+      });
+    } else if (
+      previousFailures > 0 &&
+      nextFailures === 0 &&
+      pull.onRunRecovery
+    ) {
+      await pull.onRunRecovery({
+        sourceId: row.id,
+        sourceName: row.name,
+        config: row.config,
+        bindings: row.bindings,
+      });
+    }
+  } catch (hookError) {
+    logger.warn(
+      `telemetry: pull health hook failed for ${row.id}: ${String(hookError)}`,
+    );
+  }
+}
+
 export function createTelemetryPullCapabilityHandler({
   db,
   sourceRegistry,
   sinkRegistry,
   secretStore,
+  secretResolver,
   logger,
   now = () => new Date(),
 }: {
@@ -98,6 +165,10 @@ export function createTelemetryPullCapabilityHandler({
   sinkRegistry: TelemetrySinkRegistry;
   /** Config-secret channel; resolves ONE field JIT for `resolveSecret`. */
   secretStore: SourceSecretStore;
+  /** `${{ secrets.NAME }}` reference resolver, so a REFERENCE-valued x-secret
+   * field is also resolved core-side and delivered to the satellite JIT -
+   * without this, the agent would receive the literal template string. */
+  secretResolver: SecretResolverService;
   logger: Logger;
   now?: () => Date;
 }): SatelliteCapabilityHandler {
@@ -142,6 +213,16 @@ export function createTelemetryPullCapabilityHandler({
         storedConfig: row.config,
         sourceId: row.id,
       });
+      // x-secret fields holding a `${{ secrets.NAME }}` REFERENCE (rather than
+      // a stored marker) are secrets too: never push the template to the edge -
+      // list the field so the agent fetches the resolved value JIT.
+      for (const field of listSecretFields(type.configSchema)) {
+        const value = config[field];
+        if (typeof value === "string" && isSecretReference(value)) {
+          delete config[field];
+          if (!storedSecretFields.includes(field)) storedSecretFields.push(field);
+        }
+      }
       instances.push({
         id: row.id,
         sourceTypeId: row.sourceTypeId,
@@ -193,17 +274,48 @@ export function createTelemetryPullCapabilityHandler({
       return { error: "source not bound to this satellite" };
     }
 
-    // The field must actually be a stored secret on this row - a satellite names
-    // a field, it does not get to pull an arbitrary internal-store key.
-    if (!isSecretMarkerFor({ value: row.config[field], sourceId: instanceId, field })) {
+    // The field must actually be a secret on this row - a satellite names a
+    // field, it does not get to pull an arbitrary internal-store key. Two
+    // legitimate shapes: a stored marker (resolved from the internal store)
+    // or a `${{ secrets.NAME }}` REFERENCE on an x-secret field (resolved via
+    // the platform secret resolver) - both deliver plaintext JIT.
+    const rawValue = row.config[field];
+    const isStoredMarker = isSecretMarkerFor({
+      value: rawValue,
+      sourceId: instanceId,
+      field,
+    });
+    const type = sourceRegistry.get(row.sourceTypeId);
+    const referenceValue =
+      !isStoredMarker &&
+      typeof rawValue === "string" &&
+      isSecretReference(rawValue) &&
+      type !== undefined &&
+      listSecretFields(type.configSchema).includes(field)
+        ? { raw: rawValue, schema: type.configSchema }
+        : null;
+    if (!isStoredMarker && !referenceValue) {
       return { error: "field is not a stored secret" };
     }
 
     try {
-      const value = await secretStore.resolveField({
-        sourceId: instanceId,
-        field,
-      });
+      let value: string | undefined;
+      if (isStoredMarker) {
+        value = await secretStore.resolveField({
+          sourceId: instanceId,
+          field,
+        });
+      } else if (referenceValue) {
+        // Resolve the reference through the schema-aware resolver so multi-
+        // reference templates and surrounding text behave exactly as they do
+        // for core-side execution.
+        const resolved = await secretResolver.resolveBySchema({
+          value: { [field]: referenceValue.raw } as Record<string, unknown>,
+          schema: referenceValue.schema,
+        });
+        const resolvedField = resolved.resolved[field];
+        value = typeof resolvedField === "string" ? resolvedField : undefined;
+      }
       const response: TelemetryPullSecretResponse =
         value === undefined ? {} : { value };
       return { payload: response };
@@ -347,10 +459,18 @@ export function createTelemetryPullCapabilityHandler({
 
     // Resolve every referenced instance's binding in ONE query (sibling
     // handleTelemetryBatch batches the same way), then apply per-row UPDATEs.
+    // `consecutiveFailures` (the PREVIOUS stored count) plus the type/name/
+    // config/bindings are selected so we can drive the health hooks on the
+    // failure/recovery TRANSITION the agent's absolute count implies.
     const instanceIds = [...new Set(entries.map((e) => e.instanceId))];
     const rows = await db
       .select({
         id: telemetrySources.id,
+        sourceTypeId: telemetrySources.sourceTypeId,
+        name: telemetrySources.name,
+        config: telemetrySources.config,
+        bindings: telemetrySources.bindings,
+        consecutiveFailures: telemetrySources.consecutiveFailures,
         satelliteId: telemetrySources.satelliteId,
         enabled: telemetrySources.enabled,
       })
@@ -373,6 +493,7 @@ export function createTelemetryPullCapabilityHandler({
         continue;
       }
 
+      const previousFailures = row.consecutiveFailures;
       await db
         .update(telemetrySources)
         .set({
@@ -382,6 +503,15 @@ export function createTelemetryPullCapabilityHandler({
           updatedAt: now(),
         })
         .where(eq(telemetrySources.id, entry.instanceId));
+
+      await invokePullHealthHooks({
+        sourceRegistry,
+        logger,
+        row,
+        previousFailures,
+        nextFailures: entry.consecutiveFailures,
+        error: entry.lastError ?? null,
+      });
     }
   }
 

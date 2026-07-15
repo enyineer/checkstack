@@ -53,9 +53,14 @@ function stubService(overrides: Partial<TelemetryService> = {}): TelemetryServic
       path: `/api/telemetry/hooks/${id}`,
       secret: "ckwh_secret",
     }),
+    rotatePushToken: async () => ({
+      token: "ckpush_secret",
+      endpoints: [{ kind: "otlp", path: "/api/x/v1/logs", label: "OTLP logs" }],
+    }),
     resolveRunnableConfig: async () => ({}),
     runConfigTest: async () => ({ supported: true, ok: true }),
     listSatelliteSources: async () => ({ sources: [] }),
+    handleStreamDeleted: async () => {},
     ...overrides,
   };
 }

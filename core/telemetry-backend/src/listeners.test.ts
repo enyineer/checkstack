@@ -1,7 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { z } from "zod";
 import { createMockLogger } from "@checkstack/test-utils-backend";
-import type { EventBus, HookUnsubscribe } from "@checkstack/backend-api";
+import type {
+  EventBus,
+  HookUnsubscribe,
+  InstanceRuntime,
+} from "@checkstack/backend-api";
 import {
   createListenerManager,
   type ListenerRow,
@@ -133,16 +137,20 @@ function fakeEventBus(): {
   };
 }
 
+const defaultInstance: InstanceRuntime = { namespace: "", isDefault: true };
+
 function manager({
   rows,
   counters,
   bus,
   onStart,
+  instanceRuntime = defaultInstance,
 }: {
   rows: ListenerRow[];
   counters: { starts: number; stops: number };
   bus?: EventBus;
   onStart?: (ctx: TelemetryListenerContext) => void;
+  instanceRuntime?: InstanceRuntime;
 }) {
   const { store, map, failures } = fakeStore(rows);
   const mgr = createListenerManager({
@@ -150,6 +158,7 @@ function manager({
     sourceRegistry: registryWith(counters, onStart),
     sinkRegistry: emptySinks,
     secretStore: passthroughSecrets,
+    instanceRuntime,
     eventBus: bus,
     logger: createMockLogger(),
   });
@@ -169,6 +178,34 @@ describe("ListenerManager", () => {
     });
     await mgr.start();
     expect(counters.starts).toBe(1);
+  });
+
+  it("starts NO listeners on a non-default (namespaced) instance", async () => {
+    const counters = { starts: 0, stops: 0 };
+    const { bus, deliver } = fakeEventBus();
+    const { mgr, map } = manager({
+      counters,
+      rows: [row({ id: "a" }), row({ id: "b" })],
+      bus,
+      instanceRuntime: { namespace: "preview", isDefault: false },
+    });
+    await mgr.start();
+    expect(counters.starts).toBe(0);
+    // The hook is not subscribed either, so a later CRUD cannot start one here.
+    map.set("c", row({ id: "c" }));
+    await deliver("c");
+    expect(counters.starts).toBe(0);
+  });
+
+  it("starts listeners on the default instance", async () => {
+    const counters = { starts: 0, stops: 0 };
+    const { mgr } = manager({
+      counters,
+      rows: [row({ id: "a" }), row({ id: "b" })],
+      instanceRuntime: { namespace: "", isDefault: true },
+    });
+    await mgr.start();
+    expect(counters.starts).toBe(2);
   });
 
   it("reconciles a config change by restarting (stop then start)", async () => {

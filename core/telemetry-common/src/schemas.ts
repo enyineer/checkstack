@@ -126,13 +126,38 @@ export type UpdateTelemetrySource = z.infer<typeof UpdateTelemetrySourceSchema>;
 
 /**
  * How a source type collects telemetry. A type may support several modes.
+ * "derive" consumes one signal's already-ingested records from a configured
+ * input stream and emits ANOTHER signal (log-to-metric, log-to-trace);
  * "listener" is a long-lived socket (syslog-style) started on EVERY pod for
  * each enabled instance; the platform owns the lifecycle (start on boot /
  * enable, stop on disable / delete, restart on config change).
  */
-export const SOURCE_MODES = ["pull", "webhook", "listener"] as const;
+export const SOURCE_MODES = [
+  "pull",
+  "webhook",
+  "listener",
+  "derive",
+  "push",
+] as const;
 export const SourceModeSchema = z.enum(SOURCE_MODES);
 export type SourceMode = z.infer<typeof SourceModeSchema>;
+
+/**
+ * One inbound endpoint a PUSH source type's owning plugin serves. Paths are
+ * plugin-owned (per-signal endpoints stay separate by design); the descriptor
+ * only tells the UI what to show in setup snippets.
+ */
+export const PushEndpointDescriptorSchema = z.object({
+  /** Wire family of the endpoint (drives the snippet the UI renders). */
+  kind: z.enum(["otlp", "native"]),
+  /** Host-relative path, e.g. `/api/metricstream/v1/metrics`. */
+  path: z.string(),
+  /** Short human label, e.g. "OTLP metrics". */
+  label: z.string(),
+});
+export type PushEndpointDescriptor = z.infer<
+  typeof PushEndpointDescriptorSchema
+>;
 
 /**
  * A contributed source type as listed to the frontend. `configSchema` is the
@@ -158,6 +183,12 @@ export const SourceTypeDescriptorSchema = z.object({
     .object({
       defaultIntervalSeconds: z.number().int().positive(),
       minIntervalSeconds: z.number().int().positive(),
+    })
+    .optional(),
+  /** Inbound endpoints; present when `modes` includes "push". */
+  push: z
+    .object({
+      endpoints: z.array(PushEndpointDescriptorSchema).min(1),
     })
     .optional(),
   /** Whether a pull instance may be bound to a satellite for edge execution. */
@@ -191,6 +222,23 @@ export const WebhookInfoSchema = z.object({
   secret: z.string(),
 });
 export type WebhookInfo = z.infer<typeof WebhookInfoSchema>;
+
+// =============================================================================
+// PUSH TOKEN INFO
+// =============================================================================
+
+/**
+ * Per-instance push-token info for a PUSH source instance. The token is shown
+ * ONCE at create / rotate; only its hash is stored. `endpoints` echoes the
+ * type's inbound endpoints so the reveal panel can render ready-to-paste
+ * shipper snippets.
+ */
+export const PushInfoSchema = z.object({
+  /** The full bearer token. Displayed once; never retrievable again. */
+  token: z.string(),
+  endpoints: z.array(PushEndpointDescriptorSchema).min(1),
+});
+export type PushInfo = z.infer<typeof PushInfoSchema>;
 
 // =============================================================================
 // CONFIG TEST (editor "Test connection")

@@ -27,9 +27,20 @@ const emptySinkRegistry: TelemetrySinkRegistry = {
   list: () => [],
 };
 
+/** Captured `onRunFailure` / `onRunRecovery` invocations, for hook assertions. */
+interface HookCalls {
+  failure: { consecutiveFailures: number; error: string; sourceName: string }[];
+  recovery: { sourceName: string }[];
+}
+
 function registryFor(
   execute: (ctx: TelemetryPullContext) => Promise<void>,
   configSchema: z.ZodType = z.object({}),
+  hooks?: {
+    hookCalls?: HookCalls;
+    onRunFailureThrows?: boolean;
+    onRunRecoveryThrows?: boolean;
+  },
 ): TelemetrySourceRegistry {
   const type: RegisteredTelemetrySourceType = {
     ...defineTelemetrySourceType({
@@ -38,7 +49,31 @@ function registryFor(
       description: "",
       signals: ["logs"],
       configSchema,
-      pull: { defaultIntervalSeconds: 60, minIntervalSeconds: 30, execute },
+      pull: {
+        defaultIntervalSeconds: 60,
+        minIntervalSeconds: 30,
+        execute,
+        ...(hooks
+          ? {
+              onRunFailure: async ({
+                consecutiveFailures,
+                error,
+                sourceName,
+              }) => {
+                hooks.hookCalls?.failure.push({
+                  consecutiveFailures,
+                  error,
+                  sourceName,
+                });
+                if (hooks.onRunFailureThrows) throw new Error("hook boom");
+              },
+              onRunRecovery: async ({ sourceName }) => {
+                hooks.hookCalls?.recovery.push({ sourceName });
+                if (hooks.onRunRecoveryThrows) throw new Error("hook boom");
+              },
+            }
+          : {}),
+      },
     }),
     qualifiedId: "p.poller",
     ownerPluginId: "p",
@@ -53,24 +88,37 @@ function registryFor(
 const row: PullRunRow = {
   id: "src-1",
   sourceTypeId: "p.poller",
+  name: "Prod poller",
   enabled: true,
   satelliteId: null,
   config: {},
   bindings: [{ signal: "logs", streamId: "stream-1" }],
 };
 
-function fakeStore(loaded: PullRunRow | null): {
+function fakeStore(
+  loaded: PullRunRow | null,
+  opts: { recovered?: boolean } = {},
+): {
   store: PullRunStore;
-  calls: { success: number; failures: string[] };
+  calls: { success: number; failures: string[]; failureCounts: number[] };
 } {
-  const calls = { success: 0, failures: [] as string[] };
+  const calls = {
+    success: 0,
+    failures: [] as string[],
+    failureCounts: [] as number[],
+  };
+  let consecutiveFailures = 0;
   const store: PullRunStore = {
     load: async () => loaded,
     markSuccess: async () => {
       calls.success += 1;
+      return { recovered: opts.recovered ?? false };
     },
     markFailure: async ({ error }) => {
       calls.failures.push(error);
+      consecutiveFailures += 1;
+      calls.failureCounts.push(consecutiveFailures);
+      return { consecutiveFailures };
     },
   };
   return { store, calls };
@@ -157,6 +205,84 @@ describe("createPullRunner", () => {
     });
     await runner.run({ sourceId: "src-1" });
     expect(calls.failures[0]).toContain("config resolution failed");
+  });
+
+  it("invokes onRunFailure with the just-stored consecutive count", async () => {
+    const hookCalls: HookCalls = { failure: [], recovery: [] };
+    const { store } = fakeStore(row);
+    const runner = createPullRunner({
+      store,
+      sourceRegistry: registryFor(
+        async () => {
+          throw new Error("connection refused");
+        },
+        z.object({}),
+        { hookCalls },
+      ),
+      sinkRegistry: emptySinkRegistry,
+      secretStore: passthroughSecrets,
+      logger: createMockLogger(),
+    });
+    await runner.run({ sourceId: "src-1" });
+    expect(hookCalls.failure).toEqual([
+      {
+        consecutiveFailures: 1,
+        error: "Error: connection refused",
+        sourceName: "Prod poller",
+      },
+    ]);
+    expect(hookCalls.recovery).toEqual([]);
+  });
+
+  it("invokes onRunRecovery exactly once when a success clears failures", async () => {
+    const hookCalls: HookCalls = { failure: [], recovery: [] };
+    const { store } = fakeStore(row, { recovered: true });
+    const runner = createPullRunner({
+      store,
+      sourceRegistry: registryFor(async () => {}, z.object({}), { hookCalls }),
+      sinkRegistry: emptySinkRegistry,
+      secretStore: passthroughSecrets,
+      logger: createMockLogger(),
+    });
+    await runner.run({ sourceId: "src-1" });
+    expect(hookCalls.recovery).toEqual([{ sourceName: "Prod poller" }]);
+    expect(hookCalls.failure).toEqual([]);
+  });
+
+  it("does not invoke onRunRecovery when the source was already healthy", async () => {
+    const hookCalls: HookCalls = { failure: [], recovery: [] };
+    const { store } = fakeStore(row, { recovered: false });
+    const runner = createPullRunner({
+      store,
+      sourceRegistry: registryFor(async () => {}, z.object({}), { hookCalls }),
+      sinkRegistry: emptySinkRegistry,
+      secretStore: passthroughSecrets,
+      logger: createMockLogger(),
+    });
+    await runner.run({ sourceId: "src-1" });
+    expect(hookCalls.recovery).toEqual([]);
+  });
+
+  it("a throwing health hook never breaks the run flow", async () => {
+    const hookCalls: HookCalls = { failure: [], recovery: [] };
+    const { store, calls } = fakeStore(row);
+    const runner = createPullRunner({
+      store,
+      sourceRegistry: registryFor(
+        async () => {
+          throw new Error("connection refused");
+        },
+        z.object({}),
+        { hookCalls, onRunFailureThrows: true },
+      ),
+      sinkRegistry: emptySinkRegistry,
+      secretStore: passthroughSecrets,
+      logger: createMockLogger(),
+    });
+    // Must resolve without throwing even though the hook threw.
+    await runner.run({ sourceId: "src-1" });
+    expect(calls.failures[0]).toContain("connection refused");
+    expect(hookCalls.failure).toHaveLength(1);
   });
 });
 

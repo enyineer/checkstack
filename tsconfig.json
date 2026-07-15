@@ -460,6 +460,12 @@
       "path": "./plugins/integration-webhook-backend"
     },
     {
+      "path": "./plugins/k8s-events-backend"
+    },
+    {
+      "path": "./plugins/k8s-events-common"
+    },
+    {
       "path": "./plugins/notification-backstage-backend"
     },
     {

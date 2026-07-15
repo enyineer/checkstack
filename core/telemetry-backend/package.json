@@ -29,6 +29,7 @@
     "generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",

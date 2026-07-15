@@ -1562,7 +1562,6 @@
         "@checkstack/metricstream-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
-        "@checkstack/satellite-common": "workspace:*",
         "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
@@ -1611,10 +1610,10 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/healthcheck-frontend": "workspace:*",
         "@checkstack/metricstream-common": "workspace:*",
-        "@checkstack/satellite-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
         "@checkstack/telemetry-frontend": "workspace:*",
+        "@checkstack/tracestream-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "@tanstack/react-query": "^5.100.14",
         "lucide-react": "^1.17.0",
@@ -1820,6 +1819,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/k8s-events-common": "workspace:*",
         "@checkstack/logstream-common": "workspace:*",
         "@checkstack/metricstream-common": "workspace:*",
         "@checkstack/otlp-wire": "workspace:*",
@@ -2397,6 +2397,7 @@
       "name": "@checkstack/telemetry-backend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
         "@checkstack/cache-utils": "workspace:*",
@@ -3333,6 +3334,35 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/k8s-events-backend": {
+      "name": "@checkstack/k8s-events-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/k8s-events-common": "workspace:*",
+        "@checkstack/telemetry-backend": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "plugins/k8s-events-common": {
+      "name": "@checkstack/k8s-events-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
     "plugins/notification-backstage-backend": {
       "name": "@checkstack/notification-backstage-backend",
       "version": "0.2.5",
@@ -3860,6 +3890,10 @@
     "@checkstack/integration-webex-backend": ["@checkstack/integration-webex-backend@workspace:plugins/integration-webex-backend"],
 
     "@checkstack/integration-webhook-backend": ["@checkstack/integration-webhook-backend@workspace:plugins/integration-webhook-backend"],
+
+    "@checkstack/k8s-events-backend": ["@checkstack/k8s-events-backend@workspace:plugins/k8s-events-backend"],
+
+    "@checkstack/k8s-events-common": ["@checkstack/k8s-events-common@workspace:plugins/k8s-events-common"],
 
     "@checkstack/logstream-backend": ["@checkstack/logstream-backend@workspace:core/logstream-backend"],
 

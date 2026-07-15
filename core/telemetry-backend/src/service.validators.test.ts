@@ -7,6 +7,7 @@ import {
   assertSignalsSubset,
   enrichBindingStreamNames,
   resolveBindableStreams,
+  sourceBindingsEqual,
 } from "./service";
 import type {
   RegisteredTelemetrySink,
@@ -41,6 +42,44 @@ function sinkRegistry({
     list: () => [logsSink],
   };
 }
+
+describe("sourceBindingsEqual", () => {
+  it("is true for identical binding sets regardless of order", () => {
+    expect(
+      sourceBindingsEqual(
+        [
+          { signal: "logs", streamId: "a" },
+          { signal: "metrics", streamId: "b" },
+        ],
+        [
+          { signal: "metrics", streamId: "b" },
+          { signal: "logs", streamId: "a" },
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it("is false when a stream id changed (re-bind)", () => {
+    expect(
+      sourceBindingsEqual(
+        [{ signal: "logs", streamId: "a" }],
+        [{ signal: "logs", streamId: "b" }],
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when a binding is added or removed", () => {
+    expect(
+      sourceBindingsEqual(
+        [{ signal: "logs", streamId: "a" }],
+        [
+          { signal: "logs", streamId: "a" },
+          { signal: "metrics", streamId: "b" },
+        ],
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("assertSignalsSubset", () => {
   it("passes when every binding signal is emittable", () => {

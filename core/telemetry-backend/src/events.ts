@@ -24,3 +24,37 @@ export const telemetrySourceReconcileHook =
   createHook<TelemetrySourceReconcilePayload>(
     "telemetry.source.reconcile-requested",
   );
+
+/**
+ * Backend event-bus hook: a push-mode instance's cached ingest verdict must be
+ * reconverged across every pod. The two reasons are cache OPERATIONS, not
+ * statements about a token's permanent validity:
+ *
+ * - "revoked" = EVICT any cached verdict for this hash (shared positive-key
+ *   delete + miss-marker delete). Emitted whenever a warm verdict would now be
+ *   wrong, which is BROADER than a permanent revocation: on delete, on disable,
+ *   on rotate (for the OLD hash), AND on a BINDING CHANGE (the cached verdict
+ *   embeds the bound streamId, so a re-bind must evict it - the token itself
+ *   stays valid and simply re-resolves against the new binding on the next
+ *   request). The consumer must not treat "revoked" as "this token is dead".
+ * - "minted" = `clearNegative(hash)` so a freshly valid token is not shadowed by
+ *   a pod's negative LRU / miss marker for its TTL. Emitted on create, on rotate
+ *   (for the NEW hash), and on re-enable.
+ *
+ * Consumers are the plugins that OWN a push endpoint: each subscribes in
+ * broadcast mode, filters on its own `sourceTypeId`s, and applies the operation
+ * to its `IngestAuthenticator` caches. Delivery is at-least-once; the 60s
+ * positive-cache TTL bounds the stale window if a "revoked" event is lost.
+ */
+export interface TelemetryPushTokenInvalidatedPayload {
+  sourceTypeId: string;
+  sourceId: string;
+  /** sha256 hex of the affected token (never the token itself). */
+  tokenHash: string;
+  reason: "minted" | "revoked";
+}
+
+export const telemetryPushTokenInvalidatedHook =
+  createHook<TelemetryPushTokenInvalidatedPayload>(
+    "telemetry.push-token.invalidated",
+  );

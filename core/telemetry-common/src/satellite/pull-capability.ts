@@ -1,10 +1,13 @@
 import { z } from "zod";
+import type { Logger } from "@checkstack/common";
 import {
   TELEMETRY_SIGNALS,
   TelemetrySignalSchema,
   type TelemetrySignal,
 } from "../signal-model";
 import {
+  MAX_EXEMPLARS_PER_POINT,
+  MetricExemplarSchema,
   NormalizedLogRecordSchema,
   NormalizedMetricPointSchema,
   NormalizedSpanEventSchema,
@@ -53,9 +56,29 @@ export const WireLogRecordSchema = NormalizedLogRecordSchema.extend({
 });
 export type WireLogRecord = z.infer<typeof WireLogRecordSchema>;
 
-/** A metric point on the wire: `ts` is an ISO-8601 string. */
+/**
+ * An exemplar on the wire: identical to {@link MetricExemplarSchema} except its
+ * own `ts` is an ISO-8601 STRING. JSON has no Date type, so the exemplar
+ * timestamp needs the SAME string treatment as the point's top-level `ts` -
+ * without it the core-side `TelemetryPullBatchSchema` parse rejects any batch
+ * carrying an exemplar (mirrors metricstream-common's `WireExemplarSchema`).
+ */
+export const WireExemplarSchema = MetricExemplarSchema.extend({
+  ts: z.string(),
+});
+export type WireExemplar = z.infer<typeof WireExemplarSchema>;
+
+/**
+ * A metric point on the wire: `ts` (and each exemplar's own `ts`) is an
+ * ISO-8601 string. The inherited `exemplars` field is overridden so its
+ * timestamps are strings too, not the `Date`s the normalized shape carries.
+ */
 export const WireMetricPointSchema = NormalizedMetricPointSchema.extend({
   ts: z.string(),
+  exemplars: z
+    .array(WireExemplarSchema)
+    .max(MAX_EXEMPLARS_PER_POINT)
+    .optional(),
 });
 export type WireMetricPoint = z.infer<typeof WireMetricPointSchema>;
 
@@ -149,7 +172,16 @@ export function wireLogRecordToNormalized(
 export function wireMetricPointToNormalized(
   point: WireMetricPoint,
 ): NormalizedMetricPoint {
-  return { ...point, ts: new Date(point.ts) };
+  const { exemplars, ...rest } = point;
+  return {
+    ...rest,
+    ts: new Date(point.ts),
+    // Convert each exemplar's own ISO ts back to a Date so a chart-to-trace
+    // jump-off survives the satellite hop.
+    ...(exemplars
+      ? { exemplars: exemplars.map((e) => ({ ...e, ts: new Date(e.ts) })) }
+      : {}),
+  };
 }
 
 export function wireSpanToNormalized(span: WireSpan): NormalizedSpan {
@@ -179,7 +211,15 @@ export function normalizedLogRecordToWire(
 export function normalizedMetricPointToWire(
   point: NormalizedMetricPoint,
 ): WireMetricPoint {
-  return { ...point, ts: point.ts.toISOString() };
+  const { exemplars, ...rest } = point;
+  return {
+    ...rest,
+    ts: point.ts.toISOString(),
+    // Serialize each exemplar's own Date ts to ISO so it round-trips as JSON.
+    ...(exemplars
+      ? { exemplars: exemplars.map((e) => ({ ...e, ts: e.ts.toISOString() })) }
+      : {}),
+  };
 }
 
 export function normalizedSpanToWire(span: NormalizedSpan): WireSpan {
@@ -317,6 +357,12 @@ export interface SatellitePullExecutorContext {
   fetchSecret: (field: string) => Promise<string | undefined>;
   /** Aborted when the run exceeds the instance timeout. */
   abortSignal: AbortSignal;
+  /**
+   * Agent logger for run-level diagnostics an executor wants surfaced in the
+   * satellite's own log (e.g. a truncated scan). Optional so bare test
+   * harnesses need not supply one.
+   */
+  logger?: Logger;
 }
 
 /**
