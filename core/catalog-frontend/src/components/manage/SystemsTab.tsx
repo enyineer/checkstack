@@ -9,6 +9,7 @@ import {
   ListEmptyState,
   RowAction,
   RowActions,
+  Skeleton,
 } from "@checkstack/ui";
 import { ExtensionSlot, useApi, accessApiRef } from "@checkstack/frontend-api";
 import {
@@ -38,6 +39,9 @@ export interface SystemsTabProps {
   systems: System[];
   /** Total systems before filtering (distinguishes empty-catalog vs no-matches). */
   totalCount: number;
+  /** Whether the shared health filler is still bulk-fetching (shows a Health
+   * column placeholder instead of badges popping in onto an empty cell). */
+  healthLoading: boolean;
   allGroups: Group[];
   allEnvironments: Environment[];
   /** systemId -> the group ids it belongs to. */
@@ -200,11 +204,16 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
       // detail views - `flex-wrap` in a fixed-narrow column made a second badge
       // wrap onto its own line and look stacked. Let the column size to content.
       headClassName: "whitespace-nowrap",
-      cell: (system) => (
-        <div className="flex items-center gap-1">
-          <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
-        </div>
-      ),
+      cell: (system) =>
+        // Hold a placeholder until the shared health fetch settles, so the
+        // status badges swap in instead of popping onto an empty cell.
+        props.healthLoading ? (
+          <Skeleton className="h-5 w-16 rounded-full" />
+        ) : (
+          <div className="flex items-center gap-1">
+            <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+          </div>
+        ),
     },
     {
       id: "groups",

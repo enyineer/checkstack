@@ -13,7 +13,7 @@ import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
 import { CatalogBrowseSloDataFiller } from "./components/CatalogBrowseSloDataFiller";
 import {
-  SystemDetailsTopSlot,
+  SystemDetailsSlot,
   SystemStateBadgesSlot,
   SystemSignalsSlot,
   CatalogBrowseDataBoundarySlot,
@@ -78,8 +78,8 @@ export default createFrontendPlugin({
       id: "slo.catalog.browse-slo-data",
       component: CatalogBrowseSloDataFiller,
     }),
-    createSlotExtension(SystemDetailsTopSlot, {
-      id: "slo.system-details-top.panel",
+    createSlotExtension(SystemDetailsSlot, {
+      id: "slo.system-details.panel",
       component: SystemSloPanel,
     }),
     createSlotExtension(SystemSignalsSlot, {

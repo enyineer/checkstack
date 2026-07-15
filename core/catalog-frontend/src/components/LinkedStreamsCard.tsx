@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { DetailCard, CardHeader, CardTitle, CardContent } from "@checkstack/ui";
+import { CollapsibleDetailCard } from "@checkstack/ui";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 
 /** One linked stream row (stream id + display name). */
@@ -27,11 +27,13 @@ export interface LinkedStreamsCardProps {
  * Shared presentational card listing a system's EXPLICITLY linked streams for
  * one signal, embedded by every stream plugin's `SystemDetailsSlot` filler
  * (logstream / metricstream / tracestream) so the three cards on a single
- * system detail page share identical chrome. Renders the shared `DetailCard`
- * surface (`@checkstack/ui`) so the three cards match every other
- * system-overview card exactly; `DetailCard` carries its OWN opaque background
- * because the detail page renders a grid backdrop a transparent box would let
- * bleed through.
+ * system detail page share identical chrome. Renders the shared
+ * `CollapsibleDetailCard` (`@checkstack/ui`) so the three cards match every
+ * other collapsible system-overview card exactly (header layout, vertical
+ * centring, chevron behaviour) and carry their own opaque background.
+ *
+ * Collapsed by default: linked streams are secondary detail, so the card is a
+ * compact "<title> N" summary until opened, keeping the overview column short.
  *
  * Purely presentational: the caller fetches `listStreamsForSystem` (RLAC
  * post-filtered to readable streams) and passes the result plus a
@@ -39,37 +41,29 @@ export interface LinkedStreamsCardProps {
  */
 export function LinkedStreamsCard({
   title,
-  icon: Icon,
+  icon,
   streams,
   buildHref,
 }: LinkedStreamsCardProps) {
   if (streams.length === 0) return null;
 
   return (
-    <DetailCard className="overflow-hidden">
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-base font-semibold">{title}</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <ul className="divide-y divide-border/60">
-          {streams.map((stream) => (
-            <li key={stream.id}>
-              <Link
-                to={buildHref(stream.id)}
-                className="flex items-center justify-between gap-2 px-4 py-3 text-sm transition-colors hover:bg-surface-inset"
-              >
-                <span className="min-w-0 truncate font-medium">
-                  {stream.name}
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </DetailCard>
+    <CollapsibleDetailCard icon={icon} title={title} count={streams.length}>
+      <ul className="divide-y divide-border/60 border-t border-border/60">
+        {streams.map((stream) => (
+          <li key={stream.id}>
+            <Link
+              to={buildHref(stream.id)}
+              className="flex items-center justify-between gap-2 px-4 py-3 text-sm transition-colors hover:bg-surface-inset"
+            >
+              <span className="min-w-0 truncate font-medium">
+                {stream.name}
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </CollapsibleDetailCard>
   );
 }

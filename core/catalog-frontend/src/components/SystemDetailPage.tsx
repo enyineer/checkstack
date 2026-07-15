@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   usePluginClient,
   ExtensionSlot,
+  useSlotExtensions,
   useApi,
 } from "@checkstack/frontend-api";
 import { Group, CatalogApi } from "../api";
@@ -22,6 +23,7 @@ import {
   PageContent,
   PageLayout,
   LoadingSpinner,
+  Skeleton,
   NotFound,
   Button,
   Dialog,
@@ -177,6 +179,41 @@ export const SystemDetailPage: React.FC = () => {
     }
   }, [groupsData, systemId]);
 
+  // ---- Overview cards: reveal together, no staggered pop-in ----------------
+  // Every SystemDetailsSlot card self-loads its own data and some self-hide when
+  // empty, so left to themselves they appear one after another. Hold the column
+  // on a skeleton set until every mounted card has reported settled, then reveal
+  // them together (cards with no content simply never appear). Mirrors the
+  // dashboard's signal-loading gate.
+  const detailFillers = useSlotExtensions(SystemDetailsSlot);
+  const expectedDetailCards = detailFillers.length;
+  const [reportedCards, setReportedCards] = useState<Set<string>>(new Set());
+  const [loadingCards, setLoadingCards] = useState<Set<string>>(new Set());
+  const [cardsGraceElapsed, setCardsGraceElapsed] = useState(false);
+
+  const handleCardLoading = useCallback(
+    (sourceId: string, isLoading: boolean) => {
+      setReportedCards((prev) =>
+        prev.has(sourceId) ? prev : new Set(prev).add(sourceId),
+      );
+      setLoadingCards((prev) => {
+        if (isLoading === prev.has(sourceId)) return prev;
+        const next = new Set(prev);
+        if (isLoading) next.add(sourceId);
+        else next.delete(sourceId);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // Bound the wait so a non-reporting card cannot hold the column forever.
+  useEffect(() => {
+    if (loading || !system) return;
+    const timer = setTimeout(() => setCardsGraceElapsed(true), 8000);
+    return () => clearTimeout(timer);
+  }, [loading, system]);
+
   if (loading) {
     return (
       <Page>
@@ -203,6 +240,13 @@ export const SystemDetailPage: React.FC = () => {
   if (!system) {
     return;
   }
+
+  // Settled = every mounted card has reported AND none is loading; the grace
+  // period bounds a non-reporting card. `system` is guaranteed here.
+  const overviewCardsLoading =
+    expectedDetailCards > 0 &&
+    !cardsGraceElapsed &&
+    (reportedCards.size < expectedDetailCards || loadingCards.size > 0);
 
   const headerActions = (
     <div className="flex items-center gap-2">
@@ -237,9 +281,23 @@ export const SystemDetailPage: React.FC = () => {
 
       {/* Two-Column Layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        {/* Left Column — Monitoring */}
-        <div className="space-y-6 min-w-0">
-          <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
+        {/* Left Column — Monitoring. The cards are kept mounted (so each loads
+            and reports) but hidden behind a skeleton set until all have settled,
+            then revealed together — no staggered pop-in, no layout shift. */}
+        <div className="min-w-0">
+          {overviewCardsLoading && (
+            <div className="space-y-6" aria-hidden="true">
+              <Skeleton variant="card" />
+              <Skeleton variant="card" />
+              <Skeleton variant="card" />
+            </div>
+          )}
+          <div className={overviewCardsLoading ? "hidden" : "space-y-6"}>
+            <ExtensionSlot
+              slot={SystemDetailsSlot}
+              context={{ system, onLoadingChange: handleCardLoading }}
+            />
+          </div>
         </div>
 
         {/* Right Column — System Context */}

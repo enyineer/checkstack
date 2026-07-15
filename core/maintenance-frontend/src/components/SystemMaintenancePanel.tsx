@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
@@ -14,7 +14,10 @@ type Props = SlotContext<typeof SystemDetailsSlot>;
  * Panel shown on system detail pages displaying active/upcoming maintenances.
  * Listens for realtime updates via signals.
  */
-export const SystemMaintenancePanel: React.FC<Props> = ({ system }) => {
+export const SystemMaintenancePanel: React.FC<Props> = ({
+  system,
+  onLoadingChange,
+}) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
 
   // Fetch maintenances with useQuery — kept fresh via SignalAutoInvalidator.
@@ -23,6 +26,12 @@ export const SystemMaintenancePanel: React.FC<Props> = ({ system }) => {
       { systemId: system?.id ?? "" },
       { enabled: !!system?.id }
     );
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("maintenance.panel", loading);
+  }, [loading, onLoadingChange]);
 
   if (loading) {
     return (

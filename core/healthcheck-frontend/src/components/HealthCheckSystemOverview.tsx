@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   usePluginClient,
@@ -66,6 +66,7 @@ type SlotProps = SlotContext<typeof SystemDetailsSlot>;
 
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
+  const { onLoadingChange } = props;
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const catalogClient = usePluginClient(CatalogApi);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -149,7 +150,16 @@ export function HealthCheckSystemOverview(props: SlotProps) {
   // Wait for the environment data too: assigned envs decide orphan grouping and
   // the full list decides display names, so rendering before they resolve would
   // flash live checks into "Old checks" or mislabel envs as "Removed".
-  if (initialLoading || assignedEnvsLoading || allEnvsLoading) {
+  const overviewLoading =
+    initialLoading || assignedEnvsLoading || allEnvsLoading;
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("healthcheck.overview", overviewLoading);
+  }, [overviewLoading, onLoadingChange]);
+
+  if (overviewLoading) {
     return <LoadingSpinner />;
   }
 

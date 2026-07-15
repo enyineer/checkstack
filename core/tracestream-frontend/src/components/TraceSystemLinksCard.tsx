@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { resolveRoute } from "@checkstack/common";
 import {
   usePluginClient,
@@ -21,11 +22,17 @@ type SlotProps = SlotContext<typeof SystemDetailsSlot>;
  * match); this filler only fetches `listStreamsForSystem` (RLAC post-filtered to
  * the caller's readable streams, so every offered link resolves).
  */
-export function TraceSystemLinksCard({ system }: SlotProps) {
+export function TraceSystemLinksCard({ system, onLoadingChange }: SlotProps) {
   const client = usePluginClient(TracestreamApi);
-  const { data } = client.listStreamsForSystem.useQuery({
+  const { data, isLoading } = client.listStreamsForSystem.useQuery({
     systemId: system.id,
   });
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("tracestream.card", isLoading);
+  }, [isLoading, onLoadingChange]);
 
   return (
     <LinkedStreamsCard

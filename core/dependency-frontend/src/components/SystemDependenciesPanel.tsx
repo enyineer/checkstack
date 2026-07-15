@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   usePluginClient,
@@ -21,7 +21,13 @@ import {
   type Dependency,
   type ImpactType,
 } from "@checkstack/dependency-common";
-import { cn, DetailCard, LoadingSpinner, Tooltip } from "@checkstack/ui";
+import {
+  cn,
+  CollapsibleDetailCard,
+  DetailCard,
+  LoadingSpinner,
+  Tooltip,
+} from "@checkstack/ui";
 import { ArrowUpRight, ArrowDownLeft, Info, Network, Zap } from "lucide-react";
 import {
   presentDependencyImpact,
@@ -168,7 +174,10 @@ function DependencyRow({
  * the system depends on (upstream) and what depends on it (downstream), each
  * neighbour linking to its own detail page with a live health dot.
  */
-export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
+export const SystemDependenciesPanel: React.FC<Props> = ({
+  system,
+  onLoadingChange,
+}) => {
   const systemId = system?.id ?? "";
   const accessApi = useApi(accessApiRef);
   const depClient = usePluginClient(DependencyApi);
@@ -221,6 +230,12 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
   );
   const healthStatuses = healthData?.statuses ?? {};
 
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("dependency.panel", isLoading);
+  }, [isLoading, onLoadingChange]);
+
   if (!allowed) return null;
 
   if (isLoading) {
@@ -232,61 +247,69 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
   }
 
   const hasAny = upstream.length > 0 || downstream.length > 0;
+  const total = upstream.length + downstream.length;
 
+  // Collapsed by default: the card shows just its header + a count, and the
+  // up/downstream lists expand on demand so the overview column stays compact.
+  // The shared CollapsibleDetailCard owns the header/toggle/chevron so this card
+  // stays visually identical to the other collapsible overview cards.
   return (
-    <DetailCard className="overflow-hidden p-[var(--d-pad)]">
-      <div className="flex items-center gap-2">
-        <Network className="h-4 w-4 text-muted-foreground" />
-        <p className="text-sm font-semibold text-foreground">Dependencies</p>
-      </div>
+    <CollapsibleDetailCard
+      icon={Network}
+      title="Dependencies"
+      count={hasAny ? total : undefined}
+      collapsible={hasAny}
+      bodyClassName="space-y-3 px-[var(--d-pad)] pb-[var(--d-pad)]"
+    >
+      {hasAny ? (
+        <>
+          {upstream.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                Depends on
+              </div>
+              <div className="mt-1 divide-y divide-border/50">
+                {upstream.map((row) => (
+                  <DependencyRow
+                    key={row.dependency.id}
+                    row={row}
+                    name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
+                    systemName={system.name}
+                    direction="depends-on"
+                    healthStatus={healthStatuses[row.systemId]?.status}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
-      {!hasAny && (
-        <p className="mt-2 text-sm text-muted-foreground">
+          {downstream.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <ArrowDownLeft className="h-3.5 w-3.5" />
+                Depended on by
+              </div>
+              <div className="mt-1 divide-y divide-border/50">
+                {downstream.map((row) => (
+                  <DependencyRow
+                    key={row.dependency.id}
+                    row={row}
+                    name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
+                    systemName={system.name}
+                    direction="depended-on-by"
+                    healthStatus={healthStatuses[row.systemId]?.status}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
           This system has no recorded dependencies.
         </p>
       )}
-
-      {upstream.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            Depends on
-          </div>
-          <div className="mt-1 divide-y divide-border/50">
-            {upstream.map((row) => (
-              <DependencyRow
-                key={row.dependency.id}
-                row={row}
-                name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
-                systemName={system.name}
-                direction="depends-on"
-                healthStatus={healthStatuses[row.systemId]?.status}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {downstream.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <ArrowDownLeft className="h-3.5 w-3.5" />
-            Depended on by
-          </div>
-          <div className="mt-1 divide-y divide-border/50">
-            {downstream.map((row) => (
-              <DependencyRow
-                key={row.dependency.id}
-                row={row}
-                name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
-                systemName={system.name}
-                direction="depended-on-by"
-                healthStatus={healthStatuses[row.systemId]?.status}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </DetailCard>
+    </CollapsibleDetailCard>
   );
 };

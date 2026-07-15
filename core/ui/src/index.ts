@@ -2,6 +2,7 @@ export * from "./components/Button";
 export * from "./components/Input";
 export * from "./components/Card";
 export * from "./components/DetailCard";
+export * from "./components/CollapsibleDetailCard";
 export * from "./components/Label";
 export * from "./components/FormError";
 export * from "./components/NavItem";

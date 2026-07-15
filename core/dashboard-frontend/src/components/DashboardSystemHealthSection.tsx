@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
   ExtensionSlot,
+  useSlotExtensions,
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
@@ -104,6 +105,36 @@ export const DashboardSystemHealthSection: React.FC = () => {
     [],
   );
 
+  // Signal sources report asynchronously; before any has loaded, zero signals
+  // reads as "all systems healthy". Hold the overview on its loading skeleton
+  // until every mounted source has REPORTED and none is loading.
+  // `expectedSignalSources` is the count of registered fillers; `reportedSources`
+  // fills as each filler reports (covering already-cached sources that settle
+  // without ever reporting `true`); `loadingSources` drains as each settles.
+  const signalFillers = useSlotExtensions(SystemSignalsSlot);
+  const expectedSignalSources = signalFillers.length;
+  const [loadingSources, setLoadingSources] = useState<Set<string>>(new Set());
+  const [reportedSources, setReportedSources] = useState<Set<string>>(
+    new Set(),
+  );
+  const [signalGraceElapsed, setSignalGraceElapsed] = useState(false);
+
+  const handleLoadingChange = useCallback(
+    (sourceId: string, loading: boolean) => {
+      setReportedSources((prev) =>
+        prev.has(sourceId) ? prev : new Set(prev).add(sourceId),
+      );
+      setLoadingSources((prev) => {
+        if (loading === prev.has(sourceId)) return prev;
+        const next = new Set(prev);
+        if (loading) next.add(sourceId);
+        else next.delete(sourceId);
+        return next;
+      });
+    },
+    [],
+  );
+
   const problems = useMemo(
     () => buildProblemSystems(mergeSignalsBySystem(signalsBySource)),
     [signalsBySource],
@@ -122,8 +153,30 @@ export const DashboardSystemHealthSection: React.FC = () => {
   const healthyCount = Math.max(systemsCount - problems.length, 0);
   const catalogHref = resolveRoute(catalogRoutes.routes.home);
 
+  // The overview stays on its loading skeleton until the signal sources settle.
+  // Requires systems to exist (nothing to load otherwise) and at least one
+  // source registered. Settled = every mounted source has reported AND none is
+  // loading; the grace period bounds the wait so a non-reporting source cannot
+  // hang it.
+  const signalsSettling =
+    systemsCount > 0 &&
+    expectedSignalSources > 0 &&
+    !signalGraceElapsed &&
+    (reportedSources.size < expectedSignalSources || loadingSources.size > 0);
+
+  // Bound the signal-loading wait: once systems are known, a source that never
+  // reports settled (e.g. a misbehaving third-party filler) cannot hold the
+  // overview on its skeleton indefinitely.
+  useEffect(() => {
+    if (entitiesLoading || systemsCount === 0) return;
+    const timer = setTimeout(() => setSignalGraceElapsed(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [entitiesLoading, systemsCount]);
+
   const renderOverview = () => {
-    if (entitiesLoading) {
+    if (entitiesLoading || signalsSettling) {
+      // Held until the signal sources settle too, so an empty problem list can't
+      // briefly render as "all systems healthy" before anything has loaded.
       return (
         <div className="space-y-[var(--d-gap)]">
           <Skeleton variant="chart" />
@@ -230,7 +283,11 @@ export const DashboardSystemHealthSection: React.FC = () => {
       */}
       <ExtensionSlot
         slot={SystemSignalsSlot}
-        context={{ systemIds, onSignals: handleSignals }}
+        context={{
+          systemIds,
+          onSignals: handleSignals,
+          onLoadingChange: handleLoadingChange,
+        }}
       />
 
       <section>

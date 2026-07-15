@@ -145,6 +145,9 @@ export const CatalogConfigPage = () => {
   const [healthStatuses, setHealthStatuses] =
     useState<CatalogHealthStatuses | null>(null);
   const healthEnabled = healthStatuses !== null;
+  // Whether the shared health filler is still bulk-fetching, so the manage
+  // tabs can show a per-row placeholder instead of health badges popping in.
+  const [healthLoading, setHealthLoading] = useState(false);
   const systemIds = useMemo(() => systems.map((s) => s.id), [systems]);
 
   const filtered = useMemo(
@@ -559,6 +562,7 @@ export const CatalogConfigPage = () => {
           <CatalogBrowseHealth
             systemIds={systemIds}
             onStatuses={setHealthStatuses}
+            onLoading={setHealthLoading}
           />
           <CatalogBrowseToolbar
             query={browse.state.query}
@@ -595,6 +599,7 @@ export const CatalogConfigPage = () => {
         <SystemsTab
           systems={visibleSystems}
           totalCount={systems.length}
+          healthLoading={healthLoading}
           allGroups={groups}
           systemGroupMap={systemGroupMap}
           allEnvironments={environments}

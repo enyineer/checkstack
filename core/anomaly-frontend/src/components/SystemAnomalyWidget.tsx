@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   usePluginClient,
   useApi,
@@ -311,7 +311,10 @@ function AnomalyRow({
 // Main Widget
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
+export const SystemAnomalyWidget: React.FC<Props> = ({
+  system,
+  onLoadingChange,
+}) => {
   const anomalyClient = usePluginClient(AnomalyApi);
   const catalogClient = usePluginClient(CatalogApi);
   const toast = useToast();
@@ -403,6 +406,12 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   };
 
   const isLoading = loadingConfirmed || loadingSuspicious;
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("anomaly.widget", isLoading);
+  }, [isLoading, onLoadingChange]);
 
   // Confirmed anomalies first, then suspicious
   const activeAnomalies = [...confirmedAnomalies, ...suspiciousAnomalies];

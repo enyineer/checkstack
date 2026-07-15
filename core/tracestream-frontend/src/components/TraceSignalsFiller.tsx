@@ -38,7 +38,11 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
  * status->signal transform lives in the pure `deriveTraceStreamSignals` deriver
  * so it stays unit-tested and drift-free.
  */
-export function TraceSignalsFiller({ systemIds, onSignals }: Props) {
+export function TraceSignalsFiller({
+  systemIds,
+  onSignals,
+  onLoadingChange,
+}: Props) {
   const client = usePluginClient(TracestreamApi);
 
   const chunks = useMemo(
@@ -46,7 +50,7 @@ export function TraceSignalsFiller({ systemIds, onSignals }: Props) {
     [systemIds],
   );
 
-  const { data: matches } = useQuery<LinkedStreamStatus[]>({
+  const { data: matches, isLoading } = useQuery<LinkedStreamStatus[]>({
     queryKey: ["tracestream", "linkedStreamStatuses", systemIds],
     enabled: systemIds.length > 0,
     staleTime: 30_000,
@@ -71,6 +75,13 @@ export function TraceSignalsFiller({ systemIds, onSignals }: Props) {
   useEffect(() => {
     onSignals(TRACESTREAM_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(TRACESTREAM_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 }

@@ -21,10 +21,14 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
  * The row -> signal mapping lives in the shared {@link deriveSloSignals} deriver
  * (slo-common) so the backend `system.issues` contributor emits identical signals.
  */
-export const SloSignalsFiller: React.FC<Props> = ({ systemIds, onSignals }) => {
+export const SloSignalsFiller: React.FC<Props> = ({
+  systemIds,
+  onSignals,
+  onLoadingChange,
+}) => {
   const sloClient = usePluginClient(SloApi);
 
-  const { data } = sloClient.getBulkObjectivesForSystems.useQuery(
+  const { data, isLoading } = sloClient.getBulkObjectivesForSystems.useQuery(
     { systemIds },
     { enabled: systemIds.length > 0, staleTime: 30_000 },
   );
@@ -41,6 +45,13 @@ export const SloSignalsFiller: React.FC<Props> = ({ systemIds, onSignals }) => {
   useEffect(() => {
     onSignals(SLO_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(SLO_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

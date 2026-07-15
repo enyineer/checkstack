@@ -36,10 +36,11 @@ type Props = SlotContext<typeof SystemSignalsSlot>;
 export const MetricSignalsFiller: React.FC<Props> = ({
   systemIds,
   onSignals,
+  onLoadingChange,
 }) => {
   const client = usePluginClient(MetricstreamApi);
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     // Namespaced under the plugin id so the signal auto-invalidator
     // (invalidateQueries `[[pluginId]]`) refreshes this query too.
     queryKey: [
@@ -68,6 +69,13 @@ export const MetricSignalsFiller: React.FC<Props> = ({
   useEffect(() => {
     onSignals(METRICSTREAM_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
+
+  // Report load state so the dashboard holds its overview skeleton until this
+  // (and every other source) has settled, instead of flashing "all healthy".
+  useEffect(() => {
+    if (systemIds.length === 0) return;
+    onLoadingChange(METRICSTREAM_SIGNAL_SOURCE_ID, isLoading);
+  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 };

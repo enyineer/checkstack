@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { resolveRoute } from "@checkstack/common";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
@@ -15,9 +16,17 @@ type SlotProps = SlotContext<typeof SystemDetailsSlot>;
  * `listStreamsForSystem` (RLAC post-filtered to readable streams) and supplies
  * the route builder.
  */
-export function LogsSystemCard({ system }: SlotProps) {
+export function LogsSystemCard({ system, onLoadingChange }: SlotProps) {
   const client = usePluginClient(LogstreamApi);
-  const { data } = client.listStreamsForSystem.useQuery({ systemId: system.id });
+  const { data, isLoading } = client.listStreamsForSystem.useQuery({
+    systemId: system.id,
+  });
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("logstream.card", isLoading);
+  }, [isLoading, onLoadingChange]);
 
   return (
     <LinkedStreamsCard

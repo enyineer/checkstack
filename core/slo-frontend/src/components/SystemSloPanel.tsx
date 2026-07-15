@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
+import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import { SloApi } from "../api";
 import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
@@ -10,19 +10,27 @@ import { DetailCard, formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
 
-type Props = SlotContext<typeof SystemDetailsTopSlot>;
+type Props = SlotContext<typeof SystemDetailsSlot>;
 
 /**
- * Compact SLO panel embedded in the system detail page alert strip.
- * Shows SLO objectives with error budget bars in a minimal layout.
+ * Compact SLO card in the system detail page's left (monitoring) column, beside
+ * dependencies and health. Shows SLO objectives with error budget bars in a
+ * minimal layout; self-hides when the system has no objectives.
  */
-export const SystemSloPanel: React.FC<Props> = ({ system }) => {
+export const SystemSloPanel: React.FC<Props> = ({ system, onLoadingChange }) => {
   const sloClient = usePluginClient(SloApi);
 
-  const { data: objectives } = sloClient.getObjectivesForSystem.useQuery(
-    { systemId: system?.id ?? "" },
-    { enabled: !!system?.id },
-  );
+  const { data: objectives, isLoading } =
+    sloClient.getObjectivesForSystem.useQuery(
+      { systemId: system?.id ?? "" },
+      { enabled: !!system?.id },
+    );
+
+  // Report load state so the detail page reveals all overview cards together
+  // instead of each popping in as its own fetch settles.
+  useEffect(() => {
+    onLoadingChange?.("slo.panel", isLoading);
+  }, [isLoading, onLoadingChange]);
 
   if (!objectives || objectives.length === 0) return;
 
