@@ -318,12 +318,19 @@ test.describe("Systems & Catalog", () => {
       }),
     ).toBeVisible();
 
-    // ...and the system shows as a member on the Environments tab. Scope to the
-    // desktop table (the MobileCardList duplicates the member name).
+    // ...and the system shows as a member on the Environments tab. Members
+    // collapse into a "N systems" count pill (MembershipChips) whose names live
+    // in a popover, so open the env row's pill to reveal the member name. Scope
+    // to the desktop table (the MobileCardList duplicates the row).
     await page.getByRole("tab", { name: "Environments" }).click();
-    await expect(
-      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
-    ).toBeVisible();
+    const envRow = page
+      .getByRole("table")
+      .getByRole("row")
+      .filter({ hasText: ENV_NAME });
+    await envRow
+      .getByRole("button", { name: /systems?, show list$/ })
+      .click();
+    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
   });
 
   test("filtered browse shows a no-matches state with clear-filters", async ({
