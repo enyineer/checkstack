@@ -14,7 +14,7 @@ import {
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import {
-  Card,
+  DetailCard,
   CardHeader,
   CardTitle,
   CardContent,
@@ -409,7 +409,7 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
 
   if (isLoading) {
     return (
-      <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+      <DetailCard className="relative overflow-hidden">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Activity className="h-4 w-4" />
@@ -421,7 +421,7 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
             Loading anomalies...
           </div>
         </CardContent>
-      </Card>
+      </DetailCard>
     );
   }
 
@@ -440,7 +440,7 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   const suspiciousStyles = anomalyToneStyles("unknown");
 
   return (
-    <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all">
+    <DetailCard className="relative overflow-hidden transition-all">
       {/* Status accent stripe: worst active state encoded by hue + position. */}
       <span
         className={cn("absolute inset-y-0 left-0 w-1", accent.accent)}
@@ -547,6 +547,6 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
           ))}
         </div>
       </CardContent>
-    </Card>
+    </DetailCard>
   );
 };

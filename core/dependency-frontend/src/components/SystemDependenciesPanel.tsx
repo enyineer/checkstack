@@ -21,16 +21,13 @@ import {
   type Dependency,
   type ImpactType,
 } from "@checkstack/dependency-common";
-import { cn, LoadingSpinner, Tooltip } from "@checkstack/ui";
+import { cn, DetailCard, LoadingSpinner, Tooltip } from "@checkstack/ui";
 import { ArrowUpRight, ArrowDownLeft, Info, Network, Zap } from "lucide-react";
 import {
   presentDependencyImpact,
   type DependencyDirection,
   type ImpactTone,
 } from "../utils/impact.logic";
-
-const PANEL_SHADOW =
-  "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
 
 type Props = SlotContext<typeof SystemDetailsSlot>;
 
@@ -228,21 +225,16 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center rounded-[var(--d-card-r)] border border-border/70 bg-surface px-3 py-2">
+      <DetailCard surface="flat" className="flex items-center justify-center px-3 py-2">
         <LoadingSpinner />
-      </div>
+      </DetailCard>
     );
   }
 
   const hasAny = upstream.length > 0 || downstream.length > 0;
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)]",
-        PANEL_SHADOW,
-      )}
-    >
+    <DetailCard className="overflow-hidden p-[var(--d-pad)]">
       <div className="flex items-center gap-2">
         <Network className="h-4 w-4 text-muted-foreground" />
         <p className="text-sm font-semibold text-foreground">Dependencies</p>
@@ -295,6 +287,6 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
           </div>
         </div>
       )}
-    </div>
+    </DetailCard>
   );
 };

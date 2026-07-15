@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { CardHeader, CardTitle, CardContent } from "@checkstack/ui";
+import { DetailCard, CardHeader, CardTitle, CardContent } from "@checkstack/ui";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 
 /** One linked stream row (stream id + display name). */
@@ -27,10 +27,11 @@ export interface LinkedStreamsCardProps {
  * Shared presentational card listing a system's EXPLICITLY linked streams for
  * one signal, embedded by every stream plugin's `SystemDetailsSlot` filler
  * (logstream / metricstream / tracestream) so the three cards on a single
- * system detail page share identical chrome. Uses the detail-page token chrome
- * (`--d-card-r`, `border-border/70`, opaque `bg-card`) that matches the other
- * detail-page cards; carries its OWN opaque background because the detail page
- * renders a grid backdrop a transparent box would let bleed through.
+ * system detail page share identical chrome. Renders the shared `DetailCard`
+ * surface (`@checkstack/ui`) so the three cards match every other
+ * system-overview card exactly; `DetailCard` carries its OWN opaque background
+ * because the detail page renders a grid backdrop a transparent box would let
+ * bleed through.
  *
  * Purely presentational: the caller fetches `listStreamsForSystem` (RLAC
  * post-filtered to readable streams) and passes the result plus a
@@ -45,7 +46,7 @@ export function LinkedStreamsCard({
   if (streams.length === 0) return null;
 
   return (
-    <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-card shadow-[0_1px_2px_hsl(var(--foreground)/0.04)]">
+    <DetailCard className="overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-muted-foreground" />
@@ -69,6 +70,6 @@ export function LinkedStreamsCard({
           ))}
         </ul>
       </CardContent>
-    </div>
+    </DetailCard>
   );
 }

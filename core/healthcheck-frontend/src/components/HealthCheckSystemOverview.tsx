@@ -16,6 +16,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  DetailCard,
 } from "@checkstack/ui";
 import { Heart, Archive } from "lucide-react";
 import {
@@ -158,7 +159,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
 
   return (
     <>
-      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+      <DetailCard className="overflow-hidden">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -256,7 +257,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
             </>
           )}
         </CardContent>
-      </div>
+      </DetailCard>
 
       {/* Slide-over Drawer (lazy: loads the chart bundle on first open) */}
       {selectedCheck && (

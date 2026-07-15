@@ -6,13 +6,9 @@ import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
-import { cn, formatPercent } from "@checkstack/ui";
+import { DetailCard, formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
-
-/** Shared card elevation used by the system-overview panels. */
-const PANEL_SHADOW =
-  "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
@@ -31,12 +27,7 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   if (!objectives || objectives.length === 0) return;
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface",
-        PANEL_SHADOW,
-      )}
-    >
+    <DetailCard className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-border/50 px-[var(--d-pad)] py-3">
         <div className="flex items-center gap-2">
           <Target className="h-4 w-4 text-muted-foreground" />
@@ -82,6 +73,6 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
           </Link>
         ))}
       </div>
-    </div>
+    </DetailCard>
   );
 };

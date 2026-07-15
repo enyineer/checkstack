@@ -254,6 +254,33 @@ export default tseslint.config(
       "checkstack/prefer-gated-mutation": "warn",
     },
   },
+  // Detail-card chrome drift guard. The system detail / overview page renders a
+  // family of cards (the platform's own plus every plugin card contributed into
+  // `SystemDetailsSlot`: Logs/Metrics/Traces, health, dependency, SLO, incident,
+  // anomaly, maintenance) that are meant to look identical. They used to each
+  // hand-roll the same surface as a copy-pasted className, and it drifted - the
+  // telemetry `LinkedStreamsCard` regressed to a flat `bg-card` + hairline
+  // shadow, so the three telemetry cards rendered flatter than their siblings.
+  // The surface now lives in ONE place (`DetailCard` / `detailCardSurface` from
+  // `@checkstack/ui`); this rule forbids re-declaring it inline in these
+  // components so a new/edited card cannot diverge again. Severity is `error`:
+  // the scoped files are migrated to the shared primitive, so a violation is a
+  // genuine regression, not a warning to accumulate. To bring a NEW
+  // system-overview card under the guard, add its file here.
+  {
+    files: [
+      "core/catalog-frontend/src/components/LinkedStreamsCard.tsx",
+      "core/healthcheck-frontend/src/components/HealthCheckSystemOverview.tsx",
+      "core/dependency-frontend/src/components/SystemDependenciesPanel.tsx",
+      "core/slo-frontend/src/components/SystemSloPanel.tsx",
+      "core/incident-frontend/src/components/SystemIncidentPanel.tsx",
+      "core/anomaly-frontend/src/components/SystemAnomalyWidget.tsx",
+      "core/maintenance-frontend/src/components/SystemMaintenancePanel.tsx",
+    ],
+    rules: {
+      "checkstack/no-inline-detail-card-chrome": "error",
+    },
+  },
   // Enforced-by-design cache invalidation: the role-membership tables (`role`,
   // `role_access_rule`, `user_role`) may only be written through
   // `RoleMembershipStore`, which welds each write to its per-pod cache eviction
