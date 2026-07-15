@@ -28,6 +28,7 @@ import { traceStreams } from "../schema";
 import type { Storage } from "../storage";
 import { createTracestreamService } from "./service";
 import { createTracestreamRouter } from "./router";
+import { createSystemLinkAuthorizer } from "./system-links-auth";
 
 export interface RegisterApiDeps {
   db: SafeDatabase<typeof schema>;
@@ -62,6 +63,7 @@ export function registerApi({
   cacheManager,
   logger,
   resourceResolverRegistry,
+  internalUrl,
 }: RegisterApiDeps): void {
   const service = createTracestreamService({
     storage,
@@ -70,7 +72,14 @@ export function registerApi({
     rpcClient,
   });
 
-  rpc.registerRouter(createTracestreamRouter({ service }), tracestreamContract);
+  // Per-request gate for `setSystemLinks`: re-enters catalog AS the caller to
+  // reject any linked system the caller cannot read (see system-links-auth.ts).
+  const authorizeSystemLinks = createSystemLinkAuthorizer({ internalUrl });
+
+  rpc.registerRouter(
+    createTracestreamRouter({ service, authorizeSystemLinks }),
+    tracestreamContract,
+  );
 
   // Resolve/search stream names for the Teams admin UI (team grants are stored
   // as opaque `tracestream.stream:<id>` rows). Registered under the SAME

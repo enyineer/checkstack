@@ -28,6 +28,9 @@ export * from "./satellite/pull-capability";
 // Frontend slots
 export * from "./slots";
 
+// Shared schemas for explicit stream -> catalog-system links
+export * from "./system-links";
+
 // RPC contract + client definition
 export {
   telemetryContract,

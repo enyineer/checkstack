@@ -6,6 +6,7 @@ import { Waypoints } from "lucide-react";
 import { LogEventDetailSlot } from "@checkstack/logstream-common";
 import { RunDetailExtrasSlot } from "@checkstack/healthcheck-common";
 import { HealthCheckConfigOptionsResolverSlot } from "@checkstack/healthcheck-frontend";
+import { SystemDetailsSlot, SystemSignalsSlot } from "@checkstack/catalog-common";
 import {
   tracestreamRoutes,
   pluginMetadata,
@@ -60,6 +61,26 @@ export default createFrontendPlugin({
         strategyId: TRACESTREAM_STRATEGY_ID,
         buildResolvers: buildTracestreamOptionsResolvers,
       },
+    }),
+    // Catalog system detail: a compact "Traces" card of the streams linked to
+    // the system (self-hides when none). Lazy so it stays out of the initial
+    // bundle and loads when a system-detail page renders.
+    createSlotExtension(SystemDetailsSlot, {
+      id: "tracestream.system-details.traces",
+      load: () =>
+        import("./components/TraceSystemLinksCard").then((m) => ({
+          default: m.TraceSystemLinksCard,
+        })),
+    }),
+    // Dashboard "needs attention" overview: report linked streams' recent
+    // error-spike / silence events as per-system signals. Lazy: only loads when
+    // the dashboard overview mounts the slot.
+    createSlotExtension(SystemSignalsSlot, {
+      id: "tracestream.dashboard.signals",
+      load: () =>
+        import("./components/TraceSignalsFiller").then((m) => ({
+          default: m.TraceSignalsFiller,
+        })),
     }),
   ],
   routes: [

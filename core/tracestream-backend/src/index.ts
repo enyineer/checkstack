@@ -9,7 +9,9 @@ import {
 } from "@checkstack/tracestream-common";
 import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
+import { aiToolProjectionExtensionPoint } from "@checkstack/ai-backend";
 import * as schema from "./schema";
+import { registerTracestreamAiProjections } from "./api/ai-projections";
 import { createStorage } from "./storage";
 import { createImportantEventRecorder } from "./events/recorder";
 import { registerMaintenance } from "./health/maintenance";
@@ -154,6 +156,13 @@ export default createBackendPlugin({
           logger,
           internalUrl: process.env.INTERNAL_URL || "http://localhost:3000",
         });
+
+        // Expose read procedures as model-facing AI tools (owned here, not in
+        // ai-backend). Registration is buffered behind the extension point, so
+        // load order relative to ai-backend does not matter.
+        registerTracestreamAiProjections(
+          env.getExtensionPoint(aiToolProjectionExtensionPoint),
+        );
 
         const maintenance = registerMaintenance({
           queueManager,

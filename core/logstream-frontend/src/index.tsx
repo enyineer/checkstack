@@ -4,6 +4,10 @@ import {
 } from "@checkstack/frontend-api";
 import { HealthCheckConfigOptionsResolverSlot } from "@checkstack/healthcheck-frontend";
 import { TraceCorrelationsSlot } from "@checkstack/tracestream-common";
+import {
+  SystemDetailsSlot,
+  SystemSignalsSlot,
+} from "@checkstack/catalog-common";
 import { ScrollText } from "lucide-react";
 import {
   logstreamRoutes,
@@ -51,6 +55,24 @@ export default createFrontendPlugin({
       component: ({ traceId, startTs, endTs }) => (
         <CorrelatedLogs traceId={traceId} startTs={startTs} endTs={endTs} />
       ),
+    }),
+    // Compact "Logs" card on the catalog system detail page: the streams linked
+    // to the system. Lazy - only loads when a system-detail page renders.
+    createSlotExtension(SystemDetailsSlot, {
+      id: "logstream.system-details.logs",
+      load: () =>
+        import("./components/LogsSystemCard").then((m) => ({
+          default: m.LogsSystemCard,
+        })),
+    }),
+    // Headless dashboard signals filler: linked streams' error spikes. Lazy -
+    // only loads when the dashboard overview mounts the slot.
+    createSlotExtension(SystemSignalsSlot, {
+      id: "logstream.dashboard.signals",
+      load: () =>
+        import("./components/LogSignalsFiller").then((m) => ({
+          default: m.LogSignalsFiller,
+        })),
     }),
   ],
   routes: [

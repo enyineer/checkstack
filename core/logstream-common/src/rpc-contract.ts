@@ -1,5 +1,14 @@
 import { createClientDefinition, proc } from "@checkstack/common";
 import { z } from "zod";
+import {
+  ListLinkedStreamStatusesResultSchema,
+  ListLinkedStreamStatusesSchema,
+  ListStreamsForSystemResultSchema,
+  ListStreamsForSystemSchema,
+  ListSystemLinksResultSchema,
+  ListSystemLinksSchema,
+  SetSystemLinksSchema,
+} from "@checkstack/telemetry-common";
 import { logstreamAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
@@ -30,6 +39,8 @@ import {
   ListPatternVariablesResultSchema,
   ListImportantEventsSchema,
   ListImportantEventsResultSchema,
+  ListServiceNamesSchema,
+  ListServiceNamesResultSchema,
   StreamOverviewSchema,
   StreamForPickerSchema,
   ListStreamSummariesResultSchema,
@@ -156,6 +167,80 @@ export const logstreamContract = {
   })
     .input(RevokeTokenSchema)
     .output(z.void()),
+
+  // ==========================================================================
+  // SYSTEM LINKS (explicit stream -> catalog-system mapping; shared schemas
+  // live in @checkstack/telemetry-common - see system-links.ts there)
+  // ==========================================================================
+
+  /** Systems this stream is explicitly linked to. */
+  listSystemLinks: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { idParam: "streamId" },
+  })
+    .input(ListSystemLinksSchema)
+    .output(ListSystemLinksResultSchema),
+
+  /**
+   * Replace the stream's linked-system set. The handler MUST verify the
+   * caller can READ every NEWLY ADDED system (the diff against the persisted
+   * set; retained/removed ids need no readability) via a USER-scoped catalog
+   * `getSystems` membership pass BEFORE persisting - a stream manager cannot
+   * expose a system they cannot see, but is never dead-locked by a link
+   * someone else authorized.
+   */
+  setSystemLinks: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [logstreamAccess.manage],
+    instanceAccess: { idParam: "streamId" },
+  })
+    .input(SetSystemLinksSchema)
+    .output(z.void()),
+
+  /**
+   * Streams linked to one system (the catalog system page direction),
+   * post-filtered to the caller's readable streams (`listKey` - each
+   * stream's `id` is the key).
+   */
+  listStreamsForSystem: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "streams" },
+  })
+    .input(ListStreamsForSystemSchema)
+    .output(ListStreamsForSystemResultSchema),
+
+  /**
+   * Bulk signal-state lookup for the dashboard's system signals: the newest
+   * recent important event per linked stream, for all requested systems in
+   * one call. Post-filtered to readable streams (`listKey`).
+   */
+  listLinkedStreamStatuses: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { listKey: "matches" },
+  })
+    .input(ListLinkedStreamStatusesSchema)
+    .output(ListLinkedStreamStatusesResultSchema),
+
+  /**
+   * Distinct `service.name` resource values observed in the stream's stored
+   * events (bounded, newest-biased) - the suggestion source for the
+   * system-link editor. Suggestions are never auto-applied.
+   */
+  listServiceNames: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [logstreamAccess.read],
+    instanceAccess: { idParam: "streamId" },
+  })
+    .input(ListServiceNamesSchema)
+    .output(ListServiceNamesResultSchema),
 
   // ==========================================================================
   // VIEWER READS (read; scoped by the owning stream id)

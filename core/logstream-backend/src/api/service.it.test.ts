@@ -1,17 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import path from "node:path";
+import { call } from "@orpc/server";
 import {
   withTestDb,
   isIntegrationEnabled,
   createMockLogger,
   type TestDb,
 } from "@checkstack/test-utils-backend";
+import { createMockRpcContext, type RpcContext } from "@checkstack/backend-api";
 import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
 import { DEFAULT_LOG_STREAM_CONFIG } from "@checkstack/logstream-common";
 import type { EventCursor } from "@checkstack/logstream-common";
 import * as schema from "../schema";
 import { createStorage } from "../storage";
 import { createLogstreamService, type LogstreamService } from "./service";
+import { createLogstreamRouter } from "./router";
+import type { SystemLinkAuthorizer } from "./system-links-auth";
 
 const MIGRATIONS = path.join(import.meta.dir, "..", "..", "drizzle");
 
@@ -756,6 +760,216 @@ describe.skipIf(!isIntegrationEnabled())("logstream service (integration)", () =
         orderBy: "totalCount",
       });
       expect(infos.map((p) => p.id)).toEqual(["informational", "unspecified"]);
+    });
+  });
+
+  // ==========================================================================
+  // System links (explicit stream -> catalog-system mapping)
+  // ==========================================================================
+
+  describe("system links", () => {
+    const STREAM_A = "links-stream-a";
+    const STREAM_B = "links-stream-b";
+    const TS = new Date("2026-07-14T10:00:00.000Z");
+
+    beforeEach(async () => {
+      const { db } = test;
+      await db.delete(schema.logStreamSystemLinks);
+      await db.delete(schema.logImportantEvents);
+      await db.delete(schema.logEvents);
+      await db.delete(schema.logStreams);
+      await db.insert(schema.logStreams).values([
+        { id: STREAM_A, name: "Stream A", config: DEFAULT_LOG_STREAM_CONFIG, createdAt: TS, updatedAt: TS },
+        { id: STREAM_B, name: "Stream B", config: DEFAULT_LOG_STREAM_CONFIG, createdAt: TS, updatedAt: TS },
+      ]);
+    });
+
+    const sortedLinks = async (streamId: string) =>
+      [...(await service.listSystemLinks({ streamId })).systemIds].sort();
+
+    it("setSystemLinks replaces the whole set (idempotent, de-duped, clearable)", async () => {
+      await service.setSystemLinks({
+        streamId: STREAM_A,
+        systemIds: ["sys-1", "sys-2", "sys-2"],
+      });
+      expect(await sortedLinks(STREAM_A)).toEqual(["sys-1", "sys-2"]);
+
+      // Replace-all: the new set fully supersedes the old (sys-1 removed).
+      await service.setSystemLinks({ streamId: STREAM_A, systemIds: ["sys-2", "sys-3"] });
+      expect(await sortedLinks(STREAM_A)).toEqual(["sys-2", "sys-3"]);
+
+      // An empty set clears every link.
+      await service.setSystemLinks({ streamId: STREAM_A, systemIds: [] });
+      expect(await sortedLinks(STREAM_A)).toEqual([]);
+    });
+
+    it("getSystemLinksForUpdate returns persisted links; throws NOT_FOUND for an unknown stream", async () => {
+      await service.setSystemLinks({ streamId: STREAM_A, systemIds: ["sys-1"] });
+      expect(
+        (await service.getSystemLinksForUpdate({ streamId: STREAM_A })).systemIds,
+      ).toEqual(["sys-1"]);
+      // A zero-link stream still resolves (exists, empty set) - only a MISSING
+      // stream fails closed.
+      expect(
+        (await service.getSystemLinksForUpdate({ streamId: STREAM_B })).systemIds,
+      ).toEqual([]);
+      await expect(
+        service.getSystemLinksForUpdate({ streamId: "does-not-exist" }),
+      ).rejects.toThrow(/not found/i);
+    });
+
+    // The readability gate now lives in the ROUTER's injected authorizer over the
+    // ADDED subset. These drive the REAL router (real service + real DB) with a
+    // spy authorizer to prove the added-only wiring end to end.
+    describe("write path added-only readability gate (router)", () => {
+      const MANAGE_RULE = "logstream.stream.manage";
+      const teamUser = { type: "user" as const, id: "team-user", accessRules: [] as string[] };
+      function grantAuth(grantedIds: string[]): Partial<RpcContext> {
+        const granted = new Set(grantedIds);
+        return {
+          auth: {
+            check: mock(async ({ objectId }: { objectId: string }) => ({
+              hasAccess: granted.has(objectId),
+            })),
+            listAccessibleObjectIds: mock(
+              async ({ objectIds }: { objectIds: string[] }) =>
+                objectIds.filter((id) => granted.has(id)),
+            ),
+            hasAnyTypeGrant: mock(async () => ({ hasGrant: granted.size > 0 })),
+          } as unknown as RpcContext["auth"],
+        };
+      }
+      const managerContext = () =>
+        createMockRpcContext({ user: teamUser, ...grantAuth([STREAM_A]) });
+
+      it("authorizes ONLY newly-added systems; a retained (even unreadable) link never blocks", async () => {
+        // Seed a set that includes a system the authorizer will REJECT if seen.
+        await service.setSystemLinks({
+          streamId: STREAM_A,
+          systemIds: ["sys-retained-unreadable", "sys-1"],
+        });
+        const authorize = mock<SystemLinkAuthorizer>(async ({ systemIds }) => {
+          if (systemIds.includes("sys-retained-unreadable")) {
+            throw new Error("should not be asked about a retained system");
+          }
+        });
+        const router = createLogstreamRouter({
+          service,
+          authorizeSystemLinks: authorize,
+        });
+        // Keep the unreadable retained link, keep sys-1, ADD sys-2.
+        await call(
+          router.setSystemLinks,
+          {
+            streamId: STREAM_A,
+            systemIds: ["sys-retained-unreadable", "sys-1", "sys-2"],
+          },
+          { context: managerContext() },
+        );
+        // The authorizer saw ONLY the genuinely-added system.
+        expect(authorize).toHaveBeenCalledTimes(1);
+        expect(authorize.mock.calls[0]![0]!.systemIds).toEqual(["sys-2"]);
+        // The retained-unreadable link is preserved (unrelated edit not blocked).
+        expect(await sortedLinks(STREAM_A)).toEqual([
+          "sys-1",
+          "sys-2",
+          "sys-retained-unreadable",
+        ]);
+      });
+
+      it("unlinking triggers no readability check at all", async () => {
+        await service.setSystemLinks({
+          streamId: STREAM_A,
+          systemIds: ["sys-1", "sys-2"],
+        });
+        const authorize = mock<SystemLinkAuthorizer>(async () => {});
+        const router = createLogstreamRouter({
+          service,
+          authorizeSystemLinks: authorize,
+        });
+        await call(
+          router.setSystemLinks,
+          { streamId: STREAM_A, systemIds: ["sys-1"] },
+          { context: managerContext() },
+        );
+        expect(authorize).not.toHaveBeenCalled();
+        expect(await sortedLinks(STREAM_A)).toEqual(["sys-1"]);
+      });
+
+      it("a rejection for an added system blocks the write (nothing persisted)", async () => {
+        const authorize = mock<SystemLinkAuthorizer>(async () => {
+          throw new Error("You can only link systems you can access.");
+        });
+        const router = createLogstreamRouter({
+          service,
+          authorizeSystemLinks: authorize,
+        });
+        await expect(
+          call(
+            router.setSystemLinks,
+            { streamId: STREAM_A, systemIds: ["sys-forbidden"] },
+            { context: managerContext() },
+          ),
+        ).rejects.toThrow(/only link systems you can access/i);
+        expect(await sortedLinks(STREAM_A)).toEqual([]);
+      });
+    });
+
+    it("listStreamsForSystem returns the linked streams by name, joined to existing streams", async () => {
+      await service.setSystemLinks({ streamId: STREAM_B, systemIds: ["sys-shared"] });
+      await service.setSystemLinks({ streamId: STREAM_A, systemIds: ["sys-shared"] });
+      const { streams } = await service.listStreamsForSystem({ systemId: "sys-shared" });
+      expect(streams.map((s) => s.name)).toEqual(["Stream A", "Stream B"]);
+    });
+
+    it("listLinkedStreamStatuses reports the newest recent SPIKE, ignoring a newer non-signal event", async () => {
+      const { db } = test;
+      await service.setSystemLinks({ streamId: STREAM_A, systemIds: ["sys-x"] });
+      await service.setSystemLinks({ streamId: STREAM_B, systemIds: ["sys-x"] });
+      // STREAM_A: a spike at T, then a NEWER new_pattern at T+5min. Without the
+      // type filter the newer new_pattern would MASK the spike; the status must
+      // still report the spike (the only signal-worthy type).
+      const spikeAt = new Date(Date.now() - 10 * 60_000);
+      const newerNonSignalAt = new Date(spikeAt.getTime() + 5 * 60_000);
+      await db.insert(schema.logImportantEvents).values([
+        { id: "ev-spike", streamId: STREAM_A, ts: spikeAt, type: "spike", title: "spike" },
+        {
+          id: "ev-newer",
+          streamId: STREAM_A,
+          ts: newerNonSignalAt,
+          type: "new_pattern",
+          title: "newer non-signal",
+        },
+        // An OLD spike (outside 24h) must not surface.
+        {
+          id: "ev-old",
+          streamId: STREAM_B,
+          ts: new Date(Date.now() - 48 * 3_600_000),
+          type: "spike",
+          title: "old",
+        },
+      ]);
+      const { matches } = await service.listLinkedStreamStatuses({ systemIds: ["sys-x"] });
+      const byId = new Map(matches.map((m) => [m.id, m]));
+      expect(byId.get(STREAM_A)!.lastImportantEvent?.type).toBe("spike");
+      expect(byId.get(STREAM_A)!.lastImportantEvent?.ts).toEqual(spikeAt);
+      expect(byId.get(STREAM_A)!.systemIds).toEqual(["sys-x"]);
+      // STREAM_B's only event is an out-of-window spike -> no recent signal.
+      expect(byId.get(STREAM_B)!.lastImportantEvent).toBeNull();
+    });
+
+    it("listServiceNames dedupes distinct service.name values, newest-biased and capped", async () => {
+      const { db } = test;
+      // Insert rows carrying resource.service.name, plus rows with none.
+      await db.insert(schema.logEvents).values([
+        { streamId: STREAM_A, ts: new Date(TS.getTime() + 1000), observedAt: TS, severityNumber: 9, band: "info" as const, body: "a", resource: { "service.name": "checkout-api" } },
+        { streamId: STREAM_A, ts: new Date(TS.getTime() + 2000), observedAt: TS, severityNumber: 9, band: "info" as const, body: "b", resource: { "service.name": "checkout-api" } },
+        { streamId: STREAM_A, ts: new Date(TS.getTime() + 3000), observedAt: TS, severityNumber: 9, band: "info" as const, body: "c", resource: { "service.name": "payments-api" } },
+        { streamId: STREAM_A, ts: new Date(TS.getTime() + 4000), observedAt: TS, severityNumber: 9, band: "info" as const, body: "d", resource: {} },
+        { streamId: STREAM_A, ts: new Date(TS.getTime() + 5000), observedAt: TS, severityNumber: 9, band: "info" as const, body: "e", resource: null },
+      ]);
+      const { serviceNames } = await service.listServiceNames({ streamId: STREAM_A });
+      expect([...serviceNames].sort()).toEqual(["checkout-api", "payments-api"]);
     });
   });
 });

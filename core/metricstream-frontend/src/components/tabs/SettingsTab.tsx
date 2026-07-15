@@ -1,6 +1,7 @@
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { MetricstreamApi, type MetricStream } from "@checkstack/metricstream-common";
 import { StreamSettingsForm } from "../StreamSettingsForm";
+import { LinkedSystemsSection } from "../LinkedSystemsSection";
 import { DangerZoneSection } from "../DangerZoneSection";
 
 export interface SettingsTabProps {
@@ -22,6 +23,7 @@ export function SettingsTab({ stream }: SettingsTabProps) {
   return (
     <div className="space-y-6">
       <StreamSettingsForm stream={stream} canManage={canManage} />
+      <LinkedSystemsSection stream={stream} />
       <DangerZoneSection stream={stream} />
     </div>
   );

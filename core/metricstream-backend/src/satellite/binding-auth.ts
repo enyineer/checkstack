@@ -21,11 +21,13 @@
  * A null satelliteId (scrape from core) needs no check.
  */
 
-import { createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
 import { ORPCError } from "@orpc/server";
 import type { RpcClient } from "@checkstack/backend-api";
 import { SatelliteApi } from "@checkstack/satellite-common";
+import {
+  createUserScopedRpcClient,
+  forwardableAuthHeadersFrom,
+} from "@checkstack/backend-api";
 
 /** The capability string a satellite advertises when it can scrape (agent-side). */
 export const SATELLITE_SCRAPE_CAPABILITY = "scrape";
@@ -71,41 +73,6 @@ export type SatelliteBindingAuthorizer = (args: {
   satelliteId: string;
   requestHeaders: Headers | undefined;
 }) => Promise<void>;
-
-/** Extract ONLY the forwardable auth headers (cookie + bearer) from a request. */
-export function forwardableAuthHeadersFrom(
-  headers: Headers | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!headers) return out;
-  const cookie = headers.get("cookie");
-  if (cookie) out.cookie = cookie;
-  const authorization = headers.get("authorization");
-  if (authorization) out.authorization = authorization;
-  return out;
-}
-
-/**
- * Build a USER-SCOPED RpcClient that re-enters the live router AS the calling
- * user (forwarding their cookie / bearer), never as a trusted service - so a
- * cross-plugin read is subject to the caller's own access. Mirrors the
- * status-page publish gate + the AI chat read-invoker.
- */
-function createUserScopedRpcClient({
-  internalUrl,
-  forwardHeaders,
-}: {
-  internalUrl: string;
-  forwardHeaders: Record<string, string>;
-}): RpcClient {
-  const link = new RPCLink({ url: `${internalUrl}/api`, headers: forwardHeaders });
-  const client = createORPCClient(link);
-  return {
-    forPlugin(def) {
-      return (client as Record<string, unknown>)[def.pluginId] as never;
-    },
-  };
-}
 
 /**
  * Production {@link SatelliteBindingAuthorizer}: for each request, builds a

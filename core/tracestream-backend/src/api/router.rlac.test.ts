@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from "bun:test";
-import { call } from "@orpc/server";
+import { call, ORPCError } from "@orpc/server";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import type { RpcContext } from "@checkstack/backend-api";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@checkstack/tracestream-common";
 import { createTracestreamRouter } from "./router";
 import type { TracestreamService } from "./service";
+import type { SystemLinkAuthorizer } from "./system-links-auth";
 
 /**
  * RLAC partitioning tests. These exercise the FULL auth middleware (via `call`,
@@ -112,12 +113,45 @@ function stubService(
         { id: STREAM_2.id, streamName: STREAM_2.name, summary: summary("trace-x") },
       ],
     }),
+    listSystemLinks: async () => ({ systemIds: ["sys-1", "sys-2"] }),
+    // Existence gate + persisted set: default stub has sys-1 already linked, so
+    // a request adding sys-2 diffs to a single ADDED id.
+    getSystemLinksForWrite: async () => ["sys-1"],
+    setSystemLinks: async () => {},
+    listStreamsForSystem: async () => ({
+      streams: [
+        { id: STREAM_1.id, name: STREAM_1.name },
+        { id: STREAM_2.id, name: STREAM_2.name },
+      ],
+    }),
+    listLinkedStreamStatuses: async () => ({
+      matches: [
+        {
+          id: STREAM_1.id,
+          name: STREAM_1.name,
+          systemIds: ["sys-1"],
+          lastImportantEvent: null,
+        },
+        {
+          id: STREAM_2.id,
+          name: STREAM_2.name,
+          systemIds: ["sys-1"],
+          lastImportantEvent: null,
+        },
+      ],
+    }),
     ...overrides,
   };
 }
 
-const buildRouter = (overrides?: Partial<TracestreamService>) =>
-  createTracestreamRouter({ service: stubService(overrides) });
+const buildRouter = (
+  overrides?: Partial<TracestreamService>,
+  authorizeSystemLinks: SystemLinkAuthorizer = async () => {},
+) =>
+  createTracestreamRouter({
+    service: stubService(overrides),
+    authorizeSystemLinks,
+  });
 
 const teamUser = { type: "user" as const, id: "team-user", accessRules: [] as string[] };
 
@@ -383,5 +417,181 @@ describe("createStream (create mode)", () => {
     );
     expect(result.name).toBe("New stream");
     expect(setOwner).not.toHaveBeenCalled();
+  });
+});
+
+describe("listSystemLinks / setSystemLinks (idParam streamId)", () => {
+  it("listSystemLinks allows a granted stream, denies an ungranted one", async () => {
+    const ctx = () =>
+      createMockRpcContext({ user: teamUser, ...grantAuth(["stream-1"]) });
+    expect(
+      (
+        await call(
+          buildRouter().listSystemLinks,
+          { streamId: "stream-1" },
+          { context: ctx() },
+        )
+      ).systemIds,
+    ).toEqual(["sys-1", "sys-2"]);
+    await expect(
+      call(
+        buildRouter().listSystemLinks,
+        { streamId: "stream-2" },
+        { context: ctx() },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+  });
+
+  it("setSystemLinks (manage) denies an ungranted stream BEFORE any gate work", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const getForWrite = mock(async () => ["sys-1"]);
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth([]),
+    });
+    await expect(
+      call(
+        buildRouter({ getSystemLinksForWrite: getForWrite }, authorize)
+          .setSystemLinks,
+        { streamId: "stream-1", systemIds: ["sys-1"] },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+    // The stream manage-gate rejects first: neither the existence read nor the
+    // catalog authorizer runs.
+    expect(getForWrite).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("setSystemLinks (manage) authorizes ONLY the newly ADDED systems (diff vs persisted)", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    // Persisted = [sys-1] (default stub); request keeps sys-1, adds sys-2.
+    await call(
+      buildRouter(undefined, authorize).setSystemLinks,
+      { streamId: "stream-1", systemIds: ["sys-1", "sys-2"] },
+      { context },
+    );
+    expect(authorize).toHaveBeenCalledTimes(1);
+    // Only sys-2 is added; sys-1 is retained and needs no readability check.
+    expect(authorize.mock.calls[0]![0]!.addedSystemIds).toEqual(["sys-2"]);
+  });
+
+  it("setSystemLinks (manage) skips the authorizer when nothing is added (removal only)", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    // Persisted = [sys-1, sys-2]; request removes sys-2 (adds nothing).
+    await call(
+      buildRouter(
+        { getSystemLinksForWrite: async () => ["sys-1", "sys-2"] },
+        authorize,
+      ).setSystemLinks,
+      { streamId: "stream-1", systemIds: ["sys-1"] },
+      { context },
+    );
+    // Empty added set: the authorizer still runs but with no ids (it no-ops).
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize.mock.calls[0]![0]!.addedSystemIds).toEqual([]);
+  });
+
+  it("setSystemLinks propagates a catalog-authorizer rejection (unreadable added system)", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {
+      throw new Error("You can only link systems you can read.");
+    });
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await expect(
+      call(
+        buildRouter(undefined, authorize).setSystemLinks,
+        { streamId: "stream-1", systemIds: ["sys-1", "sys-forbidden"] },
+        { context },
+      ),
+    ).rejects.toThrow(/only link systems you can read/i);
+  });
+
+  it("setSystemLinks surfaces NOT_FOUND (existence-first) before authorizing", async () => {
+    const authorize = mock<SystemLinkAuthorizer>(async () => {});
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await expect(
+      call(
+        buildRouter(
+          {
+            getSystemLinksForWrite: async () => {
+              throw new ORPCError("NOT_FOUND", { message: "Trace stream not found" });
+            },
+          },
+          authorize,
+        ).setSystemLinks,
+        { streamId: "stream-1", systemIds: ["sys-1"] },
+        { context },
+      ),
+    ).rejects.toThrow(/NOT_FOUND|not found/i);
+    // Existence-first: the catalog authorizer never runs when the stream is gone.
+    expect(authorize).not.toHaveBeenCalled();
+  });
+});
+
+describe("listStreamsForSystem (listKey 'streams') post-filter", () => {
+  it("a team-scoped caller sees only streams on granted ids (keyed on item id)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "sys-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-2"]);
+  });
+
+  it("a global read-rule holder sees every linked stream", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "sys-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-1", "stream-2"]);
+  });
+});
+
+describe("listLinkedStreamStatuses (listKey 'matches') post-filter", () => {
+  it("a team-scoped caller sees only matches on granted streams (keyed on item id)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().listLinkedStreamStatuses,
+      { systemIds: ["sys-1"] },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1"]);
+  });
+
+  it("a global read-rule holder sees every linked stream's status", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().listLinkedStreamStatuses,
+      { systemIds: ["sys-1"] },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-1", "stream-2"]);
   });
 });

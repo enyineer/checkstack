@@ -18,6 +18,7 @@ import { logStreams } from "../schema";
 import type { Storage } from "../storage";
 import { createLogstreamService, type IngestCountersReader } from "./service";
 import { createLogstreamRouter } from "./router";
+import { createSystemLinkAuthorizer } from "./system-links-auth";
 import { createPatternReferenceChecker } from "../health/pattern-references";
 
 /**
@@ -36,6 +37,7 @@ export function registerApi({
   eventBus,
   resourceResolverRegistry,
   ingestCounters,
+  internalUrl,
 }: {
   rpc: RpcService;
   db: SafeDatabase<typeof schema>;
@@ -62,6 +64,12 @@ export function registerApi({
    * from the buckets regardless).
    */
   ingestCounters?: IngestCountersReader;
+  /**
+   * Loopback base URL for the user-scoped catalog client behind the
+   * `setSystemLinks` readability gate (re-enters the live router AS the caller).
+   * Passed from `index.ts` like the other stream plugins.
+   */
+  internalUrl: string;
 }): void {
   const service = createLogstreamService({
     db,
@@ -76,7 +84,15 @@ export function registerApi({
     findReferencingChecks: createPatternReferenceChecker({ rpcClient }),
   });
 
-  rpc.registerRouter(createLogstreamRouter({ service }), logstreamContract);
+  // Per-request gate for `setSystemLinks`: re-enters catalog AS the caller to
+  // verify every newly-added system is readable (injected so tests can
+  // substitute a deterministic authorizer without an HTTP round-trip).
+  const authorizeSystemLinks = createSystemLinkAuthorizer({ internalUrl });
+
+  rpc.registerRouter(
+    createLogstreamRouter({ service, authorizeSystemLinks }),
+    logstreamContract,
+  );
 
   // Resolve/search stream names for the Teams admin UI (team grants are stored
   // as opaque `logstream.stream:<id>` rows). Registered under the SAME qualified

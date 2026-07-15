@@ -7,7 +7,9 @@
   "type": "module",
   "main": "src/index.ts",
   "exports": {
-    ".": { "import": "./src/index.ts" }
+    ".": {
+      "import": "./src/index.ts"
+    }
   },
   "checkstack": {
     "type": "backend",
@@ -27,10 +29,12 @@
     "generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@checkstack/ai-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/ingest-utils": "workspace:*",
@@ -41,7 +45,8 @@
     "@checkstack/telemetry-common": "workspace:*",
     "@checkstack/tracestream-common": "workspace:*",
     "@orpc/server": "^1.13.2",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.1",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",

@@ -403,6 +403,26 @@ export type FindEventsByTraceIdResult = z.infer<
   typeof FindEventsByTraceIdResultSchema
 >;
 
+/**
+ * Distinct `service.name` resource values observed in a stream's stored
+ * events - the suggestion source for the system-link editor (suggestions are
+ * never auto-applied). Bounded and newest-biased; an empty list simply means
+ * the stream's sources don't declare a service name.
+ */
+export const ListServiceNamesSchema = z.object({
+  streamId: z.string(),
+});
+export type ListServiceNames = z.infer<typeof ListServiceNamesSchema>;
+
+export const MAX_SERVICE_NAME_SUGGESTIONS = 100;
+
+export const ListServiceNamesResultSchema = z.object({
+  serviceNames: z.array(z.string()).max(MAX_SERVICE_NAME_SUGGESTIONS),
+});
+export type ListServiceNamesResult = z.infer<
+  typeof ListServiceNamesResultSchema
+>;
+
 // =============================================================================
 // PATTERNS (Drain templates)
 // =============================================================================

@@ -12,6 +12,7 @@ import {
 import { createMetricstreamRouter } from "./router";
 import type { MetricstreamService } from "./service";
 import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
+import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
  * RLAC partitioning tests. These exercise the FULL auth middleware (via `call`,
@@ -113,6 +114,20 @@ function stubService(
     getMetricBuckets: async ({ grain }) => ({ grain: grain ?? "minute", points: [] }),
     listImportantEvents: async () => ({ events: [], nextCursor: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
+    listSystemLinks: async () => ({ systemIds: [] }),
+    setSystemLinks: async () => {},
+    listStreamsForSystem: async () => ({
+      streams: [
+        { id: STREAM_1.id, name: STREAM_1.name },
+        { id: STREAM_2.id, name: STREAM_2.name },
+      ],
+    }),
+    listLinkedStreamStatuses: async () => ({
+      matches: [
+        { id: STREAM_1.id, name: STREAM_1.name, systemIds: ["sys-1"], lastImportantEvent: null },
+        { id: STREAM_2.id, name: STREAM_2.name, systemIds: ["sys-1"], lastImportantEvent: null },
+      ],
+    }),
     ...overrides,
   };
 }
@@ -122,10 +137,12 @@ function stubService(
 const buildRouter = (
   overrides?: Partial<MetricstreamService>,
   assertSatelliteBindable: SatelliteBindingAuthorizer = async () => {},
+  assertLinkedSystemsReadable: SystemLinksReadableAuthorizer = async () => {},
 ) =>
   createMetricstreamRouter({
     service: stubService(overrides),
     assertSatelliteBindable,
+    assertLinkedSystemsReadable,
   });
 
 const scrapeTargetDto = (
@@ -360,6 +377,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
     const router = createMetricstreamRouter({
       service: bindingService(),
       assertSatelliteBindable: authz,
+      assertLinkedSystemsReadable: async () => {},
     });
     const result = await call(router.createScrapeTarget, createInput("sat-1"), {
       context: ctx(),
@@ -379,6 +397,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
     const router = createMetricstreamRouter({
       service: stubService({ createScrapeTarget: created }),
       assertSatelliteBindable: authz,
+      assertLinkedSystemsReadable: async () => {},
     });
     expect(
       await rejectedCode(
@@ -397,6 +416,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
     const router = createMetricstreamRouter({
       service: bindingService(),
       assertSatelliteBindable: authz,
+      assertLinkedSystemsReadable: async () => {},
     });
     await expect(
       call(router.createScrapeTarget, createInput("ghost"), { context: ctx() }),
@@ -409,6 +429,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
       createMetricstreamRouter({
         service: bindingService(),
         assertSatelliteBindable: okAuthz,
+        assertLinkedSystemsReadable: async () => {},
       }).updateScrapeTarget,
       updateInput("sat-1"),
       { context: ctx() },
@@ -425,6 +446,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
           createMetricstreamRouter({
             service: bindingService(),
             assertSatelliteBindable: denyAuthz,
+            assertLinkedSystemsReadable: async () => {},
           }).updateScrapeTarget,
           updateInput("other-team-sat"),
           { context: ctx() },
@@ -438,6 +460,7 @@ describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () =>
     const router = createMetricstreamRouter({
       service: bindingService(),
       assertSatelliteBindable: authz,
+      assertLinkedSystemsReadable: async () => {},
     });
     // create scraped from core (no satelliteId)
     await call(router.createScrapeTarget, createInput(), { context: ctx() });
@@ -511,5 +534,121 @@ describe("createStream (create mode)", () => {
     );
     expect(result.name).toBe("New stream");
     expect(setOwner).not.toHaveBeenCalled();
+  });
+});
+
+describe("system links: listStreamsForSystem (listKey) partitioning", () => {
+  it("a global read-rule holder sees every linked stream", async () => {
+    const context = createMockRpcContext({
+      user: { type: "user", id: "admin", accessRules: [READ_RULE] },
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "sys-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-1", "stream-2"]);
+  });
+
+  it("a team-scoped caller sees ONLY linked streams they can read (item id keyed)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    const result = await call(
+      buildRouter().listStreamsForSystem,
+      { systemId: "sys-1" },
+      { context },
+    );
+    expect(result.streams.map((s) => s.id)).toEqual(["stream-1"]);
+  });
+});
+
+describe("system links: listLinkedStreamStatuses (listKey) partitioning", () => {
+  it("a team-scoped caller sees ONLY statuses for streams they can read (matches keyed on id)", async () => {
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-2"]),
+    });
+    const result = await call(
+      buildRouter().listLinkedStreamStatuses,
+      { systemIds: ["sys-1"] },
+      { context },
+    );
+    expect(result.matches.map((m) => m.id)).toEqual(["stream-2"]);
+  });
+});
+
+/** Stub `setSystemLinks` that invokes the router-built added-gate callback over
+ * a caller-supplied "added" set (as the real service does over its computed
+ * diff), so router-level tests can prove the callback wiring without a DB. */
+type SetLinksInput = {
+  streamId: string;
+  systemIds: string[];
+  assertAddedReadable: (addedSystemIds: string[]) => Promise<void>;
+};
+
+describe("system links: setSystemLinks (manage idParam) + readable gate wiring", () => {
+  it("denies an ungranted stream with FORBIDDEN (manage gate, before any service call)", async () => {
+    const setLinks = mock(async (_input: SetLinksInput) => {});
+    const context = createMockRpcContext({ user: teamUser, ...grantAuth([]) });
+    await expect(
+      call(
+        buildRouter({ setSystemLinks: setLinks }).setSystemLinks,
+        { streamId: "stream-1", systemIds: ["sys-1"] },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+    expect(setLinks).not.toHaveBeenCalled();
+  });
+
+  it("threads the injected authorizer + request headers into the service's added-gate callback", async () => {
+    const assertReadable = mock<SystemLinksReadableAuthorizer>(async () => {});
+    // The stub invokes the callback the router built (as the real service does
+    // over its computed `added` set), proving the wiring.
+    const setLinks = mock(async (input: SetLinksInput) => {
+      await input.assertAddedReadable(input.systemIds);
+    });
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await call(
+      buildRouter({ setSystemLinks: setLinks }, undefined, assertReadable)
+        .setSystemLinks,
+      { streamId: "stream-1", systemIds: ["sys-a", "sys-b"] },
+      { context },
+    );
+    expect(assertReadable).toHaveBeenCalledTimes(1);
+    expect(assertReadable.mock.calls[0]![0]!.addedSystemIds).toEqual([
+      "sys-a",
+      "sys-b",
+    ]);
+  });
+
+  it("propagates a FORBIDDEN from the added-gate callback (never persists)", async () => {
+    const assertReadable = mock<SystemLinksReadableAuthorizer>(async () => {
+      throw new ORPCError("FORBIDDEN", {
+        message: "You can only link systems you can access.",
+      });
+    });
+    let persisted = false;
+    const setLinks = mock(async (input: SetLinksInput) => {
+      await input.assertAddedReadable(input.systemIds);
+      persisted = true;
+    });
+    const context = createMockRpcContext({
+      user: teamUser,
+      ...grantAuth(["stream-1"]),
+    });
+    await expect(
+      call(
+        buildRouter({ setSystemLinks: setLinks }, undefined, assertReadable)
+          .setSystemLinks,
+        { streamId: "stream-1", systemIds: ["sys-secret"] },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|can only link/i);
+    expect(persisted).toBe(false);
   });
 });

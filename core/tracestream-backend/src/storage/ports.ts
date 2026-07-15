@@ -30,6 +30,10 @@ import type {
   TraceSummary,
   TraceTopService,
 } from "@checkstack/tracestream-common";
+import type {
+  LinkedStream,
+  LinkedStreamStatus,
+} from "@checkstack/telemetry-common";
 import type { DecisionCandidate } from "./decision";
 
 // ===========================================================================
@@ -472,6 +476,43 @@ export interface ImportantEventStore {
 }
 
 /**
+ * Explicit stream -> catalog-system links (the Phase 4 catalog integration).
+ * `systemId` is a BARE catalog id this plugin never owns; the caller's ability
+ * to READ a system is verified upstream (in the service, via a caller-scoped
+ * catalog client) - the store only persists the set.
+ */
+export interface SystemLinkStore {
+  /** The systems a stream is linked to (the editor's initial value). */
+  listSystemIdsForStream(args: { streamId: string }): Promise<string[]>;
+  /**
+   * Replace a stream's entire linked-system set in ONE transaction (delete all,
+   * insert the new set) - the editor is a picker, not a patch API. Duplicate ids
+   * collapse via the `(streamId, systemId)` PK.
+   */
+  setSystemLinks(args: {
+    streamId: string;
+    systemIds: string[];
+  }): Promise<void>;
+  /**
+   * Streams linked to one system, id+name, for the catalog system page. `id` is
+   * the STREAM id (the field the `listKey` RLAC filter keys on).
+   */
+  listStreamsForSystem(args: { systemId: string }): Promise<LinkedStream[]>;
+  /**
+   * Bulk signal-state lookup for the dashboard: for every stream linked to ANY
+   * of `systemIds`, its name, the subset of the requested systems it links to,
+   * and its newest important event at/after `since` (the 24h window) if any.
+   * Computed set-based across all streams (no per-stream N+1). `id` is the
+   * STREAM id (listKey).
+   */
+  listLinkedStreamStatuses(args: {
+    systemIds: string[];
+    since: Date;
+  }): Promise<LinkedStreamStatus[]>;
+  deleteAllForStream(args: { streamId: string }): Promise<void>;
+}
+
+/**
  * The write ports a single flush composes, each bound to ONE shared
  * transaction (see {@link Storage.withFlushTransaction}). Only the methods a
  * flush issues are exposed - the transaction boundary stays hidden behind the
@@ -495,6 +536,7 @@ export interface Storage {
   serviceOps: ServiceOpCatalogStore;
   activity: ActivityStore;
   importantEvents: ImportantEventStore;
+  systemLinks: SystemLinkStore;
   /** Cascade every stream-scoped table's `deleteAllForStream` (data only). */
   deleteStreamData(args: { streamId: string }): Promise<void>;
   /**

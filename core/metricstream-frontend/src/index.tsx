@@ -3,6 +3,10 @@ import {
   createSlotExtension,
 } from "@checkstack/frontend-api";
 import { HealthCheckConfigOptionsResolverSlot } from "@checkstack/healthcheck-frontend";
+import {
+  SystemDetailsSlot,
+  SystemSignalsSlot,
+} from "@checkstack/catalog-common";
 import { Gauge } from "lucide-react";
 import {
   metricstreamRoutes,
@@ -41,6 +45,26 @@ export default createFrontendPlugin({
         strategyId: METRICSTREAM_STRATEGY_ID,
         buildResolvers: buildMetricstreamOptionsResolvers,
       },
+    }),
+    // Compact "Metrics" card on the catalog system detail page listing the
+    // streams linked to the system. Lazy - only loads when a system-detail page
+    // renders (and the card self-hides when the system has no linked streams).
+    createSlotExtension(SystemDetailsSlot, {
+      id: "metricstream.system-details.metrics",
+      load: () =>
+        import("./components/MetricsSystemCard").then((m) => ({
+          default: m.MetricsSystemCard,
+        })),
+    }),
+    // Headless dashboard signals filler: linked streams' scrape failures /
+    // cardinality overflows. Lazy - only loads when the dashboard overview
+    // mounts the slot.
+    createSlotExtension(SystemSignalsSlot, {
+      id: "metricstream.dashboard.signals",
+      load: () =>
+        import("./components/MetricSignalsFiller").then((m) => ({
+          default: m.MetricSignalsFiller,
+        })),
     }),
   ],
   routes: [

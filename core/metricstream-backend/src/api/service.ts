@@ -42,6 +42,11 @@ import {
   type ImportantEvent,
   type StreamOverview,
 } from "@checkstack/metricstream-common";
+import type {
+  ListSystemLinksResult,
+  ListStreamsForSystemResult,
+  ListLinkedStreamStatusesResult,
+} from "@checkstack/telemetry-common";
 import * as schema from "../schema";
 import {
   metricStreams,
@@ -53,6 +58,7 @@ import {
   metricHourlyBuckets,
   metricImportantEvents,
   metricStreamActivity,
+  metricStreamSystemLinks,
 } from "../schema";
 import type { Storage } from "../storage";
 import {
@@ -64,6 +70,11 @@ import {
   storeScrapeTargetBearer,
   clearScrapeTargetBearer,
 } from "../secrets/scrape-target-secret";
+import {
+  createSystemLinkOperations,
+  type SystemLinkOperations,
+  type AssertAddedSystemsReadable,
+} from "./system-links";
 import {
   createIngestTokenCache,
   ingestTokenCacheKey,
@@ -135,6 +146,22 @@ export interface MetricstreamService {
   getMetricBuckets(input: GetMetricBuckets): Promise<GetMetricBucketsResult>;
   listImportantEvents(input: ListImportantEvents): Promise<ListImportantEventsResult>;
   getStreamOverview(input: { streamId: string }): Promise<StreamOverview>;
+
+  // System links (explicit stream -> catalog-system mapping; see ./system-links).
+  // The "cannot expose what you cannot see" gate on setSystemLinks runs in the
+  // router (injected authorizer), so these stay pure persistence/reads.
+  listSystemLinks(input: { streamId: string }): Promise<ListSystemLinksResult>;
+  setSystemLinks(input: {
+    streamId: string;
+    systemIds: string[];
+    assertAddedReadable: AssertAddedSystemsReadable;
+  }): Promise<void>;
+  listStreamsForSystem(input: {
+    systemId: string;
+  }): Promise<ListStreamsForSystemResult>;
+  listLinkedStreamStatuses(input: {
+    systemIds: string[];
+  }): Promise<ListLinkedStreamStatusesResult>;
 }
 
 export function createMetricstreamService({
@@ -170,6 +197,10 @@ export function createMetricstreamService({
   now?: () => Date;
 }): MetricstreamService {
   const tokenCache: CachedScope = createIngestTokenCache({ cacheManager });
+  const systemLinkOps: SystemLinkOperations = createSystemLinkOperations({
+    db,
+    now,
+  });
 
   async function getStreamRowOrThrow(id: string) {
     const [row] = await db
@@ -242,6 +273,8 @@ export function createMetricstreamService({
   }
 
   return {
+    ...systemLinkOps,
+
     async createStream(input) {
       const config = MetricStreamConfigSchema.parse(input.config ?? {});
       const id = crypto.randomUUID();
@@ -344,6 +377,9 @@ export function createMetricstreamService({
           await tx
             .delete(metricImportantEvents)
             .where(eq(metricImportantEvents.streamId, id));
+          await tx
+            .delete(metricStreamSystemLinks)
+            .where(eq(metricStreamSystemLinks.streamId, id));
           await tx
             .delete(metricStreamActivity)
             .where(eq(metricStreamActivity.streamId, id));

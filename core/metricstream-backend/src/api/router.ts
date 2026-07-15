@@ -7,6 +7,7 @@ import {
 import { metricstreamContract } from "@checkstack/metricstream-common";
 import type { MetricstreamService } from "./service";
 import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
+import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
  * The metricstream oRPC router. Deliberately thin: every handler passes straight
@@ -23,9 +24,17 @@ import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
 export function createMetricstreamRouter({
   service,
   assertSatelliteBindable,
+  assertLinkedSystemsReadable,
 }: {
   service: MetricstreamService;
   assertSatelliteBindable: SatelliteBindingAuthorizer;
+  /**
+   * The system-links "cannot expose what you cannot see" gate. Like
+   * `assertSatelliteBindable`, instanceAccess cannot express it: the stream
+   * `manage` gate does not prove the caller can READ the systems being linked.
+   * Injected so tests substitute a deterministic authorizer (no HTTP re-entry).
+   */
+  assertLinkedSystemsReadable: SystemLinksReadableAuthorizer;
 }) {
   const os = implement(metricstreamContract)
     .$context<RpcContext>()
@@ -143,6 +152,38 @@ export function createMetricstreamRouter({
 
     getStreamOverview: os.getStreamOverview.handler(async ({ input }) =>
       service.getStreamOverview({ streamId: input.streamId }),
+    ),
+
+    // ── System links (explicit stream -> catalog-system mapping) ────────
+    listSystemLinks: os.listSystemLinks.handler(async ({ input }) =>
+      service.listSystemLinks({ streamId: input.streamId }),
+    ),
+
+    setSystemLinks: os.setSystemLinks.handler(async ({ input, context }) => {
+      // The service checks existence FIRST, diffs the requested set against the
+      // persisted one, and gates ONLY the NEWLY ADDED systems via this callback
+      // (re-enters catalog AS the caller). The stream `manage` gate the
+      // middleware enforced only proves the caller may manage the stream, not
+      // that they may SEE the systems - so a manager can never EXPOSE a system
+      // they cannot read, but is never dead-locked by a link someone else added.
+      await service.setSystemLinks({
+        streamId: input.streamId,
+        systemIds: input.systemIds,
+        assertAddedReadable: (addedSystemIds) =>
+          assertLinkedSystemsReadable({
+            addedSystemIds,
+            requestHeaders: context.requestHeaders,
+          }),
+      });
+    }),
+
+    listStreamsForSystem: os.listStreamsForSystem.handler(async ({ input }) =>
+      service.listStreamsForSystem({ systemId: input.systemId }),
+    ),
+
+    listLinkedStreamStatuses: os.listLinkedStreamStatuses.handler(
+      async ({ input }) =>
+        service.listLinkedStreamStatuses({ systemIds: input.systemIds }),
     ),
   });
 }

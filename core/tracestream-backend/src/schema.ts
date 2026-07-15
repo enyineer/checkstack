@@ -273,6 +273,27 @@ export const traceStreamActivity = pgTable("trace_stream_activity", {
     .default(0),
 });
 
+/**
+ * Explicit stream -> catalog-system links (the Phase 4 catalog integration).
+ * FK-less by design like every other table here (schema-scoped, no cross-schema
+ * FKs): `systemId` is a BARE catalog id this schema never owns, and `streamId`
+ * references `trace_streams` the same FK-less way `trace_stream_tokens` does.
+ * The `(streamId, systemId)` PK makes the replace-all set idempotent; the
+ * reverse index on `systemId` serves the system-page direction
+ * (`listStreamsForSystem` / `listLinkedStreamStatuses`).
+ */
+export const traceStreamSystemLinks = pgTable(
+  "trace_stream_system_links",
+  {
+    streamId: text("stream_id").notNull(),
+    systemId: text("system_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.streamId, t.systemId] }),
+    index("trace_stream_system_links_system_idx").on(t.systemId),
+  ],
+);
+
 /** Viewer-timeline events (silence, rate-limited, span/service/operation-cap). */
 export const traceImportantEvents = pgTable(
   "trace_important_events",

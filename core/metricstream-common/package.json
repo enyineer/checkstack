@@ -26,6 +26,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/otlp-wire": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/telemetry-common": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {

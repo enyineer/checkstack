@@ -34,12 +34,23 @@ import {
   type StreamForPicker,
   type ListStreamSummariesResult,
 } from "@checkstack/tracestream-common";
+import type {
+  ListSystemLinks,
+  ListSystemLinksResult,
+  SetSystemLinks,
+  ListStreamsForSystem,
+  ListStreamsForSystemResult,
+  ListLinkedStreamStatuses,
+  ListLinkedStreamStatusesResult,
+} from "@checkstack/telemetry-common";
 import type { Storage } from "../storage";
 import { tokenKit } from "../token-crypto";
 import { resolveGrain } from "./grain";
 
 /** Overview / streams-list rollups look back this far. */
 const OVERVIEW_WINDOW_MS = 24 * 3_600_000;
+/** Dashboard linked-stream signals consider only important events this recent. */
+const LINKED_STATUS_WINDOW_MS = 24 * 3_600_000;
 /** Slowest-retained quick links surfaced on the overview page. */
 const OVERVIEW_SLOWEST_LIMIT = 5;
 /** Top services by span volume surfaced on the overview page. */
@@ -74,6 +85,21 @@ export interface TracestreamService {
   getStreamOverview(input: { streamId: string }): Promise<StreamOverview>;
   listImportantEvents(input: ListImportantEvents): Promise<ListImportantEventsResult>;
   findTraceById(input: FindTraceById): Promise<FindTraceByIdResult>;
+
+  listSystemLinks(input: ListSystemLinks): Promise<ListSystemLinksResult>;
+  /**
+   * Existence gate + current persisted link set for the write path. Throws
+   * NOT_FOUND if the stream does not exist, BEFORE any catalog round-trip, so
+   * the router can compute the added-diff and readability-check only new ids.
+   */
+  getSystemLinksForWrite(input: { streamId: string }): Promise<string[]>;
+  setSystemLinks(input: SetSystemLinks): Promise<void>;
+  listStreamsForSystem(
+    input: ListStreamsForSystem,
+  ): Promise<ListStreamsForSystemResult>;
+  listLinkedStreamStatuses(
+    input: ListLinkedStreamStatuses,
+  ): Promise<ListLinkedStreamStatusesResult>;
 }
 
 export function createTracestreamService({
@@ -333,6 +359,44 @@ export function createTracestreamService({
           streamName: nameById.get(m.streamId) ?? m.streamId,
           summary: m.summary,
         })),
+      };
+    },
+
+    async listSystemLinks({ streamId }) {
+      return {
+        systemIds: await storage.systemLinks.listSystemIdsForStream({
+          streamId,
+        }),
+      };
+    },
+
+    async getSystemLinksForWrite({ streamId }) {
+      // Existence-first: NOT_FOUND here (no catalog round-trip yet), and the
+      // persisted set the router diffs against to readability-check only new ids.
+      await getStreamOrThrow(streamId);
+      return storage.systemLinks.listSystemIdsForStream({ streamId });
+    },
+
+    async setSystemLinks({ streamId, systemIds }) {
+      // Pure replace-all persistence. The router guarantees the stream exists
+      // (via getSystemLinksForWrite) and that every NEWLY ADDED system is
+      // readable by the caller (the injected authorizer) BEFORE calling this.
+      await storage.systemLinks.setSystemLinks({ streamId, systemIds });
+    },
+
+    async listStreamsForSystem({ systemId }) {
+      return {
+        streams: await storage.systemLinks.listStreamsForSystem({ systemId }),
+      };
+    },
+
+    async listLinkedStreamStatuses({ systemIds }) {
+      const since = new Date(now().getTime() - LINKED_STATUS_WINDOW_MS);
+      return {
+        matches: await storage.systemLinks.listLinkedStreamStatuses({
+          systemIds,
+          since,
+        }),
       };
     },
   };

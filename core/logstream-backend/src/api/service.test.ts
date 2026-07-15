@@ -29,6 +29,7 @@ import {
   logPatterns,
   logImportantEvents,
   logStreamActivity,
+  logStreamSystemLinks,
 } from "../schema";
 import { hashToken } from "../token-crypto";
 
@@ -406,6 +407,7 @@ describe("deleteStream", () => {
         logPatterns,
         logImportantEvents,
         logStreamActivity,
+        logStreamSystemLinks,
         logStreams,
       ]),
     );

@@ -4,6 +4,7 @@ import { TracestreamApi, type TraceStream } from "@checkstack/tracestream-common
 import { StreamSourcesSection } from "@checkstack/telemetry-frontend";
 import { StreamSettingsForm } from "../StreamSettingsForm";
 import { TokensSection } from "../TokensSection";
+import { LinkedSystemsSection } from "../LinkedSystemsSection";
 import { ShipTracesInstructions } from "../ShipTracesInstructions";
 import { DangerZoneSection } from "../DangerZoneSection";
 
@@ -35,6 +36,7 @@ export function SettingsTab({ stream }: SettingsTabProps) {
         onMinted={setMintedSecret}
       />
       <StreamSourcesSection signal="traces" streamId={stream.id} />
+      <LinkedSystemsSection streamId={stream.id} />
       <ShipTracesInstructions token={mintedSecret} />
       <DangerZoneSection stream={stream} />
     </div>

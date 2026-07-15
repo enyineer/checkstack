@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/catalog-frontend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/healthcheck-frontend": "workspace:*",
@@ -29,6 +31,7 @@
     "@checkstack/telemetry-frontend": "workspace:*",
     "@checkstack/tracestream-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "@tanstack/react-query": "^5.100.14",
     "lucide-react": "^1.17.0",
     "react": "19.2.7",
     "react-router-dom": "^7.16.0"

@@ -278,6 +278,34 @@ export const logImportantEvents = pgTable(
 );
 
 /**
+ * Explicit stream -> catalog-system links. A human links a stream to the systems
+ * it produces logs for; the UI SUGGESTS candidates from observed `service.name`
+ * values but never auto-links. Full-replacement editor: `setSystemLinks` clears
+ * and re-inserts a stream's rows in one transaction.
+ *
+ * `streamId` carries no FK to `log_streams` for the SAME reason as
+ * `log_stream_tokens` (uniform schema, no `public`-qualified FK target that would
+ * break the schema-scoped migration); cleanup on stream delete is explicit in
+ * `deleteStream`. `systemId` is a BARE catalog id with no FK across the plugin
+ * boundary - mirrors `incident_systems` / `system_health_checks`, which document
+ * that a domain plugin never FKs into catalog's tables (a deleted system simply
+ * leaves a dangling link that the read joins tolerate / a future sweep prunes).
+ */
+export const logStreamSystemLinks = pgTable(
+  "log_stream_system_links",
+  {
+    streamId: text("stream_id").notNull(),
+    systemId: text("system_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.streamId, t.systemId] }),
+    // Reverse lookup for the system-page direction (`listStreamsForSystem`,
+    // `listLinkedStreamStatuses`): given a system, find its linked streams.
+    index("log_stream_system_links_system_idx").on(t.systemId),
+  ],
+);
+
+/**
  * One row per stream, updated once per flush (never per line). Holds the
  * denormalized activity markers the overview page + silence detection read.
  */

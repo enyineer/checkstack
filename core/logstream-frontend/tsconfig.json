@@ -8,6 +8,12 @@
       "path": "../auth-frontend"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../catalog-frontend"
+    },
+    {
       "path": "../common"
     },
     {

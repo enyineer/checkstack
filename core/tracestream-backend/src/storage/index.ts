@@ -10,6 +10,7 @@ import { createOpBucketStore } from "./postgres/op-buckets";
 import { createServiceOpCatalogStore } from "./postgres/service-ops";
 import { createActivityStore } from "./postgres/activity";
 import { createImportantEventStore } from "./postgres/important-events";
+import { createSystemLinkStore } from "./postgres/system-links";
 
 export * from "./ports";
 export * from "./time";
@@ -31,6 +32,7 @@ export function createStorage({
   const streams = createStreamStore({ db });
   const tokens = createTokenStore({ db });
   const importantEvents = createImportantEventStore({ db });
+  const systemLinks = createSystemLinkStore({ db });
   // The write ports run on a "runner" (the scoped db by default, or a flush
   // transaction). opBuckets additionally needs the scoped db for its rollup's
   // own per-batch transaction.
@@ -49,10 +51,11 @@ export function createStorage({
     serviceOps,
     activity,
     importantEvents,
+    systemLinks,
     async deleteStreamData({ streamId }) {
       // Forward-only, idempotent per-table sweeps: a partial failure leaves rows
       // that the next call (or the retention job) removes. No FKs, so order is
-      // free; tokens/spans/summaries/buckets/catalog/activity/events all cleared.
+      // free; tokens/spans/summaries/buckets/catalog/activity/events/links cleared.
       await tokens.deleteAllForStream({ streamId });
       await spans.deleteAllForStream({ streamId });
       await summaries.deleteAllForStream({ streamId });
@@ -60,6 +63,7 @@ export function createStorage({
       await serviceOps.deleteAllForStream({ streamId });
       await activity.deleteAllForStream({ streamId });
       await importantEvents.deleteAllForStream({ streamId });
+      await systemLinks.deleteAllForStream({ streamId });
     },
     async withFlushTransaction(fn) {
       // One transaction, one SET LOCAL search_path: the flush writes commit

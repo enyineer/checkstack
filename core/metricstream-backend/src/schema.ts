@@ -66,6 +66,36 @@ export const metricStreamTokens = pgTable(
 );
 
 /**
+ * Explicit stream -> catalog-system links (see telemetry-common's
+ * `system-links.ts`). A stream is linked to N systems and a system to N streams,
+ * so the mapping is its own junction table keyed on the pair.
+ *
+ * `systemId` is a BARE text column, NOT a FK: catalog systems live in another
+ * plugin's schema, and (like every other stream-scoped table here) no FK is
+ * emitted so drizzle-kit never targets a `public`-qualified relation the
+ * schema-scoped migration cannot resolve. Rows are cleaned up explicitly on
+ * stream delete; an orphaned link (system deleted elsewhere) simply resolves to
+ * nothing on read. `streamId` mirrors `metricStreamTokens.streamId`.
+ *
+ * The reverse index serves the system-page direction (`listStreamsForSystem` /
+ * `listLinkedStreamStatuses`), which looks up by `systemId`.
+ */
+export const metricStreamSystemLinks = pgTable(
+  "metric_stream_system_links",
+  {
+    streamId: text("stream_id").notNull(),
+    systemId: text("system_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.streamId, t.systemId] }),
+    index("metric_stream_system_links_system_idx").on(t.systemId),
+  ],
+);
+
+/**
  * Prometheus scrape targets (pull source). One recurring scrape job per ENABLED
  * target is scheduled by the reconciler.
  *

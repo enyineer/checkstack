@@ -11,11 +11,17 @@ import {
 import {
   pluginMetadata,
   metricstreamAccessRules,
+  metricstreamContract,
   METRIC_SCRAPE_CAPABILITY_KIND,
 } from "@checkstack/metricstream-common";
 import { satelliteCapabilityExtensionPoint } from "@checkstack/satellite-backend";
 import { telemetrySinkExtensionPoint } from "@checkstack/telemetry-backend";
+import {
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
 import * as schema from "./schema";
+import { projectStreamListForModel } from "./ai-projections";
 import { createMetricstreamTelemetrySink } from "./telemetry-sink";
 import { registerSatelliteCapabilities } from "./satellite/setup";
 import { createStorage } from "./storage";
@@ -290,6 +296,81 @@ export default createBackendPlugin({
               });
             }
           },
+        });
+
+        // AI read-tool projections of this plugin's OWN read procedures, owned
+        // here (not in ai-backend). Each projected tool is routed by the
+        // transport (MCP / chat) AS the principal, so the procedure's own
+        // contract access rules gate it; `deferredProjectionExecute` is the
+        // fail-closed net if a transport ever forgot to route. Chosen
+        // aggregate-first (see docs/developer-guide/ai/tool-registry.md): the
+        // model discovers streams -> metric names -> queries windowed buckets,
+        // and never pulls raw per-series label rows into its context.
+        const aiProjection = env.getExtensionPoint(
+          aiToolProjectionExtensionPoint,
+        );
+
+        // Compact catalog of the streams the caller may read: id + name +
+        // description (the full config policy + timestamps are projected away).
+        // The entry point - the model resolves a stream id here to feed the two
+        // tools below.
+        aiProjection.expose({
+          procedure: metricstreamContract.listStreams,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listStreams",
+          name: "metricstream.listStreams",
+          description:
+            "List the metric streams you can read (id, name, description). " +
+            "Use this FIRST to find a stream's id, then call " +
+            "metricstream.listMetricNames to see its metrics and " +
+            "metricstream.metricBuckets to query values. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+          projectResult: projectStreamListForModel,
+        });
+
+        // Metric-name discovery for a stream (bounded by `limit`). Compact rows
+        // (name, type, unit, series count) - the model needs a metric NAME
+        // before it can query buckets, and this is how it discovers what a
+        // stream exposes.
+        aiProjection.expose({
+          procedure: metricstreamContract.listMetricNames,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listMetricNames",
+          name: "metricstream.listMetricNames",
+          description:
+            "List the metric NAMES registered on a stream, given its " +
+            "`streamId` (resolve it with metricstream.listStreams first). " +
+            "Optionally filter with `query` and cap with `limit`. Returns each " +
+            "metric's name, type, unit and series count. Use this to discover " +
+            "what a stream measures before calling metricstream.metricBuckets. " +
+            "Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+
+        // The windowed AGGREGATE the charts run on: per-bucket count/sum/min/
+        // max/last for a metric selection over a time window. PREFER this for
+        // any "what is the value / trend / rate of metric X" question - it
+        // returns compact time-bucketed aggregates (grain auto-picked from the
+        // window), never raw datapoints. Output is bounded by the window/grain,
+        // so no projectResult.
+        aiProjection.expose({
+          procedure: metricstreamContract.getMetricBuckets,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getMetricBuckets",
+          name: "metricstream.metricBuckets",
+          description:
+            "Query a metric's values over a time window as compact time " +
+            "buckets (count, sum, min, max, last per bucket). Give `streamId`, " +
+            "`metricName` (discover both via metricstream.listStreams then " +
+            "metricstream.listMetricNames), a `from`/`to` window, optional " +
+            "`labelFilters`, and optional `grain` (else auto-picked minute vs " +
+            "hour from the window). PREFER THIS over raw series reads for any " +
+            "'what is the value / trend / rate of metric X over the last N " +
+            "hours or days' question. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
         });
 
         logger.debug("✅ Metricstream backend init complete.");

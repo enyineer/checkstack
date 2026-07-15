@@ -74,3 +74,30 @@ export {
   findSelectedEnvironment,
   type EnvironmentPreviewOption,
 } from "./components/environment-preview.logic";
+
+// Shared editor for a stream's EXPLICIT links to catalog systems, embedded by
+// the stream plugins (logstream / metricstream / tracestream) in their Settings
+// tabs. Same-layer import: the stream frontends consume this catalog-centric
+// picker directly.
+export {
+  StreamSystemLinksEditor,
+  type StreamSystemLinksEditorProps,
+  type StreamSystemSuggestions,
+} from "./components/StreamSystemLinksEditor";
+
+// Shared "Linked systems" SETTINGS card - owns the draft/dirty/save semantics
+// once so the three stream Settings tabs cannot drift. The plugin supplies its
+// gated `setSystemLinks` mutation via props.
+export {
+  StreamSystemLinksSettingsCard,
+  type StreamSystemLinksSettingsCardProps,
+} from "./components/StreamSystemLinksSettingsCard";
+
+// Shared presentational card listing a system's linked streams for one signal,
+// used by each stream plugin's `SystemDetailsSlot` filler so the Logs/Metrics/
+// Traces cards on a system detail page share identical chrome.
+export {
+  LinkedStreamsCard,
+  type LinkedStreamsCardProps,
+  type LinkedStreamItem,
+} from "./components/LinkedStreamsCard";

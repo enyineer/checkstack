@@ -561,6 +561,7 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     await storage.serviceOps.touch({ streamId, serviceCap: 10, operationCapPerService: 10, entries: [{ serviceName: "svc", spanName: "op", kind: "server", seenAt: now }] });
     await storage.activity.touch({ streamId, receivedAt: now, rateEstimate: 1 });
     await storage.importantEvents.insert({ streamId, ts: now, type: "silence", title: "x" });
+    await storage.systemLinks.setSystemLinks({ streamId, systemIds: ["sys-1"] });
 
     await storage.deleteStreamData({ streamId });
 
@@ -570,6 +571,186 @@ describe.skipIf(!isIntegrationEnabled())("tracestream storage (integration)", ()
     expect(await storage.serviceOps.listServices({ streamId })).toHaveLength(0);
     expect(await storage.activity.read({ streamId })).toBeNull();
     expect((await storage.importantEvents.list({ streamId, limit: 10 })).events).toHaveLength(0);
+    expect(await storage.systemLinks.listSystemIdsForStream({ streamId })).toHaveLength(0);
+  });
+
+  it("replaces a stream's linked-system set (replace-all, deduped, idempotent)", async () => {
+    const stream = await storage.streams.create({ name: "links" });
+    const streamId = stream.id;
+
+    // Duplicate ids in the set collapse via the PK.
+    await storage.systemLinks.setSystemLinks({
+      streamId,
+      systemIds: ["sys-a", "sys-b", "sys-a"],
+    });
+    expect(
+      await storage.systemLinks.listSystemIdsForStream({ streamId }),
+    ).toEqual(["sys-a", "sys-b"]);
+
+    // A second set REPLACES the whole set (removes sys-a, adds sys-c).
+    await storage.systemLinks.setSystemLinks({
+      streamId,
+      systemIds: ["sys-b", "sys-c"],
+    });
+    expect(
+      await storage.systemLinks.listSystemIdsForStream({ streamId }),
+    ).toEqual(["sys-b", "sys-c"]);
+
+    // An empty set clears every link.
+    await storage.systemLinks.setSystemLinks({ streamId, systemIds: [] });
+    expect(
+      await storage.systemLinks.listSystemIdsForStream({ streamId }),
+    ).toHaveLength(0);
+  });
+
+  it("lists streams linked to a system, id+name, ordered by name", async () => {
+    const alpha = await storage.streams.create({ name: "Alpha traces" });
+    const zeta = await storage.streams.create({ name: "Zeta traces" });
+    const other = await storage.streams.create({ name: "Unlinked" });
+    await storage.systemLinks.setSystemLinks({
+      streamId: zeta.id,
+      systemIds: ["sys-shared"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: alpha.id,
+      systemIds: ["sys-shared"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: other.id,
+      systemIds: ["sys-elsewhere"],
+    });
+
+    const streams = await storage.systemLinks.listStreamsForSystem({
+      systemId: "sys-shared",
+    });
+    // Ordered by name (Alpha before Zeta); the unrelated stream is excluded.
+    expect(streams).toEqual([
+      { id: alpha.id, name: "Alpha traces" },
+      { id: zeta.id, name: "Zeta traces" },
+    ]);
+  });
+
+  it("bulk statuses: newest recent event per stream, 24h-bounded, regrouped by system", async () => {
+    const s1 = await storage.streams.create({ name: "S1" });
+    const s2 = await storage.streams.create({ name: "S2" });
+    const s3 = await storage.streams.create({ name: "S3" });
+    // s1 -> sysA + sysB; s2 -> sysA; s3 -> sysC (not requested below).
+    await storage.systemLinks.setSystemLinks({
+      streamId: s1.id,
+      systemIds: ["sysA", "sysB"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: s2.id,
+      systemIds: ["sysA"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: s3.id,
+      systemIds: ["sysC"],
+    });
+
+    const nowTs = new Date("2026-07-14T12:00:00.000Z");
+    const since = new Date(nowTs.getTime() - 24 * 3_600_000);
+    // s1: an OLD event (outside 24h) and a NEWER one (inside) - newest-in-window wins.
+    await storage.importantEvents.insert({
+      streamId: s1.id,
+      ts: new Date("2026-07-13T11:00:00.000Z"), // >24h before nowTs -> excluded
+      type: "silence",
+      title: "old",
+    });
+    await storage.importantEvents.insert({
+      streamId: s1.id,
+      ts: new Date("2026-07-14T10:00:00.000Z"), // inside window
+      type: "error_spike",
+      title: "recent",
+    });
+    // s2: only a stale event (outside the window) -> null lastImportantEvent.
+    await storage.importantEvents.insert({
+      streamId: s2.id,
+      ts: new Date("2026-07-12T00:00:00.000Z"),
+      type: "error_spike",
+      title: "stale",
+    });
+
+    const matches = await storage.systemLinks.listLinkedStreamStatuses({
+      systemIds: ["sysA", "sysB"],
+      since,
+    });
+    const byId = new Map(matches.map((m) => [m.id, m]));
+    // s3 links only sysC (not requested) -> absent.
+    expect([...byId.keys()].sort()).toEqual([s1.id, s2.id].sort());
+    // s1's newest in-window event is the error_spike; systemIds regrouped.
+    expect(byId.get(s1.id)!.lastImportantEvent?.type).toBe("error_spike");
+    expect(byId.get(s1.id)!.systemIds.sort()).toEqual(["sysA", "sysB"]);
+    // s2's only event is older than 24h -> null; still linked to sysA.
+    expect(byId.get(s2.id)!.lastImportantEvent).toBeNull();
+    expect(byId.get(s2.id)!.systemIds).toEqual(["sysA"]);
+  });
+
+  it("bulk statuses never surface a phantom link whose stream row is gone", async () => {
+    const live = await storage.streams.create({ name: "Live" });
+    const gone = await storage.streams.create({ name: "Doomed" });
+    await storage.systemLinks.setSystemLinks({
+      streamId: live.id,
+      systemIds: ["sysP"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: gone.id,
+      systemIds: ["sysP"],
+    });
+    // Delete ONLY the stream row (simulating a partial delete before the link
+    // sweep runs); the link row for `gone` is now a phantom.
+    await storage.streams.delete({ id: gone.id });
+
+    const matches = await storage.systemLinks.listLinkedStreamStatuses({
+      systemIds: ["sysP"],
+      since: new Date("2000-01-01T00:00:00.000Z"),
+    });
+    // Only the live stream is surfaced; the phantom is dropped (no raw-UUID row).
+    expect(matches.map((m) => m.id)).toEqual([live.id]);
+  });
+
+  it("bulk statuses: a newer NON-signal event never masks a recent error_spike", async () => {
+    const stream = await storage.streams.create({ name: "Spiky" });
+    const silent = await storage.streams.create({ name: "OnlySilence" });
+    await storage.systemLinks.setSystemLinks({
+      streamId: stream.id,
+      systemIds: ["sysS"],
+    });
+    await storage.systemLinks.setSystemLinks({
+      streamId: silent.id,
+      systemIds: ["sysS"],
+    });
+    const base = new Date("2026-07-14T12:00:00.000Z");
+    const since = new Date(base.getTime() - 24 * 3_600_000);
+    // An error_spike, then a LATER rate_limited (a non-signal type). Without the
+    // type filter the newest event (rate_limited) would mask the spike.
+    await storage.importantEvents.insert({
+      streamId: stream.id,
+      ts: new Date(base.getTime() - 3_600_000),
+      type: "error_spike",
+      title: "spike",
+    });
+    await storage.importantEvents.insert({
+      streamId: stream.id,
+      ts: new Date(base.getTime() - 60_000),
+      type: "rate_limited",
+      title: "throttled",
+    });
+    // The silence-only stream must resolve to null (silence is not signal-worthy).
+    await storage.importantEvents.insert({
+      streamId: silent.id,
+      ts: new Date(base.getTime() - 120_000),
+      type: "silence",
+      title: "quiet",
+    });
+
+    const matches = await storage.systemLinks.listLinkedStreamStatuses({
+      systemIds: ["sysS"],
+      since,
+    });
+    const byId = new Map(matches.map((m) => [m.id, m]));
+    expect(byId.get(stream.id)!.lastImportantEvent?.type).toBe("error_spike");
+    expect(byId.get(silent.id)!.lastImportantEvent).toBeNull();
   });
 
   it("accumulates satellite in-transit drops per stream, isolated across streams", async () => {

@@ -50,11 +50,21 @@ import {
   type ListPatternVariables,
   type ListPatternVariablesResult,
 } from "@checkstack/logstream-common";
+import type {
+  ListSystemLinksResult,
+  ListStreamsForSystemResult,
+  ListLinkedStreamStatusesResult,
+} from "@checkstack/telemetry-common";
+import type { ListServiceNamesResult } from "@checkstack/logstream-common";
 import { generateToken } from "../token-crypto";
 import {
   createPatternOperations,
   type PatternOperations,
 } from "./patterns";
+import {
+  createSystemLinkOperations,
+  type SystemLinkOperations,
+} from "./system-links";
 import type { FindReferencingChecks } from "../health/pattern-references";
 import * as schema from "../schema";
 import {
@@ -72,6 +82,7 @@ import {
   logPatterns,
   logImportantEvents,
   logStreamActivity,
+  logStreamSystemLinks,
 } from "../schema";
 import type { Storage } from "../storage";
 import {
@@ -146,6 +157,25 @@ export interface LogstreamService {
     input: ListImportantEvents,
   ): Promise<ListImportantEventsResult>;
   getStreamOverview(input: { streamId: string }): Promise<StreamOverview>;
+
+  // System links (explicit stream -> catalog-system mapping; see ./system-links).
+  listSystemLinks(input: { streamId: string }): Promise<ListSystemLinksResult>;
+  getSystemLinksForUpdate(input: {
+    streamId: string;
+  }): Promise<ListSystemLinksResult>;
+  setSystemLinks(input: {
+    streamId: string;
+    systemIds: string[];
+  }): Promise<void>;
+  listStreamsForSystem(input: {
+    systemId: string;
+  }): Promise<ListStreamsForSystemResult>;
+  listLinkedStreamStatuses(input: {
+    systemIds: string[];
+  }): Promise<ListLinkedStreamStatusesResult>;
+  listServiceNames(input: {
+    streamId: string;
+  }): Promise<ListServiceNamesResult>;
 }
 
 export function createLogstreamService({
@@ -196,6 +226,11 @@ export function createLogstreamService({
     eventBus,
     logger,
     findReferencingChecks: findReferencingChecks ?? (async () => []),
+    now,
+  });
+
+  const systemLinkOps: SystemLinkOperations = createSystemLinkOperations({
+    db,
     now,
   });
 
@@ -377,6 +412,9 @@ export function createLogstreamService({
         await tx
           .delete(logStreamActivity)
           .where(eq(logStreamActivity.streamId, id));
+        await tx
+          .delete(logStreamSystemLinks)
+          .where(eq(logStreamSystemLinks.streamId, id));
         await tx.delete(logStreams).where(eq(logStreams.id, id));
 
         return rows;
@@ -890,6 +928,16 @@ export function createLogstreamService({
     testPattern: patternOps.testPattern,
     maskLine: patternOps.maskLine,
     listPatternVariables: patternOps.listPatternVariables,
+
+    // System links (explicit stream -> catalog-system mapping); RLAC is enforced
+    // by the contract. The "cannot expose what you cannot see" readability gate
+    // over the ADDED subset lives in the router's injected authorizer.
+    listSystemLinks: systemLinkOps.listSystemLinks,
+    getSystemLinksForUpdate: systemLinkOps.getSystemLinksForUpdate,
+    setSystemLinks: systemLinkOps.setSystemLinks,
+    listStreamsForSystem: systemLinkOps.listStreamsForSystem,
+    listLinkedStreamStatuses: systemLinkOps.listLinkedStreamStatuses,
+    listServiceNames: systemLinkOps.listServiceNames,
 
     async listImportantEvents({ streamId, cursor, limit }) {
       const conditions = [eq(logImportantEvents.streamId, streamId)];

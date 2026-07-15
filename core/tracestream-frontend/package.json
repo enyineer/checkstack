@@ -26,6 +26,8 @@
   "dependencies": {
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/catalog-frontend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/healthcheck-frontend": "workspace:*",

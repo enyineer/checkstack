@@ -30,6 +30,7 @@ import {
 } from "./service";
 import { createMetricstreamRouter } from "./router";
 import { createSatelliteBindingAuthorizer } from "../satellite/binding-auth";
+import { createSystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
  * Register the metricstream oRPC router (stream CRUD, tokens, scrape-target
@@ -90,6 +91,9 @@ export function registerApi({
     createMetricstreamRouter({
       service,
       assertSatelliteBindable: createSatelliteBindingAuthorizer({ internalUrl }),
+      assertLinkedSystemsReadable: createSystemLinksReadableAuthorizer({
+        internalUrl,
+      }),
     }),
     metricstreamContract,
   );

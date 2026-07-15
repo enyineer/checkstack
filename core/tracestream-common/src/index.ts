@@ -17,6 +17,10 @@ export * from "./token";
 // Schemas and inferred types
 export * from "./schemas";
 
+// Dashboard signal event-type set (shared by the backend status query + the
+// frontend signals deriver so they cannot drift).
+export * from "./signal-event-types";
+
 // Browser-safe trace ingest parsing (OTLP protobuf/JSON + native JSON) + clamp
 export * from "./ingest";
 
