@@ -6,7 +6,7 @@ description: "The platform-level abstraction for pluggable telemetry ingestion: 
 The `telemetry` platform plugin owns a signal-agnostic source/sink abstraction. It exists so that applications which cannot ship OpenTelemetry exporters still feed the observability stack: any plugin can contribute a **source type** (a poller, a vendor webhook) that emits **normalized records** for one or more **signals** (`logs`, `metrics`, `traces`), and users configure **source instances** that route those signals into concrete streams.
 
 > [!NOTE]
-> The plugins' token-authenticated push endpoints (OTLP and native ingest on logstream and metricstream) are NOT part of this abstraction and stay per plugin, with per-stream tokens that rotate independently. The telemetry platform covers *configured* ingestion: anything with credentials, a schedule, or a minted endpoint.
+> Token-authenticated push endpoints (OTLP and native ingest on logstream, metricstream, and tracestream) ARE part of this abstraction: they are a `push` source mode. The owning plugin still serves its own inbound route, but the per-source bearer token is minted, hashed, and rotated by the platform, and the endpoint verifies it through the platform's push-token service (see [Push sources](#push-sources)). The telemetry platform covers *configured* ingestion: anything with credentials, a schedule, or a minted endpoint.
 
 ## Architecture
 
@@ -68,17 +68,98 @@ env
   .registerSourceType(cloudwatchSource, pluginMetadata);
 ```
 
-A source type implements at least one of three seams:
+A source type implements at least one of five seams:
 
-- `pull`: the platform's reconciler schedules one recurring run per enabled instance (any pod may claim it), with an `abortSignal` timeout.
+- `pull`: the platform's reconciler schedules one recurring run per enabled instance (any pod may claim it), with an `abortSignal` timeout. A pull type may also declare `supportsSatellite: true` to run at the edge (see [satellite execution](#satellite-execution)).
 - `webhook`: the instance gets a minted endpoint under `/api/telemetry/hooks/<sourceId>`; the platform verifies the delivery and applies a per-instance rate limit before `webhook.handle` is invoked. By default it checks the per-instance secret (hash-only storage, shown once, rotatable) presented as a bearer token, the `X-Checkstack-Webhook-Secret` header, or a `?secret=` query param. A type that receives deliveries from a real vendor which SIGNS the payload (GitHub, Slack) instead declares a `webhook.signature` descriptor, and the platform verifies the vendor HMAC signature over the raw body rather than expecting the plain secret. See [webhook signature verification](#webhook-signature-verification).
-- `listener`: a long-lived inbound socket (syslog-style). `start(ctx)` returns a stop function; the platform starts enabled instances on every pod, converges start/stop/restart across pods on config changes, and stops them on shutdown.
+- `push`: the OWNING plugin serves an inbound endpoint (OTLP, a native ingest route) and shippers authenticate with a per-source bearer token the PLATFORM mints and hashes. The plugin verifies presented tokens through the platform's push-token service. See [push sources](#push-sources).
+- `listener`: a long-lived inbound socket (syslog-style). `start(ctx)` returns a stop function; the platform starts enabled instances on every pod, converges start/stop/restart across pods on config changes, and stops them on shutdown. See [listener sources](#listener-sources).
+- `derive`: a signal-to-signal transform that reads one stream and emits another (log-to-metric, log-to-trace). It runs as a best-effort tap after the input stream's flush commits and can never affect ingest. See [derive sources](#derive-sources).
 
 Rules the platform enforces for you:
 
 - `ctx.config` is always validated against `configSchema` before a seam runs; secrets are resolved just-in-time from encrypted storage. A config schema whose `x-secret` fields are nested or reject the platform's storage markers fails at boot, not at run time.
 - `ctx.fetch` (pull seam) is SSRF-guarded. Use it for every config-derived URL; the global `fetch` is not guarded.
 - An instance may bind a subset of `signals`; `sink.emit` for an unbound signal is a counted no-op (`bound: false`).
+
+## Push sources
+
+A `push` source type keeps its own inbound endpoint - the OWNING plugin serves OTLP and native ingest routes - but delegates authentication to the platform. Declaring the seam is enough to make any plugin a push-source contributor; the built-in stream plugins (logstream, metricstream, tracestream) are ordinary consumers of the same seam a third-party push type uses.
+
+```ts
+const otlpMetrics = defineTelemetrySourceType({
+  id: "push",
+  displayName: "Push (OTLP / native)",
+  description: "Ship metrics over OTLP/HTTP or the native JSON endpoint",
+  icon: "Upload",
+  signals: ["metrics"],
+  // Empty config: the platform Sources section is the only ingest surface.
+  configSchema: z.object({}),
+  push: {
+    // Stable per type; the only routing hint a raw token exposes. Existing
+    // shippers keep their historical prefix across the platform migration.
+    tokenPrefix: "ckms_",
+    // Inbound endpoints the UI renders setup snippets for (OTel Collector YAML
+    // for `otlp`, a curl example for `native`).
+    endpoints: [
+      { kind: "otlp", path: "/api/metricstream/v1/metrics", label: "OTLP metrics" },
+      { kind: "native", path: "/api/metricstream/ingest", label: "Native JSON" },
+    ],
+  },
+});
+```
+
+### What the platform owns
+
+Creating an instance MINTS the bearer token: the platform stores only its sha256 hash (`telemetry_sources.push_token_hash`, indexed) and returns the raw token ONCE (`createSource`'s `push: PushInfo`). `rotatePushToken` mints a replacement and drops the old hash. Tokens are SCOPED to their source TYPE: a token minted for one push type never verifies for another (the lookup rejects a hash whose row is a different `sourceTypeId`).
+
+### Verifying a presented token
+
+The endpoint owner turns a presented token into an authorization verdict WITHOUT depending on the platform's schema. Inject the cross-plugin verifier through `telemetryPushTokenVerifierRef`, wrap it with `createPushTokenLookup({ verifier, sourceTypeId, signal })`, and feed that to the shared `createIngestAuthenticator` - the same cached, negative-cache-protected verification the plugins already use for their own native source tokens:
+
+```ts
+import {
+  telemetryPushTokenVerifierRef,
+  createPushTokenLookup,
+} from "@checkstack/telemetry-backend";
+import { createIngestAuthenticator } from "@checkstack/ingest-utils";
+
+const verifier = env.getService(telemetryPushTokenVerifierRef);
+
+const authenticator = createIngestAuthenticator({
+  lookup: createPushTokenLookup({
+    verifier,
+    sourceTypeId: "metricstream.push",
+    signal: "metrics",
+  }),
+  cache,
+  hashToken,
+});
+
+// On each delivery: verify, resolve the bound stream, then record activity.
+const verdict = await authenticator.authenticate(presentedToken);
+if (verdict.ok) {
+  await ingest({ streamId: verdict.resourceId, records });
+  void verifier.recordPushSeen(verdict.tokenId); // throttled lastRunAt stamp
+}
+```
+
+Verdicts follow the lookup: an unknown hash (or a token of a different push type) reads as `unknown` and is negatively cached; a real token whose instance is disabled OR that has no binding for this `signal` reads as `revoked` (deliberately not `unknown`, so a real token never poisons the negative cache); an enabled instance with a binding for the signal yields `{ ok: true, resourceId: <bound stream id> }`. `recordPushSeen` stamps `lastRunAt` at most once per `PUSH_SEEN_STAMP_THROTTLE_MS` (60s) per source per pod, which is what the frontend renders as the "last received" liveness hint.
+
+### Cache convergence across pods
+
+Because every pod caches verification verdicts, a mint, rotation, delete, or enable/disable must converge all of them. The platform emits the `telemetry.push-token.invalidated` hook for each affected hash:
+
+```ts
+interface TelemetryPushTokenInvalidatedPayload {
+  sourceTypeId: string;
+  sourceId: string;
+  tokenHash: string; // sha256 hex; never the token itself
+  reason: "minted" | "revoked";
+}
+```
+
+A rotation emits two events (one `revoked` for the old hash, one `minted` for the new); delete and disable emit `revoked`; create and enable emit `minted`. Each endpoint-owning plugin subscribes in BROADCAST mode, filters on its own `sourceTypeId`s, and applies the verdict to its `IngestAuthenticator` caches: a shared positive-key delete plus miss-marker delete on `revoked`, and `clearNegative` on `minted` (so a freshly minted token is not shadowed by a pod's negative LRU for its TTL). Delivery is at-least-once; the 60s positive-cache TTL bounds the stale window if a `revoked` event is ever lost.
 
 ## Webhook signature verification
 
@@ -129,6 +210,33 @@ Because the HMAC is computed from the shared secret, the platform stores the raw
 
 > [!NOTE]
 > Stripe does not fit the single-header descriptor: it packs several comma-joined `k=v` pairs into one `Stripe-Signature` header (`t=<ts>,v1=<hex>`), which no `header` plus `prefix` scheme can address. A Stripe source type verifies inside its own `handle()` instead of declaring a `signature`.
+
+## Listener sources
+
+A `listener` source type holds a long-lived inbound socket that is pod-local infrastructure. `start(ctx)` receives `{ config, sink, logger }` and returns a stop function; the pod-local listener manager (`core/telemetry-backend/src/listeners.ts`) starts one listener per enabled instance ON EVERY POD, converges start/stop/restart across pods through the source-changed broadcast hook, and stops them on shutdown. Whether all those binds succeed depends on topology: with per-pod network namespaces (Kubernetes) every pod binds and a Service/load balancer distributes connections; on a shared host network the first pod wins and the others fail with `EADDRINUSE`, which is recorded as the instance's `lastError` rather than crashing boot - expected for a single-bind listener.
+
+The reference implementation is the **syslog** source type (`logstream.syslog`, `core/logstream-backend/src/ingest/syslog/source-type.ts`). It receives RFC 5424 over TCP (optionally TLS) via `Bun.listen`, frames RFC 6587 octet-counting or LF delimiting, parses each line, and emits normalized log records through the bound sink. Its config carries `port`, `host`, `maxConnections`, and an optional `tls: { certPath, keyPath }` - TLS is configured with file paths, not inline PEM, because the inline-secret channel forbids nested secret fields and infrastructure mounts TLS material as volumes anyway.
+
+> [!IMPORTANT]
+> The core listener does NO per-message token handling. The instance BINDING is the authorization and routing: every line on the socket goes to the bound stream. This differs from the satellite syslog receiver, which keeps an in-message `ckls_` token protocol because it forwards to the core's stream-token-authorized push path. See [satellite telemetry](/checkstack/developer-guide/backend/satellite-telemetry/).
+
+## Derive sources
+
+A `derive` source type transforms one signal into another. Its seam is `derive: { fromSignal, getInputStreamId, process }`: `fromSignal` is the signal it CONSUMES (distinct from `signals`, which it EMITS), `getInputStreamId(config)` resolves the input stream id from validated config, and `process` folds the flushed records into output records emitted through the bound sink. The INPUT stream is named in config; the OUTPUT streams come from the instance's bindings.
+
+Derivation is a **post-flush tap**: the dispatcher (`core/telemetry-backend/src/derive.ts`) runs `process` only AFTER the input stream's flush has committed, and the tap is fully error-isolated - a deriver throw is caught and recorded as the instance's `lastError`, and can never break or slow the source stream's ingest. The tap is a no-op until connected and skips empty batches.
+
+Two built-ins ship from inside the platform (registered through the same source extension point):
+
+- **log-to-metric** (`telemetry.log-to-metric`, `core/telemetry-backend/src/derive-sources/log-to-metric.ts`): `fromSignal: "logs"`, `signals: ["metrics"]`. Folds matching log lines into counter-delta or gauge metric points (a `count` mode or an `extractNumber` mode).
+- **log-to-trace** (`telemetry.log-to-trace`, `core/telemetry-backend/src/derive-sources/log-to-trace.ts`): `fromSignal: "logs"`, `signals: ["traces"]`. Synthesizes `internal` spans from logs that carry a valid W3C trace id and span id.
+
+## Reference source types
+
+The two satellite-capable pull types below are the reference implementations for the pull seam plus `supportsSatellite`:
+
+- **Prometheus scrape** (`metricstream.prometheus-scrape`, `core/metricstream-backend/src/sources/prometheus/source-type.ts`): `signals: ["metrics"]`, `supportsSatellite: true`, pull `defaultIntervalSeconds: 60` / `minIntervalSeconds: 5`. Config is `{ url, timeoutMs, bearerToken? }` (the bearer is `x-secret`). It polls a Prometheus text-exposition endpoint and routes the parsed series into the bound metric stream. This is also the migration target for the removed metricstream scrape-target feature (see [metric streams backend](/checkstack/developer-guide/backend/metricstream/)).
+- **Kubernetes events** (`k8s-events.k8s-events`, `plugins/k8s-events-backend/src/source-type.ts`): `signals: ["logs"]`, `supportsSatellite: true`, pull `defaultIntervalSeconds: 60` / `minIntervalSeconds: 15`. Config carries `apiServerUrl` (https only), `bearerToken` (`x-secret`), optional `namespace` / `fieldSelector` / `labelSelector`, `maxEventsPerPull` (default 500), and `lookbackSeconds` (default 90). It LISTs `events.k8s.io/v1` events on the interval with `Authorization: Bearer`, maps `type: "Warning"` events to WARN severity (everything else to INFO), and emits them as log records. The pull is CURSORLESS: "new since last pull" is approximated by a wall-clock window `now - lookbackSeconds`, so `lookbackSeconds` should sit slightly ABOVE the pull interval - the overlap re-emits (duplicate-tolerant), a shorter window drops. `maxEventsPerPull` caps the number of EMITTED (in-window) records, NOT scanned items: the Kubernetes list API returns events roughly oldest-first with no server-side time filter, so the pull pages past out-of-window backlog until it has that many in-window records. The SCAN itself is hard-bounded at 40 pages (`K8S_EVENTS_MAX_PAGES` x 500 = 20k items); on a cluster busy enough to exhaust that budget the pull emits a partial window and logs a warning recommending a `namespace` / `fieldSelector` to narrow the stream. Each record carries a stable `k8s.event.uid` for downstream dedup.
 
 ## Contributing a sink (signal owners only)
 
@@ -181,6 +289,6 @@ A global **Sources page** (`telemetryRoutes.routes.sources`, under the Reliabili
 
 ## Satellite execution
 
-Pull-mode types can declare `supportsSatellite: true`, and a source instance can then bind a `satelliteId` to execute at the edge instead of on core. The platform ships the full `telemetry-pull` satellite capability: per-satellite config push (secrets never ride the config - the agent fetches them just-in-time per field over the authenticated socket), binding-authorized batch re-ingestion through the same sinks, per-instance status mirroring, and an authorship guard that stops a stream manager from binding a source to a satellite they cannot read.
+Pull-mode types can declare `supportsSatellite: true`, and a source instance can then bind a `satelliteId` to execute at the edge instead of on core. The platform owns a generic `telemetry-pull` satellite capability (`core/telemetry-backend/src/satellite/pull-capability.ts`): per-satellite config push (secrets never ride the config - the agent fetches them just-in-time per field over the authenticated socket), binding-authorized batch re-ingestion through the same sinks, per-instance status mirroring, and an authorship guard (`assertSatellitePullBindable`, `core/telemetry-backend/src/satellite/binding-auth.ts`) that stops a stream manager from binding a source to a satellite they cannot READ. For the channel mechanics see [satellite telemetry](/checkstack/developer-guide/backend/satellite-telemetry/).
 
-One constraint is inherent to satellites: the agent only runs code statically compiled into the satellite build. A satellite-capable source type therefore ships a pure `SatellitePullExecutor` (from `@checkstack/telemetry-common`) in a browser-safe `*-common` package that `core/satellite` imports, and registers it in the agent's executor registry keyed by the qualified source type id. Config pushed for a source type with no registered executor produces a per-instance status error on the satellite, never a crash. This mirrors exactly how the Prometheus scrape capability runs its parsing from `@checkstack/metricstream-common`.
+One constraint is inherent to satellites: the agent only runs code statically compiled into the satellite build. A satellite-capable source type therefore ships a pure `SatellitePullExecutor` (`@checkstack/telemetry-common`) whose parsing logic lives in a browser-safe `*-common` leaf, and the executor is registered in the agent's executor registry (`core/satellite/src/telemetry/pull/executors.ts`, `registerBuiltinPullExecutors`) keyed by the qualified source type id. Config pushed for a source type with no registered executor produces a per-instance status error on the satellite, never a crash. Both built-in executors (Prometheus scrape, Kubernetes events) live in `core/satellite/src/telemetry/pull/` because they wrap the SSRF egress guard from `@checkstack/backend-api`, which a `*-common` leaf must not import; each reuses its pure parsing and mapping driver from the owning `*-common` package (`metricstream-common`'s text parser and shaping, `k8s-events-common`'s list-and-map driver), so core and agent share one implementation.

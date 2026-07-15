@@ -1,15 +1,21 @@
 ---
 title: Metric streams backend
-description: Architecture of metric ingestion, the source extension point, series storage and counter math, cardinality bounds, and the health integration.
+description: Architecture of metric ingestion, push endpoints and telemetry-platform sources, series storage and counter math, cardinality bounds, and the health integration.
 ---
 
 The metric-stream plugin ingests metrics from pluggable sources, folds them into per-minute series aggregates, and exposes each stream as a health-check strategy. It lives in `metricstream-{common,backend,frontend}` and deliberately mirrors the [log streams backend](/checkstack/developer-guide/backend/logstream/): the same package shape, RLAC model, token scheme, flush design, retention tiers, and reference-protection lessons. Shared ingest primitives (source-token kit, authenticator with negative caching, pre-auth rate limiting, capped body reading, the bounded buffer and flush loop, and the OTLP wire codec) come from `@checkstack/ingest-utils`, extracted from logstream so both plugins run one implementation.
 
-## The source extension point
+## Where metrics enter
 
-`metricstream-backend` owns `metricstream.source` (`createExtensionPoint`), and registers its three built-in sources through it, so a future plugin contributes a source type with zero core changes. A source is either **push** (it registers raw HTTP handlers and writes through the shared `MetricIngestSink`) or **pull** (it declares a target config schema and an `executePull`; scheduling is the platform's job). The built-ins: OTLP/HTTP (`/api/metricstream/v1/metrics`, protobuf + JSON + gzip, `partialSuccess` accounting), native JSON (`/api/metricstream/ingest`), and the Prometheus scraper.
+Metrics reach a stream two ways, both feeding the one shared `MetricIngestSink` so clamping, buffering, cardinality caps and folding apply uniformly no matter the entry path:
 
-Prometheus targets are scheduled as one recurring job per enabled target on the `metricstream-scrape` queue (job id encodes target + interval, so interval changes converge; competing consumers spread scrapes across pods). Scrape target CRUD triggers an immediate reconcile; boot reconciliation cancels orphans. Consecutive-failure counting is database-backed, so a `scrape_failing` event fires exactly once per outage episode regardless of which pods ran the scrapes. Scrape URLs pass the foundation SSRF egress guard (scheme allowlist plus the metadata/link-local deny ranges); private RFC1918 space is deliberately allowed because internal exporters are the primary use case - the same trust model as the HTTP health check.
+- **Push endpoints.** `metricstream-backend` wires its two push handlers directly against the shared sink and the `ckms_` authenticator: OTLP/HTTP (`/api/metricstream/v1/metrics`, protobuf + JSON + gzip, `partialSuccess` accounting) and native JSON (`/api/metricstream/ingest`). The authenticator's token lookup is the platform's push-token verifier scoped to the `metricstream.push` [push source type](/checkstack/developer-guide/backend/telemetry-sources/#push-sources) and the `metrics` signal, so metricstream owns no token storage; tokens are minted, rotated, and revoked on the push source, and the ingest cache converges on the `telemetry.push-token.invalidated` hook (filtered to `metricstream.push`). A single pod-local soft rate limiter is shared by both handlers so a stream's per-minute budget is counted across them.
+- **Telemetry-platform sources.** Configured ingestion (a Prometheus scrape) is a [telemetry source type](/checkstack/developer-guide/backend/telemetry-sources/), not a metricstream-owned mechanism. metricstream contributes the `metricstream.prometheus-scrape` pull source type, the `metricstream.push` push source type, and a `metrics` sink to the telemetry platform; the platform owns scheduling (its core reconciler) and satellite dispatch (the generic `telemetry-pull` capability), and routes the parsed series into the bound stream through the sink.
+
+> [!NOTE]
+> The old metricstream-owned scrape-target feature is GONE: there is no `metricstream.source` extension point, no `metricstream-scrape` queue, no scrape-target CRUD/UI, and no private satellite `metric-scrape` capability. Existing scrape targets auto-migrate into `metricstream.prometheus-scrape` telemetry source instances (telemetry-backend drizzle `0001`), and a metricstream boot one-shot re-keys any inline-secret bearer into the telemetry platform's own secret channel. The legacy `metric_scrape_targets` table is retained read-only as the migration source and can be dropped in a future release.
+
+The Prometheus scrape's URL passes the foundation SSRF egress guard (scheme allowlist plus the metadata/link-local deny ranges), whether it runs on core or a satellite; private RFC1918 space is deliberately allowed because internal exporters are the primary use case - the same trust model as the HTTP health check.
 
 ## Datapoints, series, and counter math
 

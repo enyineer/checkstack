@@ -99,9 +99,9 @@ Clicking an event deep-links into the explorer, pre-filtered to the relevant pat
 
 ## Source tokens
 
-A shipper authenticates to a stream with a **source token**, a per-stream secret you mint in the stream's settings. Tokens start with the `ckls_` prefix and are shown in full only once, at mint time. Checkstack stores only a hash and a short display prefix, so a token cannot be recovered later; if you lose it, mint a new one and revoke the old.
+A shipper authenticates to a stream with a **source token**, minted when you add a **push source** on the stream's **Sources** tab. Tokens start with the `ckls_` prefix and are shown in full only once, when the source is created (or when you rotate it). Checkstack stores only a hash and a short display prefix, so a token cannot be recovered later; if you lose it, rotate the source's token and update your shipper.
 
-A source token authorizes ingest to exactly one stream and nothing else. It is not an application API key and carries no read access. Revoking a token stops it authenticating within about a minute. Anyone who can manage a stream can mint and revoke its tokens, so treat source-token management as sensitive.
+A source token authorizes ingest to exactly the streams the source is bound to and nothing else. It is not an application API key and carries no read access. Rotating the token or disabling/deleting the source stops it authenticating within about a minute. Anyone who can manage a stream can add a push source and rotate its token, so treat source-token management as sensitive.
 
 ## Log health checks
 

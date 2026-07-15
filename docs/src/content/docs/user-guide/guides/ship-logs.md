@@ -1,20 +1,22 @@
 ---
 title: Ship logs to a stream
-description: Create a log stream, mint a source token, and forward logs from the OpenTelemetry Collector, Fluent Bit, Vector, curl, or rsyslog.
+description: Create a log stream, add a push source for its token, and forward logs from the OpenTelemetry Collector, Fluent Bit, Vector, curl, or rsyslog.
 ---
 
-This guide takes you from nothing to logs flowing into a Checkstack log stream. You create a stream, mint a source token, point a shipper at one of the ingest endpoints, and confirm the lines arrive. For what a stream does with those lines and how to monitor them, see [Log streams](/checkstack/user-guide/concepts/log-streams/).
+This guide takes you from nothing to logs flowing into a Checkstack log stream. You create a stream, add a push source to mint its token, point a shipper at one of the ingest endpoints, and confirm the lines arrive. For what a stream does with those lines and how to monitor them, see [Log streams](/checkstack/user-guide/concepts/log-streams/).
 
 ## 1. Create a stream
 
 Sign in as a user who can manage log streams (the `logstream.stream.manage` access rule, held by team owners of the stream and by global stream managers). Open **Reliability > Log Streams** in the sidebar and create a stream. Give it a name; you can leave the sampling and retention settings on their defaults and change them later.
 
-## 2. Mint a source token
+## 2. Add a push source
 
-Open the stream, go to its **Settings** tab, and mint a token under the Tokens section. The full secret is shown only once and starts with `ckls_`. Copy it now and store it wherever your shipper reads secrets; Checkstack keeps only a hash and cannot show it again. If you lose it, mint a new token and revoke the old one.
+Open the stream, go to its **Sources** tab, click **Add source**, and pick **Push (OTLP / native)**. Give the source a name and create it. On success the source token is shown **once** and starts with `ckls_`. Copy it now and store it wherever your shipper reads secrets; Checkstack keeps only a hash and cannot show it again. The same panel shows ready-to-paste shipper snippets with the token already filled in.
+
+If you lose the token, rotate it from the source's **rotate** action (the key icon on the source row) and update your shipper with the new value. To revoke access entirely, disable or delete the source.
 
 > [!CAUTION]
-> A source token grants ingest access to this one stream. Treat it like a password: never commit it, and revoke it if it leaks. Revoking takes effect within about a minute.
+> A source token grants ingest access to this one stream. Treat it like a password: never commit it, and rotate it if it leaks. Rotation and revocation take effect within about a minute.
 
 The endpoints and headers below use `ckls_...` as a placeholder. Substitute your real token.
 
@@ -94,19 +96,19 @@ A successful request returns `202` with a JSON body of `accepted` and `rejected`
 
 ### rsyslog (RFC 5424)
 
-The syslog listener is off by default; an operator enables it by setting `CHECKSTACK_LOGSTREAM_SYSLOG_PORT` (see [Enabling syslog](#enabling-syslog)). The source token rides in an RFC 5424 structured-data element with the SD-ID `checkstack@50501`.
+Syslog ingestion is a **source** bound to one stream, not a token-authenticated HTTP endpoint (see [Add a syslog source](#add-a-syslog-source)). Once an operator has added a syslog source and bound it to this stream, point rsyslog at that source's host and port - every line received on the port lands in the bound stream, no per-message token:
 
 ```text
 # /etc/rsyslog.d/checkstack.conf
-template(name="checkstackFmt" type="string"
-  string="<%PRI%>1 %TIMESTAMP:::date-rfc3339% %HOSTNAME% %APP-NAME% %PROCID% %MSGID% [checkstack@50501 token=\"ckls_...\"] %msg%\n")
-
 action(type="omfwd"
   target="checkstack.example.com" port="6514" protocol="tcp"
-  template="checkstackFmt")
+  template="RSYSLOG_SyslogProtocol23Format")
 ```
 
-If your shipper cannot emit structured data, Checkstack also accepts the token as a `@ckls_...@ ` prefix on the message text; the prefix is stripped before the line is stored.
+`RSYSLOG_SyslogProtocol23Format` emits RFC 5424, which the source frames by octet-counting or newline delimiting, so most syslog daemons work without extra configuration.
+
+> [!NOTE]
+> Shipping syslog to a **satellite** receiver is different: the satellite routes by an in-message source token, so include the token in an RFC 5424 structured-data element (`[checkstack@50501 token="ckls_..."]`) or as a `@ckls_...@ ` message prefix. Only the core syslog source drops the token - the binding is its authorization. See [Forward logs through a satellite](#forward-logs-through-a-satellite).
 
 ## 5. Confirm ingestion
 
@@ -123,17 +125,19 @@ The endpoints protect the platform, so a well-behaved shipper should handle thes
 
 Individual lines longer than the stream's max line size (32 KB by default) are truncated, and oversized attribute blobs are capped. Neither is an error; the line is still stored.
 
-## Enabling syslog
+## Add a syslog source
 
-The syslog listener runs only when an operator sets `CHECKSTACK_LOGSTREAM_SYSLOG_PORT` on the Checkstack backend. Optional TLS is configured with `CHECKSTACK_LOGSTREAM_SYSLOG_TLS_CERT` and `CHECKSTACK_LOGSTREAM_SYSLOG_TLS_KEY`, and the bind host with `CHECKSTACK_LOGSTREAM_SYSLOG_HOST` (defaults to `0.0.0.0`).
+Syslog ingestion is a configurable **source** bound to a stream, not an environment setting. On the stream's **Sources** tab, add a **Syslog** source and set:
 
-```env
-CHECKSTACK_LOGSTREAM_SYSLOG_PORT=6514
-CHECKSTACK_LOGSTREAM_SYSLOG_TLS_CERT=/etc/checkstack/syslog.crt
-CHECKSTACK_LOGSTREAM_SYSLOG_TLS_KEY=/etc/checkstack/syslog.key
-```
+- **Port** - the TCP port the listener binds (for example `6514`).
+- **Host** - the bind address (defaults to `0.0.0.0`).
+- **TLS** (optional) - filesystem paths to a certificate and private key mounted into the Checkstack container. When both are set the listener serves syslog over TLS. Paths, not inline PEM, so infrastructure can mount the material as a volume.
+- **Max connections** - a ceiling on concurrent inbound connections.
 
-The listener frames RFC 5424 messages by either octet-counting (RFC 6587) or newline delimiting, so most syslog daemons work without extra configuration. Messages with no resolvable token are dropped.
+The source binds to this one stream, so every RFC 5424 line received on the port is stored in it - there is no per-message token. On Kubernetes (per-pod network namespaces) every Checkstack pod binds the port and a Service or load balancer distributes connections across them, just like the HTTP endpoints. On a shared host network only one pod can hold the port; the others record `EADDRINUSE` as the source's last error, which is expected.
+
+> [!NOTE]
+> A syslog source owns a whole port and routes everything on it to one stream. To split syslog traffic across streams, add one source per stream on a distinct port.
 
 ## Forward logs through a satellite
 
@@ -145,7 +149,7 @@ firewall hole to Checkstack.
 
 The satellite is a relay, not a new trust boundary: it forwards the same `ckls_`
 source token your shipper would otherwise send to the core, and the core verifies
-it identically (revocation included). Mint the token exactly as in step 2 above.
+it identically (rotation included). Add the push source exactly as in step 2 above.
 
 ### 1. Enable the receiver on the satellite
 
@@ -161,12 +165,19 @@ CHECKSTACK_SATELLITE_RECEIVER_HOST=0.0.0.0
 
 This exposes `/v1/logs` (OTLP logs) and `/ingest` (native NDJSON logs) on the
 satellite. To accept RFC 5424 syslog inside the zone as well, also enable the
-syslog listener:
+satellite's syslog receiver:
 
 ```env
 CHECKSTACK_SATELLITE_SYSLOG=1
 CHECKSTACK_SATELLITE_SYSLOG_PORT=6514
 ```
+
+Unlike the core syslog source (which routes by binding), the satellite syslog
+receiver stays token-routed: it forwards each line to the core under the `ckls_`
+source token carried in the message, so shippers must include the token in an
+RFC 5424 structured-data element (`[checkstack@50501 token="ckls_..."]`) or a
+`@ckls_...@ ` message prefix. The satellite groups lines by token and forwards
+each group to the stream that token belongs to.
 
 See [Connect a satellite](/checkstack/user-guide/guides/connect-a-satellite/#telemetry-forwarding-and-scraping)
 for the full set of telemetry flags. Enabling any receiver implies the telemetry

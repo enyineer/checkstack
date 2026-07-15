@@ -73,16 +73,17 @@ There are two shapes to this:
   shipper inside the zone points at the satellite instead of at the core, and
   the satellite forwards the received telemetry over its WebSocket channel. This
   is the push model, moved one hop closer to the source.
-- **Scrape and forward.** The core cannot reach a Prometheus exporter inside the
-  zone, but the satellite can. Bind a metric-stream scrape target to a
-  satellite, and the satellite polls the exporter on its interval and forwards
-  the datapoints. This is the pull model, executed from inside the zone.
+- **Pull and forward.** The core cannot reach a target inside the zone (a
+  Prometheus exporter, a Kubernetes API server), but the satellite can. Bind a
+  pull telemetry source to a satellite, and the satellite runs it on its interval
+  and forwards the records. This is the pull model, executed from inside the zone.
 
 A satellite advertises which of these it can do as **capabilities**, shown as
 badges on its detail page: `telemetry` (the forwarding channel is enabled),
 `log-receivers` (the HTTP log and metric receivers are listening), `syslog` (the
-syslog listener is listening), and `scrape` (satellite-side scraping is enabled).
-Capabilities come from the satellite's environment configuration; see
+syslog receiver is listening), and `telemetry-pull` (satellite-side execution of
+bound pull sources is enabled). Capabilities come from the satellite's environment
+configuration; see
 [Connect a satellite](/checkstack/user-guide/guides/connect-a-satellite/) for the
 flags.
 
@@ -97,19 +98,19 @@ who is allowed to write:
   forwards that token unchanged, and the core verifies it exactly as it verifies
   the direct HTTP push, honoring revocation. The satellite is a relay, not a new
   trust boundary; it never mints authority of its own.
-- **Scraping is authorized by the target binding.** A scrape target is bound to a
-  specific satellite in the UI. The core accepts scraped datapoints only for a
-  target whose bound satellite matches the satellite that sent them, so a
-  satellite cannot forward metrics for a target it was never bound to. Binding a
-  target to a satellite requires read access to that satellite and that the
-  satellite advertise `scrape`.
+- **Pull execution is authorized by the source binding.** A pull source is bound
+  to a specific satellite in the UI. The core accepts forwarded records only for a
+  source whose bound satellite matches the satellite that sent them, so a
+  satellite cannot forward records for a source it was never bound to. Binding a
+  source to a satellite requires read access to that satellite and that the
+  satellite advertise `telemetry-pull`.
 
 > [!NOTE]
-> Bearer secrets for authenticated scrape targets are never stored on the
-> satellite and never travel in the scrape configuration pushed to it. The core
-> delivers the secret just in time over the secure channel for each scrape, and
-> the satellite holds it in memory only for that poll. The pushed config carries
-> only an advisory flag that a bearer is required.
+> Secrets for authenticated pull sources (an exporter bearer, a Kubernetes API
+> token) are never stored on the satellite and never travel in the configuration
+> pushed to it. The core delivers each secret field just in time over the secure
+> channel for every run, and the satellite holds it in memory only for that run.
+> The pushed config carries only the names of the secret fields.
 
 ### Reliability and dropped telemetry
 

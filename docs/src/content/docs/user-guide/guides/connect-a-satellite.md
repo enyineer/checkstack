@@ -165,20 +165,22 @@ CHECKSTACK_SATELLITE_SYSLOG_TLS_CERT=/etc/checkstack/syslog.crt
 CHECKSTACK_SATELLITE_SYSLOG_TLS_KEY=/etc/checkstack/syslog.key
 CHECKSTACK_SATELLITE_SYSLOG_MAX_CONNECTIONS=1024
 
-# Satellite-side scraping of bound Prometheus targets.
-CHECKSTACK_SATELLITE_SCRAPE=1
+# Satellite-side pull execution of bound telemetry sources
+# (Prometheus scrape, Kubernetes events).
+CHECKSTACK_SATELLITE_TELEMETRY_PULL=1
 ```
 
 Whichever you enable, publish the matching ports so producers inside the zone can
 reach them, for example `-p 4318:4318` for the HTTP receivers and `-p 6514:6514`
 for syslog when you boot the container in step 6. The satellite advertises the
-capabilities it can serve (`telemetry`, `log-receivers`, `syslog`, `scrape`) to
-the core, and they appear as badges on the satellite detail page.
+capabilities it can serve (`telemetry`, `log-receivers`, `syslog`, `telemetry-pull`)
+to the core, and they appear as badges on the satellite detail page.
 
 > [!NOTE]
-> Scraping needs no port published: the satellite polls the exporter outbound and
-> forwards datapoints over its existing WebSocket. Only bind scrape targets to the
-> satellite in the metric-stream UI. See
+> Pull execution needs no port published: the satellite polls the target outbound
+> and forwards the records over its existing WebSocket. Bind a pull telemetry
+> source (a Prometheus scrape, a Kubernetes events poll) to the satellite in the
+> source editor. See
 > [Scrape or forward metrics through a satellite](/checkstack/user-guide/guides/ship-metrics/#scrape-or-forward-metrics-through-a-satellite).
 
 To wire shippers and exporters against these surfaces, follow

@@ -22,12 +22,12 @@ All storage access goes through **port interfaces** (`src/storage/ports.ts`); th
 
 ## Ingestion
 
-Two token-authenticated push endpoints (per-stream `cktr_` source tokens, hash-only storage, shown once):
+Two token-authenticated push endpoints. Shippers authenticate with a `cktr_` source token minted on the platform's `tracestream.push` [push source](/checkstack/developer-guide/backend/telemetry-sources/#push-sources) (hash-only storage, shown once, rotatable); the authenticator's lookup is the platform push-token verifier scoped to `tracestream.push` and the `traces` signal, so tracestream owns no token storage and its ingest cache converges on the `telemetry.push-token.invalidated` hook:
 
 - `POST /api/tracestream/v1/traces` - OTLP/HTTP `ExportTraceServiceRequest`, protobuf and JSON, gzip-aware, answering `ExportTraceServiceResponse` with `partialSuccess.rejectedSpans`.
 - `POST /api/tracestream/ingest` - native JSON spans for shippers without OTel tooling.
 
-Point an OTel SDK at a stream with the per-signal env vars (the stream's Settings tab renders ready-to-copy snippets):
+Point an OTel SDK at a stream with the per-signal env vars (the stream's Sources tab renders ready-to-copy snippets when you add a push source):
 
 ```env
 OTEL_TRACES_EXPORTER=otlp
@@ -111,4 +111,4 @@ for the full picture including the HTTP probe's traceparent emission.
 
 ## Telemetry sink
 
-tracestream registers the `traces` sink with the telemetry platform: normalized spans emitted by a telemetry source enter the exact same ingest pipeline (policy, caps, buckets) as the push endpoints, and bind-time authorization is answered by the stream's own access rules. With the sink in place, `traces` bindings are accepted in the sources UI and the trace stream's Settings tab embeds the platform's sources section.
+tracestream registers the `traces` sink with the telemetry platform: normalized spans emitted by a telemetry source enter the exact same ingest pipeline (policy, caps, buckets) as the push endpoints, and bind-time authorization is answered by the stream's own access rules. With the sink in place, `traces` bindings are accepted in the sources UI and the trace stream's Sources tab embeds the platform's sources section.

@@ -1,13 +1,13 @@
 ---
 title: Ship metrics to a stream
-description: Send OTLP metrics, configure Prometheus scrape targets, or push JSON datapoints into a Checkstack metric stream.
+description: Send OTLP metrics, add a Prometheus scrape source, or push JSON datapoints into a Checkstack metric stream.
 ---
 
 This walkthrough gets metrics flowing into a [metric stream](/checkstack/user-guide/concepts/metric-streams/). Create the stream first (Metric Streams in the sidebar, under Reliability), then pick the source that fits each producer - a stream can use all of them at once.
 
 ## Push with a source token
 
-Push sources authenticate with a per-stream source token. Open the stream's **Sources** tab, mint a token, and copy the `ckms_...` secret immediately - it is shown only once. Send it as `Authorization: Bearer <token>`.
+Push sources authenticate with a per-source token minted when you add the source. Open the stream's **Sources** tab, click **Add source**, pick **Push (OTLP / native)**, and create it. The `ckms_...` token is shown **once** on success - copy it immediately, along with the ready-to-paste snippets shown beside it. Send it as `Authorization: Bearer <token>`. If it leaks, rotate the token from the source's rotate action (the key icon on the row); disable or delete the source to revoke it.
 
 ### OTLP
 
@@ -34,12 +34,14 @@ curl -X POST https://<your-checkstack>/api/metricstream/ingest \
 
 `type` defaults to `gauge`; counters accept `"type":"counter"` with their cumulative value.
 
-## Pull with scrape targets
+## Pull with a Prometheus scrape source
 
-For anything that already exposes a Prometheus endpoint, add a **scrape target** on the Sources tab: a name, the exporter URL, the scrape interval, and optionally a bearer token (stored encrypted). Checkstack scrapes it on the interval, parses the exposition format (counters, gauges, histograms and summaries as sum/count), and shows the last scrape result per target - persistent failures raise an important event.
+For anything that already exposes a Prometheus endpoint, add a **Prometheus scrape** source on the Sources tab. In the Sources section, click **Add source**, pick **Prometheus scrape**, and configure the exporter URL, the scrape interval, an optional timeout, and an optional bearer token (stored encrypted). Opened from a metric stream's Sources tab, the source is bound to that stream automatically. Checkstack polls it on the interval, parses the exposition format (counters, gauges, histograms and summaries as sum/count), and routes the series into the stream; the source row shows the last run result, and persistent failures surface on the source.
 
 > [!NOTE]
 > Scrape URLs are fetched by the Checkstack backend, so an operator who can manage a stream chooses where it connects. Requests to cloud metadata and link-local addresses are always refused; reaching internal exporters on private networks is allowed by design, so grant stream-manage accordingly.
+
+Prometheus scrape is one of the platform's [telemetry sources](/checkstack/user-guide/concepts/metric-streams/#where-metrics-come-from) - the same source editor hosts other pull and push sources (for example a Kubernetes events source that feeds a log stream). Manage every source instance across all streams from the global **Sources** page under Reliability.
 
 ## Scrape or forward metrics through a satellite
 
@@ -51,20 +53,19 @@ core.
 
 ### Scrape a target from a satellite
 
-Add a scrape target on the **Sources** tab as above, then bind it to a satellite
-instead of leaving it on the core:
+Add a Prometheus scrape source on the **Sources** tab as above, then bind it to a
+satellite instead of leaving it on the core:
 
-1. In the scrape-target dialog, choose the satellite that can reach the exporter.
-   The picker only offers satellites you have read access to that advertise the
-   `scrape` capability.
-2. Save the target. The core pushes the target config to the satellite, and the
+1. In the source dialog, choose the satellite that can reach the exporter. The
+   picker only offers satellites you have read access to that advertise the
+   `telemetry-pull` capability.
+2. Save the source. The core pushes the source config to the satellite, and the
    satellite polls the exporter on the interval and forwards the datapoints.
 
-The core accepts scraped datapoints only for a target actually bound to the
-sending satellite, so binding is the authorization. If the target needs a bearer
-token, Checkstack delivers it just in time over the secure channel for each
-scrape; it is never stored on the satellite and never travels in the pushed
-scrape config.
+The core accepts scraped datapoints only for a source actually bound to the
+sending satellite, so binding is the authorization. If the source needs a bearer
+token, Checkstack delivers it just in time over the secure channel for each run;
+it is never stored on the satellite and never travels in the pushed config.
 
 > [!NOTE]
 > The satellite applies the same egress guard the core does: requests to cloud
@@ -101,4 +102,4 @@ satellite disconnect surface as **Dropped in transit** on the stream's overview.
 
 ## Verify and use
 
-Within a minute of the first datapoints, the stream's **Metrics** tab lists the discovered names, types, and series. From there, create a Metric Stream health check - the metric and label pickers autocomplete from what actually arrived. If nothing shows up, check the token (401s), the per-request limits (413/429), or the target's last scrape error.
+Within a minute of the first datapoints, the stream's **Metrics** tab lists the discovered names, types, and series. From there, create a Metric Stream health check - the metric and label pickers autocomplete from what actually arrived. If nothing shows up, check the token (401s), the per-request limits (413/429), or the scrape source's last run error.
