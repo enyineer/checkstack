@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   PageLayout,
@@ -908,10 +908,13 @@ const SubscribersSection: React.FC<{
   const subscribers = data?.subscribers ?? [];
 
   // Local draft of the quota field (string so it can be cleared -> "use default").
+  // Seeded once per page (via `pageId` as both value and key, since `quota`
+  // itself is legitimately `null`) so a background refetch of `page` doesn't
+  // wipe an in-progress edit; re-seeds only when navigating to a different page.
   const [quotaDraft, setQuotaDraft] = useState(quota === null ? "" : String(quota));
-  useEffect(() => {
+  useInitOnceForKey(pageId, pageId, () => {
     setQuotaDraft(quota === null ? "" : String(quota));
-  }, [quota]);
+  });
 
   const onRemove = async (id: string) => {
     try {

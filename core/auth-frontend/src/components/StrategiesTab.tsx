@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Card,
   CardHeader,
@@ -15,6 +15,7 @@ import {
   useToast,
   toastError,
   usePerformance,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import { Shield, RefreshCw } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -51,14 +52,21 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
   }>({ allowRegistration: true });
   const [registrationValid, setRegistrationValid] = useState(true);
 
-  // Initialize strategy configs when strategies change
-  useEffect(() => {
-    const configs: Record<string, Record<string, unknown>> = {};
-    for (const strategy of strategies) {
-      configs[strategy.id] = strategy.config || {};
-    }
-    setStrategyConfigs(configs);
-  }, [strategies]);
+  // Seed the editable per-strategy configs once per set of strategies. Keying
+  // on the strategy-id list re-seeds when a strategy is added/removed but
+  // ignores background refetches that return the same set, so an in-progress
+  // strategy-config edit is not wiped when the strategies query refetches.
+  useInitOnceForKey(
+    strategies,
+    strategies.map((s) => s.id).join(","),
+    (list) => {
+      const configs: Record<string, Record<string, unknown>> = {};
+      for (const strategy of list) {
+        configs[strategy.id] = strategy.config || {};
+      }
+      setStrategyConfigs(configs);
+    },
+  );
 
   // Query: Registration schema (admin only)
   const { data: registrationSchema, isLoading: schemaLoading } =
@@ -74,12 +82,13 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
       { enabled: canManageRegistration }
     );
 
-  // Sync fetched settings to local state
-  useEffect(() => {
-    if (registrationStatus) {
-      setRegistrationSettings(registrationStatus);
-    }
-  }, [registrationStatus]);
+  // Seed the editable registration form once per load - a background
+  // refetch of the same (singleton) settings must not overwrite in-progress edits.
+  useInitOnceForKey(
+    registrationStatus,
+    registrationStatus ? "registration-loaded" : null,
+    setRegistrationSettings,
+  );
 
   const loadingRegistration = schemaLoading || statusLoading;
 

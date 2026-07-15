@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -11,6 +11,7 @@ import {
   DialogFooter,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import {
   metadataToRows,
@@ -59,13 +60,15 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name ?? "");
-      setDescription(initialData?.description ?? "");
-      setFields(metadataToRows(initialData?.metadata));
-    }
-  }, [open, initialData]);
+  // Seed the form ONCE per open transition. The parent passes `initialData` as
+  // a fresh object literal each render and realtime invalidations refetch the
+  // environment while open, so a `useEffect([open, initialData])` would re-seed
+  // on refetch and wipe in-progress edits.
+  useSeedFormOnOpen(open, () => {
+    setName(initialData?.name ?? "");
+    setDescription(initialData?.description ?? "");
+    setFields(metadataToRows(initialData?.metadata));
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

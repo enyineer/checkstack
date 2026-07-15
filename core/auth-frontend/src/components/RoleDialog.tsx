@@ -17,6 +17,7 @@ import {
   Badge,
   Alert,
   AlertDescription,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import { Check } from "lucide-react";
 import type { Role, AccessRuleEntry } from "../api";
@@ -52,12 +53,13 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   );
   const [saving, setSaving] = useState(false);
 
-  // Sync state when role prop changes (e.g., opening dialog with different role)
-  React.useEffect(() => {
+  // Seed form state once per dialog open (not on every `role` reference
+  // change) so a background refetch of the role list can't wipe in-progress edits.
+  useSeedFormOnOpen(open, () => {
     setName(role?.name || "");
     setDescription(role?.description || "");
     setSelectedAccessRules(new Set(role?.accessRules || []));
-  }, [role]);
+  });
 
   const isEditing = !!role;
   const isAdminRole = role?.id === "admin";

@@ -22,6 +22,7 @@ export const ThemeToggleMenuItem = () => {
   const toast = useToast();
 
   // Update local state when theme changes (e.g., from ThemeSynchronizer)
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- one-way mirror of the global resolved theme (a primitive) into local toggle display; the user never edits this state, so there is nothing to wipe.
   useEffect(() => {
     setIsDark(resolvedTheme === "dark");
   }, [resolvedTheme]);

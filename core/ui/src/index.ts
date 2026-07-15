@@ -86,6 +86,7 @@ export * from "./components/Popover";
 export * from "./components/comboboxInteraction";
 export * from "./hooks/useIsMobile";
 export * from "./hooks/useInitOnceForKey";
+export * from "./hooks/useSeedFormOnOpen";
 export * from "./components/ListEmptyState";
 export * from "./components/QueryErrorState";
 export * from "./components/ErrorState";

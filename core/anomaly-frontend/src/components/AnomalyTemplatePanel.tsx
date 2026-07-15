@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Card,
   CardHeader,
@@ -8,6 +8,7 @@ import {
   CardFooter,
   Button,
   useToast,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import { Activity, Save } from "lucide-react";
 import type { HealthCheckConfigIDEContext } from "@checkstack/healthcheck-frontend";
@@ -37,7 +38,7 @@ export function AnomalyTemplatePanel({ context }: { context: HealthCheckConfigID
 
   const { data: configRecord, isLoading } = anomalyClient.getAnomalyConfig.useQuery(
     { configurationId: context.configurationId },
-    { enabled: !!context.configurationId },
+    { enabled: !!context.configurationId, gcTime: 0 },
   );
 
   const availableFields = useAnomalyFields(context.configurationId);
@@ -47,18 +48,16 @@ export function AnomalyTemplatePanel({ context }: { context: HealthCheckConfigID
     onError: () => toast.error("Failed to save settings"),
   });
 
-  useEffect(() => {
-    if (configRecord?.data) {
-      setValues({
-        enabled: configRecord.data.enabled ?? true,
-        baselineWindow: configRecord.data.baselineWindow ?? "7d",
-        notify: configRecord.data.notify ?? true,
-        fieldOverrides:
-          (configRecord.data.fieldOverrides as Record<string, AnomalyFieldConfig>) ??
-          {},
-      });
-    }
-  }, [configRecord]);
+  // Seed the form once per configuration id; ignores background refetches so
+  // in-progress edits aren't wiped by a realtime-driven query update.
+  useInitOnceForKey(configRecord?.data, context.configurationId, (data) => {
+    setValues({
+      enabled: data.enabled ?? true,
+      baselineWindow: data.baselineWindow ?? "7d",
+      notify: data.notify ?? true,
+      fieldOverrides: (data.fieldOverrides as Record<string, AnomalyFieldConfig>) ?? {},
+    });
+  });
 
   const handleChange = <K extends keyof AnomalySettingsFormValues>(
     key: K,

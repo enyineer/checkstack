@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useId, useMemo } from "react";
+import React, { useState, useId, useMemo } from "react";
 import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { SloApi, type SloObjective } from "../api";
 import type { System } from "@checkstack/catalog-common";
@@ -30,6 +30,7 @@ import {
   toastError,
   toastSuccess,
   useUnsavedChanges,
+  useSeedFormOnOpen,
   Select,
   SelectTrigger,
   SelectValue,
@@ -161,8 +162,9 @@ export const SloEditor: React.FC<Props> = ({
     { enabled: !!effectiveSystemId },
   );
 
-  // Reset form when objective changes / dialog reopens
-  useEffect(() => {
+  // Seed form when the dialog opens (not on every background refetch of the
+  // underlying objective).
+  useSeedFormOnOpen(open, () => {
     setSystemId(initialSnapshot.systemId);
     setTarget(initialSnapshot.target);
     setWindowDays(initialSnapshot.windowDays);
@@ -174,7 +176,7 @@ export const SloEditor: React.FC<Props> = ({
     setOwnerTeamId(initialSnapshot.ownerTeamId);
     setOwnerTeamError(null);
     setTouched({});
-  }, [initialSnapshot, open]);
+  });
 
   // Single source of truth for client-side validation.
   const fieldErrors = deriveSloFieldErrors({

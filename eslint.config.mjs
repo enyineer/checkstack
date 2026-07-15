@@ -215,6 +215,17 @@ export default tseslint.config(
           additionalGuardIdentifiers: [],
         },
       ],
+      // Form-stability tripwire: a `useEffect` that seeds local state from one
+      // of its dependencies re-fires on every dependency change - including
+      // background query refetches driven by realtime signals - and wipes the
+      // user's in-progress edits (the catalog SystemEditor / EnvironmentEditor
+      // and healthcheck PlatformDefaultsDialog bugs). Seed once with
+      // `useSeedFormOnOpen` / `useInitOnceForKey` instead. Severity is
+      // intentionally `warn` and MUST NOT be escalated to `error` (nor forced
+      // green via `--max-warnings 0`): the rule cannot see whether a given
+      // parent passes a referentially-stable prop today, so it informs authors
+      // rather than blocking CI (see .claude/rules/code-style-guide.md).
+      "checkstack/no-state-seed-in-effect": "warn",
     },
   },
   // Gate-fusion nudge (PROTOTYPE scope): prefer `.useGatedMutation()` over raw

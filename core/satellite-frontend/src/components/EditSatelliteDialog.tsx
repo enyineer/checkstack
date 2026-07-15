@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   SatelliteApi,
@@ -16,6 +16,7 @@ import {
   Label,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import { CapabilityExplainer } from "./CapabilityExplainer";
 
@@ -41,12 +42,14 @@ export const EditSatelliteDialog: React.FC<Props> = ({
   const [name, setName] = useState("");
   const [region, setRegion] = useState("");
 
-  useEffect(() => {
+  // Seed once when the dialog opens (satellite becomes defined) so an
+  // in-flight background refetch of `satellite` doesn't wipe in-progress edits.
+  useSeedFormOnOpen(!!satellite, () => {
     if (satellite) {
       setName(satellite.name);
       setRegion(satellite.region);
     }
-  }, [satellite]);
+  });
 
   const updateMutation = satelliteClient.updateSatellite.useMutation({
     onSuccess: () => {

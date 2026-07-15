@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
   FormError,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 import {
   TelemetryApi,
@@ -76,13 +77,13 @@ export function EditSourceDialog({
   );
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Reseed whenever the dialog opens for this source.
-  useEffect(() => {
-    if (open) {
-      setValues(valuesFromSource({ descriptor, source }));
-      setFormError(null);
-    }
-  }, [open, descriptor, source]);
+  // Reseed once when the dialog opens for this source; a background
+  // react-query refetch of `source` while the dialog is open must not wipe
+  // the user's in-progress edits.
+  useSeedFormOnOpen(open, () => {
+    setValues(valuesFromSource({ descriptor, source }));
+    setFormError(null);
+  });
 
   const updateMutation = client.updateSource.useGatedMutation({
     gateInput: { id: source.id },

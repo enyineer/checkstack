@@ -250,6 +250,7 @@ const AutomationEditContent: React.FC = () => {
   // Keep the YAML mirror in sync with definition while the visual editor
   // is active — the YAML tab needs a non-stale starting point when the
   // operator switches over.
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- deliberate live mirror of the visual editor's `definition` into the YAML tab's starting text; gated on the visual tab so it never overwrites in-progress YAML edits, and `definition` is local state (the actual query seeds already use useInitOnceForKey).
   React.useEffect(() => {
     if (tab === "visual") {
       setYamlText(stringifyYaml(definition));

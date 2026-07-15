@@ -42,7 +42,12 @@ const SettingsContent: React.FC = () => {
   );
 
   const secretsQuery = client.listSecrets.useQuery();
-  const backendQuery = client.getBackendConfig.useQuery();
+  // gcTime:0: this config seeds BackendConfigCard's editable form once via
+  // useInitOnceForKey, so drop the cache on unmount to avoid a stale warm
+  // cache racing the one-shot seed on reopen (see query-invalidation docs).
+  const backendQuery = client.getBackendConfig.useQuery(undefined, {
+    gcTime: 0,
+  });
 
   // setSecret creates a new secret OR rotates an existing one (write-only:
   // the value is never read back by any endpoint).

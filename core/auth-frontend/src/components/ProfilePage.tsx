@@ -27,6 +27,7 @@ import {
   AlertDescription,
   usePerformance,
   cn,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import { AuthLandingCard } from "./AuthLandingCard";
 import { deriveInitial } from "./identity.logic";
@@ -79,16 +80,15 @@ export const ProfilePage = () => {
     },
   });
 
-  // Populate form when profile loads
-  useEffect(() => {
-    if (profile) {
-      setName(profile.name);
-      setEmail(profile.email);
-      setOriginalName(profile.name);
-      setOriginalEmail(profile.email);
-      setHasCredentialAccount(profile.hasCredentialAccount);
-    }
-  }, [profile]);
+  // Populate form once per profile id - ignores background refetches of the
+  // same profile so they can't clobber an in-progress edit.
+  useInitOnceForKey(profile, profile?.id, (p) => {
+    setName(p.name);
+    setEmail(p.email);
+    setOriginalName(p.name);
+    setOriginalEmail(p.email);
+    setHasCredentialAccount(p.hasCredentialAccount);
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

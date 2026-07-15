@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Button,
   Input,
@@ -11,6 +11,7 @@ import {
   DialogFooter,
   useToast,
   toastError,
+  useSeedFormOnOpen,
 } from "@checkstack/ui";
 
 interface GroupEditorProps {
@@ -30,12 +31,12 @@ export const GroupEditor: React.FC<GroupEditorProps> = ({
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name || "");
-    }
-  }, [open, initialData]);
+  // Seed the form ONCE per open transition. The parent rebuilds `initialData`
+  // each render and realtime invalidations refetch while open, so a
+  // `useEffect([open, initialData])` would re-seed on refetch and wipe edits.
+  useSeedFormOnOpen(open, () => {
+    setName(initialData?.name || "");
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

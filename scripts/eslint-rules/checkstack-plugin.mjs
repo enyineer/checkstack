@@ -17,6 +17,7 @@ import { preferGatedMutation } from "./prefer-gated-mutation.mjs";
 import { noDirectRoleMembershipWrites } from "./no-direct-role-membership-writes.mjs";
 import { noDirectSystemStatusRead } from "./no-direct-system-status-read.mjs";
 import { noDirectHealthRunInsert } from "./no-direct-health-run-insert.mjs";
+import { noStateSeedInEffect } from "./no-state-seed-in-effect.mjs";
 
 export default {
   rules: {
@@ -33,5 +34,6 @@ export default {
     "no-direct-role-membership-writes": noDirectRoleMembershipWrites,
     "no-direct-system-status-read": noDirectSystemStatusRead,
     "no-direct-health-run-insert": noDirectHealthRunInsert,
+    "no-state-seed-in-effect": noStateSeedInEffect,
   },
 };

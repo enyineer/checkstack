@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Bell, Clock, Zap, Send, Activity } from "lucide-react";
 import {
@@ -10,6 +10,7 @@ import {
   toastSuccess,
   SectionHeader,
   DynamicForm,
+  useInitOnceForKey,
 } from "@checkstack/ui";
 import {
   usePluginClient,
@@ -60,9 +61,13 @@ export const NotificationSettingsPage = () => {
   const { data: retentionSchema } =
     notificationClient.getRetentionSchema.useQuery({}, { enabled: isAdmin });
 
-  // Query: Retention settings (admin only)
+  // Query: Retention settings (admin only). gcTime: 0 so stale-while-revalidate
+  // can't race the one-shot seed below and show pre-mutation values on reopen.
   const { data: fetchedRetentionSettings, isLoading: retentionLoading } =
-    notificationClient.getRetentionSettings.useQuery({}, { enabled: isAdmin });
+    notificationClient.getRetentionSettings.useQuery(
+      {},
+      { enabled: isAdmin, gcTime: 0 },
+    );
 
   // Query: Delivery strategies (admin only)
   const {
@@ -81,12 +86,15 @@ export const NotificationSettingsPage = () => {
     refetch: refetchChannels,
   } = notificationClient.getUserDeliveryChannels.useQuery({});
 
-  // Sync fetched retention settings to local state
-  useEffect(() => {
-    if (fetchedRetentionSettings) {
-      setRetentionSettings(fetchedRetentionSettings);
-    }
-  }, [fetchedRetentionSettings]);
+  // Seed the editable form once per load - a background refetch of the same
+  // settings must not clobber in-progress edits.
+  useInitOnceForKey(
+    fetchedRetentionSettings,
+    fetchedRetentionSettings ? "notification-retention-loaded" : null,
+    (settings) => {
+      setRetentionSettings(settings);
+    },
+  );
 
   // Mutations
   const setRetentionMutation =
