@@ -15,15 +15,6 @@ import {
   MetricStreamSchema,
   CreateMetricStreamSchema,
   UpdateMetricStreamSchema,
-  MetricStreamTokenSchema,
-  MintTokenSchema,
-  MintTokenResultSchema,
-  RevokeTokenSchema,
-  MetricScrapeTargetSchema,
-  CreateScrapeTargetSchema,
-  UpdateScrapeTargetSchema,
-  DeleteScrapeTargetSchema,
-  ListScrapeTargetsSchema,
   ListMetricNamesSchema,
   ListMetricNamesResultSchema,
   ListLabelKeysSchema,
@@ -45,9 +36,11 @@ import {
  * Metric stream RPC contract (oRPC contract-first). Every write proc declares
  * exactly one `instanceAccess` mode so team-scoping stays coherent with the
  * frontend gates (see `.claude/rules/rlac.md`). Streams are the only
- * team-scopable resource; tokens / scrape targets / metrics / buckets / events
- * are all scoped by their owning `streamId`. The instanceAccess choices mirror
- * logstream's reviewed contract exactly.
+ * team-scopable resource; metrics / buckets / events are all scoped by their
+ * owning `streamId`. Push-token management lives on the telemetry platform (a
+ * `metricstream.push` source instance) - the plugin no longer exposes token
+ * mint/list/revoke RPCs. The instanceAccess choices mirror logstream's reviewed
+ * contract exactly.
  */
 export const metricstreamContract = {
   // ==========================================================================
@@ -129,81 +122,6 @@ export const metricstreamContract = {
     access: [metricstreamAccess.read],
     instanceAccess: { typeScoped: {} },
   }).output(z.array(StreamForPickerSchema)),
-
-  // ==========================================================================
-  // SOURCE TOKENS (manage; scoped by the owning stream id)
-  // ==========================================================================
-
-  listTokens: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(z.object({ streamId: z.string() }))
-    .output(z.array(MetricStreamTokenSchema)),
-
-  /** Mint a token; returns the full secret ONCE plus the persisted row. */
-  mintToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(MintTokenSchema)
-    .output(MintTokenResultSchema),
-
-  /** Revoke a token. The handler MUST invalidate the ingest auth cache entry. */
-  revokeToken: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(RevokeTokenSchema)
-    .output(z.void()),
-
-  // ==========================================================================
-  // SCRAPE TARGETS (Prometheus pull; manage-gated on the owning stream)
-  // ==========================================================================
-
-  listScrapeTargets: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(ListScrapeTargetsSchema)
-    .output(z.array(MetricScrapeTargetSchema)),
-
-  createScrapeTarget: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .input(CreateScrapeTargetSchema)
-    .output(MetricScrapeTargetSchema),
-
-  updateScrapeTarget: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .route({ method: "PATCH" })
-    .input(UpdateScrapeTargetSchema)
-    .output(MetricScrapeTargetSchema),
-
-  deleteScrapeTarget: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [metricstreamAccess.manage],
-    instanceAccess: { idParam: "streamId" },
-  })
-    .route({ method: "DELETE" })
-    .input(DeleteScrapeTargetSchema)
-    .output(z.void()),
 
   // ==========================================================================
   // AUTOCOMPLETE + VIEWER READS (read; scoped by the owning stream id)

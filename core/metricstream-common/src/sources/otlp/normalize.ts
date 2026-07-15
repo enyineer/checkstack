@@ -19,9 +19,14 @@
  * clamps it into the trust window afterwards. Pure module: no IO.
  */
 
+import {
+  MAX_EXEMPLARS_PER_POINT,
+  type MetricExemplar,
+} from "@checkstack/telemetry-common";
 import type { NormalizedDatapoint } from "../../schemas";
 import {
   AGGREGATION_TEMPORALITY,
+  type OtlpExemplar,
   type OtlpMetric,
   type OtlpMetricsPayload,
 } from "./decode";
@@ -49,6 +54,46 @@ export interface OtlpNormalizeResult {
 function tsFromNanos(nanos: bigint, fallback: Date): Date {
   if (nanos <= 0n) return fallback;
   return new Date(Number(nanos / NANOS_PER_MS));
+}
+
+const TRACE_ID_HEX = /^[0-9a-f]{32}$/;
+const SPAN_ID_HEX = /^[0-9a-f]{16}$/;
+const ZERO_TRACE_ID = "0".repeat(32);
+const ZERO_SPAN_ID = "0".repeat(16);
+
+/**
+ * Normalize a datapoint's OTLP exemplars into the shared {@link MetricExemplar}
+ * shape, KEEPING ONLY those with a real W3C trace id (exactly 32 lowercase hex,
+ * not the all-zero "no trace" id). A missing/zero span id is simply omitted. The
+ * newest {@link MAX_EXEMPLARS_PER_POINT} by timestamp are retained (bounded
+ * storage; exemplars are a jump-off, not a series). Returns `undefined` when the
+ * point carries no usable exemplar, so the field stays absent on the datapoint.
+ */
+function normalizeExemplars({
+  exemplars,
+  fallback,
+}: {
+  exemplars: OtlpExemplar[];
+  fallback: Date;
+}): MetricExemplar[] | undefined {
+  if (exemplars.length === 0) return undefined;
+  const out: MetricExemplar[] = [];
+  for (const ex of exemplars) {
+    if (!TRACE_ID_HEX.test(ex.traceId) || ex.traceId === ZERO_TRACE_ID) continue;
+    const spanId =
+      SPAN_ID_HEX.test(ex.spanId) && ex.spanId !== ZERO_SPAN_ID
+        ? ex.spanId
+        : undefined;
+    out.push({
+      traceId: ex.traceId,
+      ...(spanId ? { spanId } : {}),
+      value: ex.value,
+      ts: tsFromNanos(ex.timeUnixNano, fallback),
+    });
+  }
+  if (out.length === 0) return undefined;
+  out.sort((a, b) => b.ts.getTime() - a.ts.getTime());
+  return out.slice(0, MAX_EXEMPLARS_PER_POINT);
 }
 
 /** Coerce an OTLP attribute value to a label string. */
@@ -128,13 +173,15 @@ function foldMetric({
   switch (data.kind) {
     case "gauge": {
       for (const p of data.points) {
+        const ts = tsFromNanos(p.timeUnixNano, now);
         datapoints.push({
           name,
           type: "gauge",
           unit,
           labels: buildLabels({ resourceLabels, attributes: p.attributes }),
           value: p.value,
-          ts: tsFromNanos(p.timeUnixNano, now),
+          ts,
+          exemplars: normalizeExemplars({ exemplars: p.exemplars ?? [], fallback: ts }),
         });
       }
       return 0;
@@ -144,6 +191,7 @@ function foldMetric({
       for (const p of data.points) {
         const labels = buildLabels({ resourceLabels, attributes: p.attributes });
         const ts = tsFromNanos(p.timeUnixNano, now);
+        const exemplars = normalizeExemplars({ exemplars: p.exemplars ?? [], fallback: ts });
         if (data.monotonic) {
           datapoints.push({
             name,
@@ -153,10 +201,19 @@ function foldMetric({
             labels,
             value: p.value,
             ts,
+            exemplars,
           });
         } else {
           // A non-monotonic sum is a level (UpDownCounter) - store as a gauge.
-          datapoints.push({ name, type: "gauge", unit, labels, value: p.value, ts });
+          datapoints.push({
+            name,
+            type: "gauge",
+            unit,
+            labels,
+            value: p.value,
+            ts,
+            exemplars,
+          });
         }
       }
       return 0;
@@ -167,6 +224,10 @@ function foldMetric({
       for (const p of data.points) {
         const labels = buildLabels({ resourceLabels, attributes: p.attributes });
         const ts = tsFromNanos(p.timeUnixNano, now);
+        // The histogram's exemplars ride the `_count` series (the sample-rate
+        // line a user charts); `_sum` stays exemplar-free to avoid duplicating
+        // the same jump-off across two decomposed series.
+        const exemplars = normalizeExemplars({ exemplars: p.exemplars ?? [], fallback: ts });
         datapoints.push({
           name: `${name}_count`,
           type: "counter",
@@ -175,6 +236,7 @@ function foldMetric({
           labels,
           value: p.count,
           ts,
+          exemplars,
         });
         if (p.sum !== undefined) {
           datapoints.push({

@@ -75,6 +75,48 @@ describe("parseOtlpMetricsJson", () => {
     }
   });
 
+  it("parses exemplars (hex trace/span ids) on number datapoints, both key casings", () => {
+    const payload = parseOtlpMetricsJson({
+      resourceMetrics: [
+        {
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: "cpu",
+                  gauge: {
+                    dataPoints: [
+                      {
+                        asDouble: 0.5,
+                        exemplars: [
+                          {
+                            timeUnixNano: "1700000000500000000",
+                            asDouble: 0.9,
+                            traceId: "A".repeat(32),
+                            span_id: "b".repeat(16),
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const data = payload[0].metrics[0].data;
+    expect(data?.kind).toBe("gauge");
+    if (data?.kind === "gauge") {
+      const [ex] = data.points[0].exemplars ?? [];
+      expect(ex.traceId).toBe("a".repeat(32)); // lowercased
+      expect(ex.spanId).toBe("b".repeat(16));
+      expect(ex.value).toBe(0.9);
+      expect(ex.timeUnixNano).toBe(1700000000500000000n);
+    }
+  });
+
   it("returns an empty payload for a non-object body", () => {
     expect(parseOtlpMetricsJson(null)).toEqual([]);
     expect(parseOtlpMetricsJson(42)).toEqual([]);

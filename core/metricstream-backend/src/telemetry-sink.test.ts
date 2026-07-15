@@ -16,7 +16,7 @@ import {
   type ResolveMetricStream,
   type ResolveMetricStreams,
 } from "./telemetry-sink";
-import type { MetricIngestSink } from "./sources/extension-point";
+import type { MetricIngestSink } from "./sources/ingest-sink";
 
 const MANAGE_ID = qualifyAccessRuleId(
   pluginMetadata,
@@ -146,6 +146,32 @@ describe("metricstream telemetry sink - write mapping", () => {
     expect(dps[0]).toMatchObject({ name: "cpu", type: "gauge", unit: "s", value: 1.5, ts });
     expect(dps[0]!.counterKind).toBeUndefined();
     expect(dps[1]).toMatchObject({ name: "reqs", type: "counter", counterKind: "delta", ts });
+  });
+
+  it("carries trace-context exemplars through to the ingest datapoints", async () => {
+    // Regression: a scraped/OTLP point's exemplars must survive the sink mapping
+    // so the ExemplarLane appears for metrics arriving via the telemetry
+    // platform. Field-by-field mapping previously dropped them.
+    const sink = fakeSink();
+    const contribution = makeSink({ sink });
+    const exemplar = { traceId: "a".repeat(32), value: 5, ts };
+    await contribution.write({
+      streamId: "stream-1",
+      source: SOURCE,
+      records: [point({ exemplars: [exemplar] })],
+    });
+    expect(sink.calls[0]!.datapoints[0]!.exemplars).toEqual([exemplar]);
+  });
+
+  it("leaves exemplars unset when the point carries none", async () => {
+    const sink = fakeSink();
+    const contribution = makeSink({ sink });
+    await contribution.write({
+      streamId: "stream-1",
+      source: SOURCE,
+      records: [point()],
+    });
+    expect(sink.calls[0]!.datapoints[0]!.exemplars).toBeUndefined();
   });
 
   it("maps the sink result to { accepted, rejected }", async () => {

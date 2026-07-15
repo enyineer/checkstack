@@ -4,14 +4,10 @@ import { createMockRpcContext } from "@checkstack/backend-api";
 import type { RpcContext } from "@checkstack/backend-api";
 import {
   DEFAULT_METRIC_STREAM_CONFIG,
-  type MetricScrapeTarget,
   type MetricStream,
-  type MetricStreamToken,
-  type UpdateScrapeTarget,
 } from "@checkstack/metricstream-common";
 import { createMetricstreamRouter } from "./router";
 import type { MetricstreamService } from "./service";
-import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
 import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
@@ -36,16 +32,6 @@ const stream = (id: string, name: string): MetricStream => ({
 
 const STREAM_1 = stream("stream-1", "Payments metrics");
 const STREAM_2 = stream("stream-2", "Checkout metrics");
-
-const token = (id: string, streamId: string): MetricStreamToken => ({
-  id,
-  streamId,
-  name: "shipper",
-  tokenPrefix: "ckms_abc",
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  lastUsedAt: null,
-  revokedAt: null,
-});
 
 function stubService(
   overrides: Partial<MetricstreamService> = {},
@@ -83,35 +69,11 @@ function stubService(
       { id: STREAM_1.id, name: STREAM_1.name },
       { id: STREAM_2.id, name: STREAM_2.name },
     ],
-    listTokens: async ({ streamId }) => [token("tok-1", streamId)],
-    mintToken: async ({ streamId }) => ({
-      secret: "ckms_secret_value",
-      token: token("tok-1", streamId),
-    }),
-    revokeToken: async () => {},
-    listScrapeTargets: async () => [],
-    createScrapeTarget: async (input) => ({
-      id: "target-1",
-      streamId: input.streamId,
-      name: input.name,
-      url: input.url,
-      intervalSeconds: input.intervalSeconds,
-      timeoutMs: input.timeoutMs,
-      enabled: input.enabled,
-      satelliteId: input.satelliteId ?? null,
-      hasBearerToken: false,
-      lastScrapeAt: null,
-      lastError: null,
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-01-01T00:00:00Z"),
-    }),
-    updateScrapeTarget: notImplemented("updateScrapeTarget"),
-    deleteScrapeTarget: async () => {},
     listMetricNames: async () => ({ names: [] }),
     listLabelKeys: async () => ({ keys: [] }),
     listLabelValues: async () => ({ values: [] }),
     listMetricSeries: async () => ({ series: [] }),
-    getMetricBuckets: async ({ grain }) => ({ grain: grain ?? "minute", points: [] }),
+    getMetricBuckets: async ({ grain }) => ({ grain: grain ?? "minute", points: [], exemplars: [] }),
     listImportantEvents: async () => ({ events: [], nextCursor: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
     listSystemLinks: async () => ({ systemIds: [] }),
@@ -132,36 +94,14 @@ function stubService(
   };
 }
 
-/** By default the satellite-binding authorizer is a no-op (allow) so the
- * RLAC tests focus on the stream gate; the SAT-C block below injects its own. */
 const buildRouter = (
   overrides?: Partial<MetricstreamService>,
-  assertSatelliteBindable: SatelliteBindingAuthorizer = async () => {},
   assertLinkedSystemsReadable: SystemLinksReadableAuthorizer = async () => {},
 ) =>
   createMetricstreamRouter({
     service: stubService(overrides),
-    assertSatelliteBindable,
     assertLinkedSystemsReadable,
   });
-
-const scrapeTargetDto = (
-  input: { streamId: string; satelliteId?: string | null },
-): MetricScrapeTarget => ({
-  id: "target-1",
-  streamId: input.streamId,
-  name: "prom",
-  url: "https://example.com/metrics",
-  intervalSeconds: 60,
-  timeoutMs: 10_000,
-  enabled: true,
-  satelliteId: input.satelliteId ?? null,
-  hasBearerToken: false,
-  lastScrapeAt: null,
-  lastError: null,
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  updatedAt: new Date("2026-01-01T00:00:00Z"),
-});
 
 const teamUser = { type: "user" as const, id: "team-user", accessRules: [] as string[] };
 
@@ -263,228 +203,6 @@ describe("autocomplete reads gated on read (idParam streamId)", () => {
       { context },
     );
     expect(result.names).toEqual([]);
-  });
-});
-
-describe("token mint/revoke gated on manage (idParam streamId)", () => {
-  it("a manage grant on the stream may mint", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().mintToken,
-      { streamId: "stream-1", name: "shipper" },
-      { context },
-    );
-    expect(result.secret).toBe("ckms_secret_value");
-  });
-
-  it("no grant on the stream is FORBIDDEN for mint and revoke", async () => {
-    const context = () => createMockRpcContext({ user: teamUser, ...grantAuth([]) });
-    await expect(
-      call(buildRouter().mintToken, { streamId: "stream-1", name: "s" }, { context: context() }),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-    await expect(
-      call(
-        buildRouter().revokeToken,
-        { streamId: "stream-1", tokenId: "tok-1" },
-        { context: context() },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-});
-
-describe("scrape targets gated on manage (idParam streamId)", () => {
-  it("a manage grant may create a scrape target", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().createScrapeTarget,
-      {
-        streamId: "stream-1",
-        name: "prom",
-        url: "https://example.com/metrics",
-        intervalSeconds: 60,
-        timeoutMs: 10_000,
-        enabled: true,
-      },
-      { context },
-    );
-    expect(result.streamId).toBe("stream-1");
-  });
-
-  it("a grant on another stream cannot create here (cross-stream denial)", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-2"]),
-    });
-    await expect(
-      call(
-        buildRouter().createScrapeTarget,
-        {
-          streamId: "stream-1",
-          name: "prom",
-          url: "https://example.com/metrics",
-          intervalSeconds: 60,
-          timeoutMs: 10_000,
-          enabled: true,
-        },
-        { context },
-      ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
-  });
-});
-
-describe("scrape-target satellite binding authorization (SAT-C SSRF fix)", () => {
-  const ctx = () =>
-    createMockRpcContext({ user: teamUser, ...grantAuth(["stream-1"]) });
-  const createInput = (satelliteId?: string | null) => ({
-    streamId: "stream-1",
-    name: "prom",
-    url: "https://example.com/metrics",
-    intervalSeconds: 60,
-    timeoutMs: 10_000,
-    enabled: true,
-    ...(satelliteId === undefined ? {} : { satelliteId }),
-  });
-  const updateInput = (satelliteId?: string | null): UpdateScrapeTarget => ({
-    streamId: "stream-1",
-    targetId: "target-1",
-    ...(satelliteId === undefined ? {} : { satelliteId }),
-  });
-  const bindingService = () =>
-    stubService({
-      createScrapeTarget: async (input) => scrapeTargetDto(input),
-      updateScrapeTarget: async (input) => scrapeTargetDto(input),
-    });
-
-  /** Run and return the ORPCError it rejects with (asserting its `code`, not the
-   * message - the authorizer's FORBIDDEN carries a human message, not "FORBIDDEN"). */
-  async function rejectedCode(promise: Promise<unknown>): Promise<string> {
-    try {
-      await promise;
-    } catch (error) {
-      return (error as ORPCError<string, unknown>).code;
-    }
-    throw new Error("expected the call to reject");
-  }
-
-  it("create: authorizes the binding and binds on success", async () => {
-    const authz = mock<SatelliteBindingAuthorizer>(async () => {});
-    const router = createMetricstreamRouter({
-      service: bindingService(),
-      assertSatelliteBindable: authz,
-      assertLinkedSystemsReadable: async () => {},
-    });
-    const result = await call(router.createScrapeTarget, createInput("sat-1"), {
-      context: ctx(),
-    });
-    expect(authz).toHaveBeenCalledTimes(1);
-    expect(authz.mock.calls[0]![0]!.satelliteId).toBe("sat-1");
-    expect(result.satelliteId).toBe("sat-1");
-  });
-
-  it("create: a FORBIDDEN from the authorizer blocks the bind and never persists", async () => {
-    const created = mock(async (input: { streamId: string }) =>
-      scrapeTargetDto(input),
-    );
-    const authz = mock<SatelliteBindingAuthorizer>(async () => {
-      throw new ORPCError("FORBIDDEN", { message: "no read access" });
-    });
-    const router = createMetricstreamRouter({
-      service: stubService({ createScrapeTarget: created }),
-      assertSatelliteBindable: authz,
-      assertLinkedSystemsReadable: async () => {},
-    });
-    expect(
-      await rejectedCode(
-        call(router.createScrapeTarget, createInput("other-team-sat"), {
-          context: ctx(),
-        }),
-      ),
-    ).toBe("FORBIDDEN");
-    expect(created).not.toHaveBeenCalled();
-  });
-
-  it("create: a BAD_REQUEST (unknown / non-scrape satellite) blocks the bind", async () => {
-    const authz = mock<SatelliteBindingAuthorizer>(async () => {
-      throw new ORPCError("BAD_REQUEST", { message: "Satellite not found." });
-    });
-    const router = createMetricstreamRouter({
-      service: bindingService(),
-      assertSatelliteBindable: authz,
-      assertLinkedSystemsReadable: async () => {},
-    });
-    await expect(
-      call(router.createScrapeTarget, createInput("ghost"), { context: ctx() }),
-    ).rejects.toThrow(/BAD_REQUEST|not found/i);
-  });
-
-  it("update (rebind): authorizes, and a FORBIDDEN blocks it", async () => {
-    const okAuthz = mock<SatelliteBindingAuthorizer>(async () => {});
-    await call(
-      createMetricstreamRouter({
-        service: bindingService(),
-        assertSatelliteBindable: okAuthz,
-        assertLinkedSystemsReadable: async () => {},
-      }).updateScrapeTarget,
-      updateInput("sat-1"),
-      { context: ctx() },
-    );
-    expect(okAuthz).toHaveBeenCalledTimes(1);
-    expect(okAuthz.mock.calls[0]![0]!.satelliteId).toBe("sat-1");
-
-    const denyAuthz = mock<SatelliteBindingAuthorizer>(async () => {
-      throw new ORPCError("FORBIDDEN", { message: "no read access" });
-    });
-    expect(
-      await rejectedCode(
-        call(
-          createMetricstreamRouter({
-            service: bindingService(),
-            assertSatelliteBindable: denyAuthz,
-            assertLinkedSystemsReadable: async () => {},
-          }).updateScrapeTarget,
-          updateInput("other-team-sat"),
-          { context: ctx() },
-        ),
-      ),
-    ).toBe("FORBIDDEN");
-  });
-
-  it("does NOT authorize when satelliteId is absent (core) or null (unbind)", async () => {
-    const authz = mock<SatelliteBindingAuthorizer>(async () => {});
-    const router = createMetricstreamRouter({
-      service: bindingService(),
-      assertSatelliteBindable: authz,
-      assertLinkedSystemsReadable: async () => {},
-    });
-    // create scraped from core (no satelliteId)
-    await call(router.createScrapeTarget, createInput(), { context: ctx() });
-    // update unbind (explicit null)
-    await call(router.updateScrapeTarget, updateInput(null), { context: ctx() });
-    expect(authz).not.toHaveBeenCalled();
-  });
-});
-
-describe("listTokens never leaks the secret/hash", () => {
-  it("a manage grant lists tokens without any secret material", async () => {
-    const context = createMockRpcContext({
-      user: teamUser,
-      ...grantAuth(["stream-1"]),
-    });
-    const result = await call(
-      buildRouter().listTokens,
-      { streamId: "stream-1" },
-      { context },
-    );
-    for (const t of result) {
-      expect(t).not.toHaveProperty("secret");
-      expect(t).not.toHaveProperty("tokenHash");
-    }
   });
 });
 
@@ -614,7 +332,7 @@ describe("system links: setSystemLinks (manage idParam) + readable gate wiring",
       ...grantAuth(["stream-1"]),
     });
     await call(
-      buildRouter({ setSystemLinks: setLinks }, undefined, assertReadable)
+      buildRouter({ setSystemLinks: setLinks }, assertReadable)
         .setSystemLinks,
       { streamId: "stream-1", systemIds: ["sys-a", "sys-b"] },
       { context },
@@ -643,7 +361,7 @@ describe("system links: setSystemLinks (manage idParam) + readable gate wiring",
     });
     await expect(
       call(
-        buildRouter({ setSystemLinks: setLinks }, undefined, assertReadable)
+        buildRouter({ setSystemLinks: setLinks }, assertReadable)
           .setSystemLinks,
         { streamId: "stream-1", systemIds: ["sys-secret"] },
         { context },

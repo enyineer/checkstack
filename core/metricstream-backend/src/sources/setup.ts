@@ -1,123 +1,73 @@
-import type { Logger, RpcService, SafeDatabase } from "@checkstack/backend-api";
-import type { QueueManager } from "@checkstack/queue-api";
-import type {
-  InternalSecretsService,
-  SecretResolverService,
-} from "@checkstack/secrets-backend";
-import { RateLimiter, type IngestAuthenticator } from "@checkstack/ingest-utils";
-import { pluginMetadata } from "@checkstack/metricstream-common";
-import type * as schema from "../schema";
-import type { ImportantEventRecorder } from "../events/recorder";
+import type { Logger, RpcService } from "@checkstack/backend-api";
+import type { IngestAuthenticator } from "@checkstack/ingest-utils";
+import { RateLimiter } from "@checkstack/ingest-utils";
+import type { PushTokenVerifier } from "@checkstack/telemetry-backend";
 import type { StreamConfigResolver } from "../ingest/stream-config";
-import type { MetricIngestSink, MetricSourceRegistry } from "./extension-point";
-import {
-  createOtlpSource,
-  createNativeSource,
-  createPrometheusSource,
-} from "./built-in";
-import { createScrapeScheduler } from "./prometheus/reconciler";
+import type { MetricIngestSink } from "./ingest-sink";
+import { createOtlpMetricsHandler } from "./otlp/endpoint";
+import { createNativeMetricsHandler } from "./native/endpoint";
 
 /**
- * Handle returned by {@link registerSources}. The two reconcile seams are handed
- * to the API area so scrape-target CRUD reschedules/cancels a target's recurring
- * scrape immediately (their exact names are `reconcileScrapeTarget` /
- * `removeScrapeTarget`, taking `{ targetId }`).
- */
-export interface SourcesHandle {
-  reconcileScrapeTarget(input: { targetId: string }): Promise<void>;
-  removeScrapeTarget(input: { targetId: string }): Promise<void>;
-  stop(): Promise<void>;
-}
-
-/**
- * Register the built-in metric source types through the extension point
- * (dogfooding), wire the PUSH sources' HTTP handlers against the shared sink +
- * ckms_ authenticator, and start the PULL scheduling subsystem (the
- * `metricstream-scrape` reconciler + competing consumer).
+ * Wire metricstream's PUSH ingest endpoints directly against the shared sink +
+ * `ckms_` authenticator: OTLP/HTTP metrics (`POST /v1/metrics`) and native JSON
+ * metrics (`POST /ingest`). A single pod-local soft rate limiter is shared by
+ * both so a stream's per-minute budget is counted across them.
  *
- * The built-ins are registered here at init (alongside any third-party sources
- * already registered against the extension point during `register()`), then the
- * registry is iterated to wire every push source. Pull scheduling is booted
- * fire-and-forget (reconcile + consumer) so init stays non-blocking.
+ * PULL scraping used to live here (a dogfooded metric-source extension point + a
+ * `metricstream-scrape` reconciler). It is GONE: Prometheus scraping is now the
+ * telemetry-platform source type `metricstream.prometheus-scrape`, scheduled by
+ * the platform (core reconciler) or a satellite (generic `telemetry-pull`
+ * capability). See `sources/prometheus/source-type.ts`.
  */
 export function registerSources({
-  sourceRegistry,
   rpc,
   sink,
   auth,
+  verifier,
   logger,
   configResolver,
-  queueManager,
-  db,
-  recorder,
-  internalSecrets,
-  secretResolver,
 }: {
-  sourceRegistry: MetricSourceRegistry;
   rpc: RpcService;
   sink: MetricIngestSink;
   auth: IngestAuthenticator;
+  /** Platform push-token verifier - stamps the instance's last-seen on ingest. */
+  verifier: PushTokenVerifier;
   logger: Logger;
   configResolver: StreamConfigResolver;
-  queueManager: QueueManager;
-  db: SafeDatabase<typeof schema>;
-  recorder: ImportantEventRecorder;
-  internalSecrets: InternalSecretsService;
-  secretResolver: SecretResolverService;
-}): SourcesHandle {
-  // One pod-local soft rate limiter shared by both push endpoints, so a stream's
-  // soft per-minute budget is counted across OTLP + native.
+}): void {
   const pushRateLimiter = new RateLimiter();
 
-  // Register the three built-in sources through the extension point.
-  sourceRegistry.register(
-    createOtlpSource({ configResolver, rateLimiter: pushRateLimiter }),
-    pluginMetadata,
-  );
-  sourceRegistry.register(
-    createNativeSource({ configResolver, rateLimiter: pushRateLimiter }),
-    pluginMetadata,
-  );
-  sourceRegistry.register(createPrometheusSource(), pluginMetadata);
-
-  // Wire every PUSH source's HTTP handlers (built-in + any third-party).
-  let pushCount = 0;
-  for (const source of sourceRegistry.list()) {
-    if (source.kind === "push") {
-      source.registerPush?.({ rpc, sink, auth, logger });
-      pushCount += 1;
-    }
-  }
-
-  // PULL scheduling: reconciler + competing consumer over `metricstream-scrape`.
-  const scheduler = createScrapeScheduler({
-    queueManager,
-    db,
-    recorder,
-    sourceRegistry,
-    sink,
-    internalSecrets,
-    secretResolver,
-    logger,
-  });
-  void scheduler.startConsumer().catch((error: unknown) => {
-    logger.warn(
-      `metricstream: failed to start scrape consumer: ${String(error)}`,
-    );
-  });
-  void scheduler.reconcileAll().catch((error: unknown) => {
-    logger.warn(
-      `metricstream: initial scrape reconcile failed: ${String(error)}`,
-    );
-  });
-
-  logger.debug(
-    `metricstream: registered ${sourceRegistry.list().length} source type(s), ${pushCount} push handler(s) wired`,
-  );
-
-  return {
-    reconcileScrapeTarget: scheduler.reconcileScrapeTarget,
-    removeScrapeTarget: scheduler.removeScrapeTarget,
-    stop: scheduler.stop,
+  // Fire-and-forget last-seen stamp on every verified push (the platform
+  // throttles the underlying write); a failure must never affect ingest.
+  const recordPushSeen = (tokenId: string): void => {
+    void verifier.recordPushSeen(tokenId).catch((error: unknown) => {
+      logger.debug(
+        `metricstream: recordPushSeen failed for source ${tokenId}: ${String(error)}`,
+      );
+    });
   };
+
+  rpc.registerHttpHandler(
+    createOtlpMetricsHandler({
+      auth,
+      configResolver,
+      sink,
+      logger,
+      rateLimiter: pushRateLimiter,
+      recordPushSeen,
+    }),
+    "/v1/metrics",
+  );
+  rpc.registerHttpHandler(
+    createNativeMetricsHandler({
+      auth,
+      configResolver,
+      sink,
+      rateLimiter: pushRateLimiter,
+      recordPushSeen,
+    }),
+    "/ingest",
+  );
+
+  logger.debug("metricstream: registered OTLP + native metric push handlers");
 }

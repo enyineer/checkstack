@@ -7,7 +7,7 @@
 
 import { readCappedBody, BodyTooLargeError, RateLimiter } from "@checkstack/ingest-utils";
 import type { IngestAuthenticator } from "@checkstack/ingest-utils";
-import type { MetricIngestSink } from "../extension-point";
+import type { MetricIngestSink } from "../ingest-sink";
 import type { StreamConfigResolver } from "../../ingest/stream-config";
 import { authenticateRequest } from "../http/authenticate";
 import { admitDatapoints } from "../http/admit";
@@ -25,18 +25,21 @@ export function createNativeMetricsHandler({
   configResolver,
   sink,
   rateLimiter,
+  recordPushSeen,
   now = () => new Date(),
 }: {
   auth: IngestAuthenticator;
   configResolver: StreamConfigResolver;
   sink: MetricIngestSink;
   rateLimiter: RateLimiter;
+  /** Fire-and-forget last-seen stamp for the verified push instance. */
+  recordPushSeen?: (tokenId: string) => void;
   now?: () => Date;
 }): (request: Request) => Promise<Response> {
   return async (request) => {
     if (request.method !== "POST") return methodNotAllowed();
 
-    const source = await authenticateRequest({ request, auth });
+    const source = await authenticateRequest({ request, auth, recordPushSeen });
     if (source instanceof Response) return source;
 
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";

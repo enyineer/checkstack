@@ -33,7 +33,7 @@ import {
   type TelemetrySinkContribution,
   type TelemetrySinkWriteResult,
 } from "@checkstack/telemetry-backend";
-import type { MetricIngestSink } from "./sources/extension-point";
+import type { MetricIngestSink } from "./sources/ingest-sink";
 
 /** Resolve a stream's identity by id, or null when it does not exist. */
 export type ResolveMetricStream = (
@@ -123,6 +123,9 @@ export function createMetricstreamTelemetrySink({
 
   return {
     signal: "metrics",
+    // The qualified ReBAC resource type of this signal's streams, so the
+    // platform can back-fill / clean up per-stream grants on binding changes.
+    streamResourceType: metricstreamResourceTypes.stream,
 
     assertBindable,
     describeStream,
@@ -151,6 +154,10 @@ export function createMetricstreamTelemetrySink({
         value: record.value,
         // The shared sink clamps ts into the trust window; pass it through.
         ts: record.ts,
+        // Carry trace-context exemplars so the ExemplarLane appears for metrics
+        // arriving via the telemetry platform (scraped targets included). The
+        // NormalizedDatapoint field is optional - only set it when present.
+        ...(record.exemplars ? { exemplars: record.exemplars } : {}),
       }));
 
       const result = sink.ingest({ streamId, datapoints, now });

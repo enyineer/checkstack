@@ -2,7 +2,7 @@ import type { ScopedQueryRunner } from "@checkstack/backend-api";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import type { CounterKind } from "@checkstack/metricstream-common";
 import * as schema from "../schema";
-import { metricSeries } from "../schema";
+import { metricSeries, type StoredExemplar } from "../schema";
 import { chunk, STORAGE_CHUNK_SIZE } from "./time";
 
 type Runner = ScopedQueryRunner<typeof schema>;
@@ -16,6 +16,8 @@ export interface NewSeriesRow {
   counterKind: CounterKind | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
+  /** Newest exemplars seen for this series in the admitting flush, if any. */
+  lastExemplars?: StoredExemplar[];
 }
 
 /** Count the distinct series currently registered for a stream. */

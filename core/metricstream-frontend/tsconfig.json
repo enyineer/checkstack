@@ -26,9 +26,6 @@
       "path": "../metricstream-common"
     },
     {
-      "path": "../satellite-common"
-    },
-    {
       "path": "../signal-common"
     },
     {
@@ -36,6 +33,9 @@
     },
     {
       "path": "../telemetry-frontend"
+    },
+    {
+      "path": "../tracestream-common"
     },
     {
       "path": "../ui"

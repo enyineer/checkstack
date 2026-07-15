@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  MAX_EXEMPLARS_PER_POINT,
+  MetricExemplarSchema,
+} from "@checkstack/telemetry-common";
 
 // =============================================================================
 // LIMITS
@@ -123,42 +127,19 @@ export type UpdateMetricStream = z.infer<typeof UpdateMetricStreamSchema>;
 // =============================================================================
 // SOURCE TOKENS
 // =============================================================================
-
-/** A source token as returned by list/read - NEVER carries the secret. */
-export const MetricStreamTokenSchema = z.object({
-  id: z.string(),
-  streamId: z.string(),
-  name: z.string(),
-  /** First 8 chars of the full secret, for display/disambiguation. */
-  tokenPrefix: z.string(),
-  createdAt: z.date(),
-  lastUsedAt: z.date().nullable(),
-  revokedAt: z.date().nullable(),
-});
-export type MetricStreamToken = z.infer<typeof MetricStreamTokenSchema>;
-
-export const MintTokenSchema = z.object({
-  streamId: z.string(),
-  name: z.string().min(1).max(255),
-});
-export type MintToken = z.infer<typeof MintTokenSchema>;
-
-/** Mint response: the full secret (shown ONCE) plus the persisted token row. */
-export const MintTokenResultSchema = z.object({
-  /** The full `ckms_...` secret. Displayed once; never retrievable again. */
-  secret: z.string(),
-  token: MetricStreamTokenSchema,
-});
-export type MintTokenResult = z.infer<typeof MintTokenResultSchema>;
-
-export const RevokeTokenSchema = z.object({
-  streamId: z.string(),
-  tokenId: z.string(),
-});
-export type RevokeToken = z.infer<typeof RevokeTokenSchema>;
+//
+// Push-token CRUD moved to the telemetry platform: a shipper authenticates with
+// a per-instance bearer token the PLATFORM mints for a `metricstream.push`
+// source instance (hash-only storage, shown once, rotatable). The plugin no
+// longer owns a token table, mint/revoke RPCs, or their DTOs. The `ckms_` FORMAT
+// helpers (prefix / isMetricstreamToken / extractIngestToken) live in `./token`
+// and stay - the endpoints and the satellite forwarder still extract tokens from
+// requests before handing them to the platform verifier.
 
 // =============================================================================
-// SCRAPE TARGETS (Prometheus pull source; CRUD)
+// PROMETHEUS SCRAPE (constants + URL schema reused by the telemetry pull source
+// type "metricstream.prometheus-scrape"; the scrape CRUD DTOs are GONE - a scrape
+// target is now a telemetry_sources instance owned by the telemetry platform)
 // =============================================================================
 
 /** Lower/upper bounds on a scrape target's poll interval. */
@@ -195,105 +176,6 @@ export const ScrapeTargetUrlSchema = z
     message: "Scrape target URL must use the http or https scheme.",
   });
 
-/**
- * A scrape target as returned by list/read. The bearer token is NEVER returned
- * (it is stored encrypted at rest via the config-secret channel); the read DTO
- * exposes only `hasBearerToken` so the editor can render a "secret is set"
- * affordance without ever transporting the plaintext.
- */
-export const MetricScrapeTargetSchema = z.object({
-  id: z.string(),
-  streamId: z.string(),
-  name: z.string(),
-  url: z.string(),
-  intervalSeconds: z.number().int(),
-  timeoutMs: z.number().int(),
-  enabled: z.boolean(),
-  /**
-   * When set, this target is scraped FROM the satellite with this id (its
-   * datapoints are forwarded over the satellite channel), not by the core
-   * reconciler. `null` = scraped by core. The core scrape scheduler excludes
-   * satellite-bound targets; the metric-scrape capability handler assigns them.
-   */
-  satelliteId: z.string().nullable(),
-  /** True when a bearer-token secret is stored for this target. */
-  hasBearerToken: z.boolean(),
-  lastScrapeAt: z.date().nullable(),
-  lastError: z.string().nullable(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
-export type MetricScrapeTarget = z.infer<typeof MetricScrapeTargetSchema>;
-
-/**
- * Sentinel for the update path's `bearerToken`: an OMITTED field keeps the
- * existing secret, an explicit `null` CLEARS it, and a non-empty string SETS a
- * new one. (Mirrors the healthcheck config-secret "blank keeps, sentinel
- * clears" convention, but modelled explicitly here since scrape targets are a
- * bespoke resource, not a DynamicForm-driven config.)
- */
-export const CreateScrapeTargetSchema = z.object({
-  streamId: z.string(),
-  name: z.string().min(1).max(255),
-  url: ScrapeTargetUrlSchema,
-  intervalSeconds: z
-    .number()
-    .int()
-    .min(MIN_SCRAPE_INTERVAL_SECONDS)
-    .max(MAX_SCRAPE_INTERVAL_SECONDS)
-    .default(60),
-  timeoutMs: z
-    .number()
-    .int()
-    .min(1000)
-    .max(120_000)
-    .default(DEFAULT_SCRAPE_TIMEOUT_MS),
-  /** Optional plaintext bearer token - extracted to an encrypted secret on write. */
-  bearerToken: z.string().min(1).max(4096).optional(),
-  /**
-   * Bind the target to a satellite so it is scraped FROM there and forwarded
-   * over the satellite channel. Omitted / null = scraped by core.
-   */
-  satelliteId: z.string().nullable().optional(),
-  enabled: z.boolean().default(true),
-});
-export type CreateScrapeTarget = z.infer<typeof CreateScrapeTargetSchema>;
-
-export const UpdateScrapeTargetSchema = z.object({
-  streamId: z.string(),
-  targetId: z.string(),
-  name: z.string().min(1).max(255).optional(),
-  url: ScrapeTargetUrlSchema.optional(),
-  intervalSeconds: z
-    .number()
-    .int()
-    .min(MIN_SCRAPE_INTERVAL_SECONDS)
-    .max(MAX_SCRAPE_INTERVAL_SECONDS)
-    .optional(),
-  timeoutMs: z.number().int().min(1000).max(120_000).optional(),
-  /** Omitted = keep existing; `null` = clear; string = set a new secret. */
-  bearerToken: z.string().min(1).max(4096).nullable().optional(),
-  /**
-   * Rebind the target: omitted = keep, `null` = unbind (scrape from core),
-   * string = bind to that satellite. The CRUD path notifies BOTH the old and
-   * the new satellite so each converges its scrape set.
-   */
-  satelliteId: z.string().nullable().optional(),
-  enabled: z.boolean().optional(),
-});
-export type UpdateScrapeTarget = z.infer<typeof UpdateScrapeTargetSchema>;
-
-export const DeleteScrapeTargetSchema = z.object({
-  streamId: z.string(),
-  targetId: z.string(),
-});
-export type DeleteScrapeTarget = z.infer<typeof DeleteScrapeTargetSchema>;
-
-export const ListScrapeTargetsSchema = z.object({
-  streamId: z.string(),
-});
-export type ListScrapeTargets = z.infer<typeof ListScrapeTargetsSchema>;
-
 // =============================================================================
 // NORMALIZED DATAPOINT (shared shape between source parsers and the sink)
 // =============================================================================
@@ -318,6 +200,15 @@ export const NormalizedDatapointSchema = z.object({
   labels: z.record(z.string(), z.string()),
   value: z.number(),
   ts: z.date(),
+  /**
+   * Trace-context exemplars sampled on this point (OTLP exemplars /
+   * OpenMetrics `# {trace_id=...}`), capped - the chart-to-trace bridge.
+   * Shares telemetry-common's {@link MetricExemplarSchema} shape.
+   */
+  exemplars: z
+    .array(MetricExemplarSchema)
+    .max(MAX_EXEMPLARS_PER_POINT)
+    .optional(),
 });
 export type NormalizedDatapoint = z.infer<typeof NormalizedDatapointSchema>;
 
@@ -453,9 +344,23 @@ export const GetMetricBucketsSchema = z.object({
 });
 export type GetMetricBuckets = z.infer<typeof GetMetricBucketsSchema>;
 
+/**
+ * Max exemplars a bucket read returns for the WHOLE selection. A metric selection
+ * can match many series (each keeping up to {@link MAX_EXEMPLARS_PER_POINT}); the
+ * chart only needs a handful of recent chart-to-trace jump-offs, so the union is
+ * capped to the newest few - bounding both the query cost and on-chart clutter.
+ */
+export const MAX_CHART_EXEMPLARS = 12;
+
 export const GetMetricBucketsResultSchema = z.object({
   grain: BucketGrainSchema,
   points: z.array(MetricBucketPointSchema),
+  /**
+   * Trace-context exemplars over the window, unioned across the matching series
+   * and capped to the newest {@link MAX_CHART_EXEMPLARS}. Drives the chart's
+   * click-through-to-trace markers; empty when the selection carries none.
+   */
+  exemplars: z.array(MetricExemplarSchema).max(MAX_CHART_EXEMPLARS),
 });
 export type GetMetricBucketsResult = z.infer<
   typeof GetMetricBucketsResultSchema

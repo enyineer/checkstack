@@ -6,7 +6,6 @@ import {
 } from "@checkstack/backend-api";
 import { metricstreamContract } from "@checkstack/metricstream-common";
 import type { MetricstreamService } from "./service";
-import type { SatelliteBindingAuthorizer } from "../satellite/binding-auth";
 import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
 
 /**
@@ -15,24 +14,20 @@ import type { SystemLinksReadableAuthorizer } from "./system-links-auth";
  * create / typeScoped) are enforced by `autoAuthMiddleware` from the contract's
  * `instanceAccess`, so handlers never re-check grants (see `.claude/rules/rlac.md`).
  *
- * The ONE thing instanceAccess cannot express is authorizing the caller-supplied
- * `satelliteId` on a scrape target (the stream gate does not prove the caller may
- * use a satellite). `assertSatelliteBindable` closes that (SAT-C SSRF fix) and is
- * REQUIRED - never optional - so a scrape target can never bind to a satellite the
- * caller cannot read + scrape. See `../satellite/binding-auth.ts`.
+ * The ONE thing instanceAccess cannot express is the system-links "cannot expose
+ * what you cannot see" gate: the stream `manage` gate does not prove the caller
+ * may READ the systems being linked. `assertLinkedSystemsReadable` closes that.
  */
 export function createMetricstreamRouter({
   service,
-  assertSatelliteBindable,
   assertLinkedSystemsReadable,
 }: {
   service: MetricstreamService;
-  assertSatelliteBindable: SatelliteBindingAuthorizer;
   /**
-   * The system-links "cannot expose what you cannot see" gate. Like
-   * `assertSatelliteBindable`, instanceAccess cannot express it: the stream
-   * `manage` gate does not prove the caller can READ the systems being linked.
-   * Injected so tests substitute a deterministic authorizer (no HTTP re-entry).
+   * The system-links "cannot expose what you cannot see" gate. instanceAccess
+   * cannot express it: the stream `manage` gate does not prove the caller can
+   * READ the systems being linked. Injected so tests substitute a deterministic
+   * authorizer (no HTTP re-entry).
    */
   assertLinkedSystemsReadable: SystemLinksReadableAuthorizer;
 }) {
@@ -72,58 +67,6 @@ export function createMetricstreamRouter({
     listStreamsForPicker: os.listStreamsForPicker.handler(async () =>
       service.listStreamsForPicker(),
     ),
-
-    // ── Source tokens ───────────────────────────────────────────────────
-    listTokens: os.listTokens.handler(async ({ input }) =>
-      service.listTokens({ streamId: input.streamId }),
-    ),
-
-    mintToken: os.mintToken.handler(async ({ input }) =>
-      service.mintToken({ streamId: input.streamId, name: input.name }),
-    ),
-
-    revokeToken: os.revokeToken.handler(async ({ input }) => {
-      await service.revokeToken({
-        streamId: input.streamId,
-        tokenId: input.tokenId,
-      });
-    }),
-
-    // ── Scrape targets ──────────────────────────────────────────────────
-    listScrapeTargets: os.listScrapeTargets.handler(async ({ input }) =>
-      service.listScrapeTargets({ streamId: input.streamId }),
-    ),
-
-    createScrapeTarget: os.createScrapeTarget.handler(async ({ input, context }) => {
-      // Authorize the binding BEFORE persisting: a non-null satelliteId must be a
-      // satellite the caller can READ and that advertises `scrape` (SAT-C fix).
-      if (typeof input.satelliteId === "string") {
-        await assertSatelliteBindable({
-          satelliteId: input.satelliteId,
-          requestHeaders: context.requestHeaders,
-        });
-      }
-      return service.createScrapeTarget(input);
-    }),
-
-    updateScrapeTarget: os.updateScrapeTarget.handler(async ({ input, context }) => {
-      // Same gate on the rebind path (null->sat, sat->other-sat). A null unbind
-      // (back to core) or an omitted field (keep) needs no satellite authorization.
-      if (typeof input.satelliteId === "string") {
-        await assertSatelliteBindable({
-          satelliteId: input.satelliteId,
-          requestHeaders: context.requestHeaders,
-        });
-      }
-      return service.updateScrapeTarget(input);
-    }),
-
-    deleteScrapeTarget: os.deleteScrapeTarget.handler(async ({ input }) => {
-      await service.deleteScrapeTarget({
-        streamId: input.streamId,
-        targetId: input.targetId,
-      });
-    }),
 
     // ── Autocomplete + viewer reads ─────────────────────────────────────
     listMetricNames: os.listMetricNames.handler(async ({ input }) =>

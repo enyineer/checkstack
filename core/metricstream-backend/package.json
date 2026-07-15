@@ -41,7 +41,6 @@
     "@checkstack/metricstream-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/satellite-backend": "workspace:*",
-    "@checkstack/satellite-common": "workspace:*",
     "@checkstack/secrets-backend": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",

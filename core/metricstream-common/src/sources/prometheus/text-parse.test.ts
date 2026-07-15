@@ -103,13 +103,37 @@ describe("parsePrometheusText - table-driven fixtures", () => {
     expect(dps[0].ts.getTime()).toBe(NOW.getTime());
   });
 
-  it("ignores a trailing OpenMetrics exemplar", () => {
+  it("drops a malformed exemplar (short trace id) without corrupting the sample", () => {
     const dps = parse(`# TYPE c counter\nc_total{le="0.1"} 8 # {trace_id="abc"} 1.0 1700000000`);
-    // Without a histogram TYPE, c_total is an untyped gauge; the exemplar after
-    // ` # ` must not corrupt the value.
+    // trace_id "abc" is not 32-hex, so the exemplar is dropped; the sample after
+    // ` # ` must still parse cleanly.
     expect(dps).toHaveLength(1);
     expect(dps[0].value).toBe(8);
     expect(dps[0].labels).toEqual({ le: "0.1" });
+    expect(dps[0].exemplars).toBeUndefined();
+  });
+
+  it("parses a valid OpenMetrics exemplar into the datapoint (ts in seconds)", () => {
+    const trace = "a".repeat(32);
+    const span = "b".repeat(16);
+    const dps = parse(
+      `# TYPE c counter\nc_total 8 # {trace_id="${trace}",span_id="${span}"} 3 1700000000.5`,
+    );
+    expect(dps[0].exemplars).toEqual([
+      {
+        traceId: trace,
+        spanId: span,
+        value: 3,
+        // 1700000000.5 seconds -> 1700000000500 ms.
+        ts: new Date(1_700_000_000_500),
+      },
+    ]);
+  });
+
+  it("falls back to the sample ts for an exemplar without its own timestamp", () => {
+    const trace = "c".repeat(32);
+    const dps = parse(`# TYPE c counter\nc_total 8 1700000000000 # {trace_id="${trace}"} 3`);
+    expect(dps[0].exemplars?.[0].ts.getTime()).toBe(1_700_000_000_000);
   });
 
   it("skips non-finite sample values (NaN / Inf) so aggregates stay clean", () => {

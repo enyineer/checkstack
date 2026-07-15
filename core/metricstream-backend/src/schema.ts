@@ -1,12 +1,10 @@
 import {
   pgTable,
   text,
-  integer,
   bigint,
   doublePrecision,
   jsonb,
   timestamp,
-  boolean,
   primaryKey,
   index,
 } from "drizzle-orm/pg-core";
@@ -34,36 +32,6 @@ export const metricStreams = pgTable("metric_streams", {
     .defaultNow()
     .notNull(),
 });
-
-/**
- * Per-stream source tokens (OTLP/native push auth). Only the sha256 hash and an
- * 8-char display prefix are stored; the full secret is shown once at mint.
- * `tokenHash` is the ingest auth lookup key.
- *
- * No FK to metric_streams: like every other stream-scoped table here, cleanup on
- * stream delete is done explicitly in deleteStream. This keeps the schema
- * uniform and avoids drizzle-kit emitting a `public`-qualified FK target, which
- * breaks the plugin's schema-scoped migration (plugins do not run in `public`).
- */
-export const metricStreamTokens = pgTable(
-  "metric_stream_tokens",
-  {
-    id: text("id").primaryKey(),
-    streamId: text("stream_id").notNull(),
-    name: text("name").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    tokenPrefix: text("token_prefix").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  },
-  (t) => [
-    index("metric_stream_tokens_hash_uq").on(t.tokenHash),
-    index("metric_stream_tokens_stream_idx").on(t.streamId),
-  ],
-);
 
 /**
  * Explicit stream -> catalog-system links (see telemetry-common's
@@ -96,56 +64,6 @@ export const metricStreamSystemLinks = pgTable(
 );
 
 /**
- * Prometheus scrape targets (pull source). One recurring scrape job per ENABLED
- * target is scheduled by the reconciler.
- *
- * SECRET STORAGE: an optional bearer token is stored ENCRYPTED AT REST via the
- * platform's `InternalSecretsService` (the same local AES-GCM store healthcheck's
- * config-secret channel uses). This column NEVER holds plaintext - it holds the
- * marker `__mssecret__:<targetId>` when a token is set inline, a
- * `${{ secrets.NAME }}` reference, or NULL. The scraper resolves it to plaintext
- * just-in-time via `resolveScrapeTargetBearer` (see `secrets/`).
- */
-export const metricScrapeTargets = pgTable(
-  "metric_scrape_targets",
-  {
-    id: text("id").primaryKey(),
-    streamId: text("stream_id").notNull(),
-    name: text("name").notNull(),
-    url: text("url").notNull(),
-    intervalSeconds: integer("interval_seconds").notNull(),
-    timeoutMs: integer("timeout_ms").notNull(),
-    /** Marker / reference for the encrypted bearer token, or null. NEVER plaintext. */
-    bearerTokenSecret: text("bearer_token_secret"),
-    /**
-     * When set, this target is scraped FROM this satellite (its datapoints are
-     * forwarded over the satellite channel via the metric-scrape capability) and
-     * is EXCLUDED from the core scrape reconciler's scheduling. NULL = scraped by
-     * core. FK-less like the rest of this schema (satellites live in another
-     * plugin's schema; cleanup is by convention, and an orphaned binding simply
-     * never receives config until the satellite reconnects). */
-    satelliteId: text("satellite_id"),
-    enabled: boolean("enabled").notNull().default(true),
-    /** Consecutive scrape failures; drives the `scrape_failing` event at >=3. */
-    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-    lastScrapeAt: timestamp("last_scrape_at", { withTimezone: true }),
-    lastError: text("last_error"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (t) => [
-    index("metric_scrape_targets_stream_idx").on(t.streamId),
-    // The metric-scrape capability config query filters enabled targets by
-    // satellite; index the binding column so the per-satellite build is cheap.
-    index("metric_scrape_targets_satellite_idx").on(t.satelliteId),
-  ],
-);
-
-/**
  * Registered metric names per stream. Drives the metric autocomplete WITHOUT
  * scanning the series table. `seriesCount` is maintained as series are
  * admitted/removed. PK (stream, name).
@@ -168,11 +86,32 @@ export const metricNames = pgTable(
 );
 
 /**
+ * One trace-context exemplar as STORED on a series (the jsonb shape of
+ * `metric_series.last_exemplars`). `ts` is epoch millis, not a `Date`: jsonb has
+ * no Date type, so storing a number keeps the round-trip lossless (a `Date` would
+ * come back a string and silently break comparisons). Kept small + bounded - a
+ * chart-to-trace jump-off, never a series to aggregate.
+ */
+export interface StoredExemplar {
+  traceId: string;
+  spanId?: string;
+  value: number;
+  /** Exemplar timestamp as epoch millis. */
+  tsMs: number;
+}
+
+/**
  * Concrete series: a metric name + a specific label set. `id` = sha256 of
  * `streamId + " " + name + " " + canonicalLabelString` so identical series
  * converge to one id across pods. The label-value autocomplete source (bounded
  * DISTINCT queries over `(streamId, name)`). `counterKind` tags the series
  * flavor once (see the read-time rate math).
+ *
+ * `lastExemplars` holds the newest few {@link StoredExemplar}s seen for this
+ * series (MERGED on flush when a batch carries exemplars, keeping the newest few
+ * deduped by trace id) - the chart's jump-off to the trace behind a point.
+ * Bounded, retention-free (dropped with the series row), and NULL until the
+ * first exemplar arrives.
  */
 export const metricSeries = pgTable(
   "metric_series",
@@ -184,6 +123,7 @@ export const metricSeries = pgTable(
     counterKind: text("counter_kind").$type<CounterKind>(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastExemplars: jsonb("last_exemplars").$type<StoredExemplar[]>(),
   },
   (t) => [
     index("metric_series_stream_name_idx").on(t.streamId, t.name),

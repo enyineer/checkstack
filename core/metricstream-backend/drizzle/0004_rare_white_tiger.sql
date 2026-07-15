@@ -1,0 +1,1 @@
+ALTER TABLE "metric_series" ADD COLUMN "last_exemplars" jsonb;

@@ -160,6 +160,163 @@ describe("normalizeOtlpMetrics", () => {
     expect(datapoints.every((d) => d.type === "counter" && d.counterKind === "cumulative")).toBe(true);
   });
 
+  const VALID_TRACE = "a".repeat(32);
+  const VALID_SPAN = "b".repeat(16);
+
+  it("attaches a valid exemplar (32-hex trace id) with its own value + ts", () => {
+    const { datapoints } = normalize([
+      {
+        resource: {},
+        metrics: [
+          {
+            name: "cpu",
+            data: {
+              kind: "gauge",
+              points: [
+                {
+                  attributes: {},
+                  timeUnixNano: T_NANOS,
+                  value: 0.5,
+                  exemplars: [
+                    {
+                      timeUnixNano: T_NANOS,
+                      value: 0.9,
+                      traceId: VALID_TRACE,
+                      spanId: VALID_SPAN,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    expect(datapoints[0].exemplars).toEqual([
+      {
+        traceId: VALID_TRACE,
+        spanId: VALID_SPAN,
+        value: 0.9,
+        ts: new Date(Number(T_NANOS / 1_000_000n)),
+      },
+    ]);
+  });
+
+  it("drops exemplars whose trace id is not 32-hex or is all-zero", () => {
+    const { datapoints } = normalize([
+      {
+        resource: {},
+        metrics: [
+          {
+            name: "cpu",
+            data: {
+              kind: "gauge",
+              points: [
+                {
+                  attributes: {},
+                  timeUnixNano: T_NANOS,
+                  value: 1,
+                  exemplars: [
+                    { timeUnixNano: T_NANOS, value: 1, traceId: "abc", spanId: "" },
+                    { timeUnixNano: T_NANOS, value: 1, traceId: "0".repeat(32), spanId: "" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    expect(datapoints[0].exemplars).toBeUndefined();
+  });
+
+  it("omits a zero/short span id but keeps the exemplar", () => {
+    const { datapoints } = normalize([
+      {
+        resource: {},
+        metrics: [
+          {
+            name: "cpu",
+            data: {
+              kind: "gauge",
+              points: [
+                {
+                  attributes: {},
+                  timeUnixNano: T_NANOS,
+                  value: 1,
+                  exemplars: [
+                    { timeUnixNano: T_NANOS, value: 1, traceId: VALID_TRACE, spanId: "0".repeat(16) },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    expect(datapoints[0].exemplars).toHaveLength(1);
+    expect(datapoints[0].exemplars?.[0].spanId).toBeUndefined();
+  });
+
+  it("caps exemplars to MAX_EXEMPLARS_PER_POINT keeping the newest by ts", () => {
+    const points = Array.from({ length: 6 }, (_, i) => ({
+      timeUnixNano: BigInt(1_000 + i) * 1_000_000n, // ascending ts by index
+      value: i,
+      // A distinct, valid (non-zero) 32-hex trace id per exemplar.
+      traceId: (i + 1).toString(16).repeat(32).slice(0, 32),
+      spanId: "",
+    }));
+    const { datapoints } = normalize([
+      {
+        resource: {},
+        metrics: [
+          {
+            name: "cpu",
+            data: {
+              kind: "gauge",
+              points: [{ attributes: {}, timeUnixNano: 0n, value: 1, exemplars: points }],
+            },
+          },
+        ],
+      },
+    ]);
+    const ex = datapoints[0].exemplars ?? [];
+    expect(ex).toHaveLength(4);
+    // Newest first: the three highest-index (latest ts) exemplars are kept.
+    expect(ex.map((e) => e.value)).toEqual([5, 4, 3, 2]);
+  });
+
+  it("only the histogram _count series carries the exemplar (not _sum)", () => {
+    const { datapoints } = normalize([
+      {
+        resource: {},
+        metrics: [
+          {
+            name: "latency",
+            data: {
+              kind: "histogram",
+              temporality: AGGREGATION_TEMPORALITY.CUMULATIVE,
+              points: [
+                {
+                  attributes: {},
+                  timeUnixNano: T_NANOS,
+                  count: 10,
+                  sum: 42,
+                  exemplars: [
+                    { timeUnixNano: T_NANOS, value: 5, traceId: VALID_TRACE, spanId: "" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    const byName = new Map(datapoints.map((d) => [d.name, d]));
+    expect(byName.get("latency_count")?.exemplars).toHaveLength(1);
+    expect(byName.get("latency_sum")?.exemplars).toBeUndefined();
+  });
+
   it("counts datapoints of unsupported / nameless metrics as rejected", () => {
     const { datapoints, rejected } = normalize([
       {

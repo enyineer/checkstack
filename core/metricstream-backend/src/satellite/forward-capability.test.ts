@@ -4,7 +4,7 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import type { IngestAuthenticator } from "@checkstack/ingest-utils";
 import type { WireDatapoint } from "@checkstack/metricstream-common";
 import type * as schema from "../schema";
-import type { MetricIngestSink } from "../sources/extension-point";
+import type { MetricIngestSink } from "../sources/ingest-sink";
 import { createMetricstreamForwardHandler } from "./forward-capability";
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
@@ -125,6 +125,30 @@ describe("metricstream forward capability handler", () => {
 
     expect(outcome).toEqual({ accepted: 0, rejected: 2 });
     expect(calls).toEqual([]);
+  });
+
+  it("stamps recordPushSeen once per VERIFIED group (never for a rejected one)", async () => {
+    const { sink } = recordingSink();
+    const seen: string[] = [];
+    const handler = createMetricstreamForwardHandler({
+      db: stubDb,
+      sink,
+      auth: fakeAuth({ ckms_good: { streamId: "stream-1" } }),
+      recordPushSeen: (tokenId) => seen.push(tokenId),
+      logger: createMockLogger(),
+      now: () => NOW,
+    });
+
+    await handler.handleTelemetryBatch!({
+      satelliteId: "sat-a",
+      payload: [
+        { streamToken: "ckms_good", datapoints: [dp("cpu", 1)] },
+        { streamToken: "ckms_nope", datapoints: [dp("cpu", 2)] },
+      ],
+    });
+
+    // Only the verified group stamps, keyed on the source id (fakeAuth's tokenId).
+    expect(seen).toEqual(["ckms_good-id"]);
   });
 
   it("drops a malformed payload non-retryably without touching the sink", async () => {

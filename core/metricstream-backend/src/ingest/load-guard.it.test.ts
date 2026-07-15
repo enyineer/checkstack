@@ -18,8 +18,6 @@
  *   rate): the sink's bounded buffer sheds to 429, every offered datapoint is
  *   accounted for, RSS stays bounded, and the loop stays responsive (the fold
  *   yields every 2000 datapoints).
- *   Plus a SCRAPE pass: one Prometheus scrape against an in-test fixture server,
- *   proving the pull executor's real fetch->parse->sink path.
  *
  * LANE: the EXPLICIT load-testing lane only (`bun run test:load`, i.e.
  * `CHECKSTACK_LOAD_TESTS=1` on top of `CHECKSTACK_IT=1`; real Postgres).
@@ -60,12 +58,10 @@ import { createStorage } from "../storage";
 import { readStreamActivity } from "../storage";
 import { createImportantEventRecorder } from "../events/recorder";
 import { createStreamConfigResolver } from "./stream-config";
-import { lookupTokenByHash } from "./token-lookup";
 import { createMetricFlusher } from "./flush";
 import { createMetricSink, estimateDatapointBytes, type BufferedDatapoint } from "./sink";
 import { createOtlpMetricsHandler } from "../sources/otlp/endpoint";
 import { createNativeMetricsHandler } from "../sources/native/endpoint";
-import { executePrometheusScrape } from "../sources/prometheus/scrape";
 
 const MIGRATIONS = path.join(import.meta.dir, "..", "..", "drizzle");
 const STREAM = "load-guard-metric-stream";
@@ -132,13 +128,6 @@ describe.skipIf(!isLoadTestEnabled())(
       const tokenKit = createSourceTokenKit({ prefix: METRICSTREAM_TOKEN_PREFIX });
       const token = tokenKit.generateToken({ resourceId: STREAM });
       tokenSecret = token.secret;
-      await db.insert(schema.metricStreamTokens).values({
-        id: "load-guard-token",
-        streamId: STREAM,
-        name: "load shipper",
-        tokenHash: token.tokenHash,
-        tokenPrefix: token.tokenPrefix,
-      });
 
       const logger = createMockLogger();
       const signalService = createMockSignalService();
@@ -171,8 +160,19 @@ describe.skipIf(!isLoadTestEnabled())(
       flushLoop.start();
       sink = createMetricSink({ buffer, flushLoop, flushThreshold: 5000 });
 
+      // Push tokens live on the telemetry platform now; this load guard exercises
+      // the ingest THROUGHPUT path, not auth, so resolve the one known hash inline
+      // (the platform verifier's DB-backed lookup is unit-tested separately).
       const auth = createIngestAuthenticator({
-        lookup: (tokenHash) => lookupTokenByHash({ db, tokenHash }),
+        lookup: async (tokenHash) =>
+          tokenHash === token.tokenHash
+            ? {
+                tokenId: "load-guard-source",
+                resourceId: STREAM,
+                tokenHash,
+                revokedAt: null,
+              }
+            : null,
         cache: createIngestTokenCache({ cacheManager, pluginId: "metricstream" }),
         hashToken: tokenKit.hashToken,
       });
@@ -376,57 +376,10 @@ describe.skipIf(!isLoadTestEnabled())(
       expect(activity?.lastReceivedAt).toBeInstanceOf(Date);
     }, WARMUP_MS + MEASURE_MS + BURST_MS + 60_000);
 
-    it("runs one real Prometheus scrape against a fixture server through the pull executor", async () => {
-      const scrapeStream = "load-guard-scrape-stream";
-      await test.db.insert(metricStreams).values({
-        id: scrapeStream,
-        name: "Scrape IT",
-        description: null,
-        config: DEFAULT_METRIC_STREAM_CONFIG,
-        createdAt: CREATED,
-        updatedAt: CREATED,
-      });
-
-      const server = Bun.serve({
-        port: 0,
-        fetch() {
-          return new Response(
-            [
-              "# TYPE http_requests_total counter",
-              'http_requests_total{method="get"} 1200',
-              'http_requests_total{method="post"} 42',
-              "# TYPE inflight gauge",
-              "inflight 7",
-            ].join("\n"),
-            { headers: { "content-type": "text/plain" } },
-          );
-        },
-      });
-
-      try {
-        const result = await executePrometheusScrape({
-          target: {
-            id: "scrape-target",
-            streamId: scrapeStream,
-            name: "fixture",
-            url: `http://localhost:${server.port}/metrics`,
-            timeoutMs: 5000,
-            maxSeries: 1000,
-          },
-          sink,
-          logger: createMockLogger(),
-        });
-        expect(result.seriesCount).toBe(3);
-        expect(result.datapointCount).toBe(3);
-      } finally {
-        server.stop(true);
-      }
-
-      await flushLoop.flushNow();
-      await flushLoop.flushNow();
-      const persisted = await sumBucketCounts(test.db, scrapeStream);
-      expect(persisted).toBe(3);
-    }, 30_000);
+    // (The "one real Prometheus scrape" pass moved out of the load-guard IT: the
+    // scrape executor is no longer a metricstream sink writer - it is the
+    // telemetry `metricstream.prometheus-scrape` source type, covered by its own
+    // unit test and the satellite executor test.)
   },
 );
 

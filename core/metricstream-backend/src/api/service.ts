@@ -4,29 +4,17 @@ import type {
   SafeDatabase,
   Logger,
   RpcClient,
-  EventBus,
 } from "@checkstack/backend-api";
 import { withScopedTransaction } from "@checkstack/backend-api";
-import type { CacheManager } from "@checkstack/cache-api";
-import type { CachedScope } from "@checkstack/cache-utils";
-import type {
-  SourceTokenKit,
-  IngestAuthenticator,
-} from "@checkstack/ingest-utils";
-import type { InternalSecretsService } from "@checkstack/secrets-backend";
-import { isSecretReference } from "@checkstack/secrets-common";
+import type { TelemetrySourceLifecycle } from "@checkstack/telemetry-backend";
 import { AuthApi } from "@checkstack/auth-common";
 import {
+  MAX_CHART_EXEMPLARS,
   MetricStreamConfigSchema,
   metricstreamResourceTypes,
   type MetricStream,
   type CreateMetricStream,
   type UpdateMetricStream,
-  type MetricStreamToken,
-  type MintTokenResult,
-  type MetricScrapeTarget,
-  type CreateScrapeTarget,
-  type UpdateScrapeTarget,
   type MetricStreamSummary,
   type StreamForPicker,
   type MetricNameInfo,
@@ -50,8 +38,6 @@ import type {
 import * as schema from "../schema";
 import {
   metricStreams,
-  metricStreamTokens,
-  metricScrapeTargets,
   metricNames,
   metricSeries,
   metricMinuteBuckets,
@@ -67,18 +53,10 @@ import {
   listMetricNames as listMetricNamesStorage,
 } from "../storage";
 import {
-  storeScrapeTargetBearer,
-  clearScrapeTargetBearer,
-} from "../secrets/scrape-target-secret";
-import {
   createSystemLinkOperations,
   type SystemLinkOperations,
   type AssertAddedSystemsReadable,
 } from "./system-links";
-import {
-  createIngestTokenCache,
-  ingestTokenCacheKey,
-} from "./token-cache";
 import {
   resolveGrain,
   rollupBoundary,
@@ -87,10 +65,6 @@ import {
   mergeMetricPoints,
   readBucketPoints,
 } from "./buckets-merge";
-import {
-  metricstreamTokensInvalidatedHook,
-  type MetricstreamTokensInvalidatedPayload,
-} from "../events/bus-hooks";
 
 /** How many stream-scoped rows to delete per batch in the deleteStream cascade. */
 const CASCADE_BATCH = 5000;
@@ -98,28 +72,6 @@ const CASCADE_BATCH = 5000;
 const MAX_SELECTED_SERIES = 20_000;
 /** Top metric names surfaced on the overview page. */
 const OVERVIEW_TOP_METRICS = 5;
-
-/**
- * Post-commit hook the API calls after any scrape-target mutation so the C1
- * scrape reconciler can (re)schedule / cancel the recurring scrape job for the
- * stream. SEAM: wired by `index.ts` once C1 exports the reconciler; absent =>
- * no-op (the target row is persisted regardless, and the reconciler re-derives
- * schedules from the table on its next tick).
- */
-export type OnScrapeTargetsChanged = (input: {
-  streamId: string;
-  targetId: string;
-  /** `upserted` after create/update; `removed` after a delete. */
-  action: "upserted" | "removed";
-  /**
-   * Satellite bindings affected by this mutation (deduped, non-null). On a
-   * rebind this is BOTH the old and the new satellite so each converges its
-   * scrape set; empty when the target is purely core-scheduled. The wiring in
-   * index.ts fires `notifyCapabilityConfigChanged({ kind: "metric-scrape",
-   * satelliteId })` for each id.
-   */
-  satelliteIds?: string[];
-}) => void | Promise<void>;
 
 export interface MetricstreamService {
   createStream(input: CreateMetricStream): Promise<MetricStream>;
@@ -129,15 +81,6 @@ export interface MetricstreamService {
   listStreamSummaries(): Promise<{ summaries: MetricStreamSummary[] }>;
   getStream(input: { id: string }): Promise<MetricStream>;
   listStreamsForPicker(): Promise<StreamForPicker[]>;
-
-  listTokens(input: { streamId: string }): Promise<MetricStreamToken[]>;
-  mintToken(input: { streamId: string; name: string }): Promise<MintTokenResult>;
-  revokeToken(input: { streamId: string; tokenId: string }): Promise<void>;
-
-  listScrapeTargets(input: { streamId: string }): Promise<MetricScrapeTarget[]>;
-  createScrapeTarget(input: CreateScrapeTarget): Promise<MetricScrapeTarget>;
-  updateScrapeTarget(input: UpdateScrapeTarget): Promise<MetricScrapeTarget>;
-  deleteScrapeTarget(input: { streamId: string; targetId: string }): Promise<void>;
 
   listMetricNames(input: ListMetricNames): Promise<{ names: MetricNameInfo[] }>;
   listLabelKeys(input: ListLabelKeys): Promise<{ keys: string[] }>;
@@ -167,36 +110,28 @@ export interface MetricstreamService {
 export function createMetricstreamService({
   db,
   storage,
-  cacheManager,
   logger,
-  tokenKit,
-  auth,
-  internalSecrets,
   rpcClient,
-  eventBus,
-  onScrapeTargetsChanged,
+  sourceLifecycle,
   now = () => new Date(),
 }: {
   db: SafeDatabase<typeof schema>;
   storage: Storage;
-  cacheManager: CacheManager;
   logger: Logger;
-  /** ckms_ token kit (mint + hash). */
-  tokenKit: SourceTokenKit;
-  /** Ingest authenticator - used to clear negative caches on mint. */
-  auth: IngestAuthenticator;
-  /** Internal secret store for scrape-target bearer tokens. */
-  internalSecrets: InternalSecretsService;
   /** Platform RPC client for auth grant cleanup on stream delete (optional). */
   rpcClient?: RpcClient;
-  /** Platform event bus for cross-pod token-invalidation (optional). */
-  eventBus?: EventBus;
-  /** C1 scrape-reconciler post-commit hook (optional; SEAM). */
-  onScrapeTargetsChanged?: OnScrapeTargetsChanged;
+  /**
+   * Telemetry source-lifecycle service. `deleteStream` calls
+   * `handleStreamDeleted` best-effort after the stream's own rows and grants are
+   * gone, so the platform strips the deleted stream's binding from every source
+   * and fully deletes sources left binding-less. Optional so lightweight tests
+   * can omit it; when absent, `deleteStream` logs a warning and skips the
+   * cascade (the stream deletion itself already succeeded).
+   */
+  sourceLifecycle?: TelemetrySourceLifecycle;
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
 }): MetricstreamService {
-  const tokenCache: CachedScope = createIngestTokenCache({ cacheManager });
   const systemLinkOps: SystemLinkOperations = createSystemLinkOperations({
     db,
     now,
@@ -212,35 +147,6 @@ export function createMetricstreamService({
       throw new ORPCError("NOT_FOUND", { message: "Metric stream not found" });
     }
     return row;
-  }
-
-  async function emitTokensInvalidated(
-    payload: MetricstreamTokensInvalidatedPayload,
-  ): Promise<void> {
-    if (!eventBus) return;
-    try {
-      await eventBus.emit(metricstreamTokensInvalidatedHook, payload);
-    } catch (error) {
-      logger.warn(
-        `metricstream: failed to broadcast token invalidation (${payload.reason}): ${String(error)}`,
-      );
-    }
-  }
-
-  async function notifyScrapeChanged(input: {
-    streamId: string;
-    targetId: string;
-    action: "upserted" | "removed";
-    satelliteIds?: string[];
-  }): Promise<void> {
-    if (!onScrapeTargetsChanged) return;
-    try {
-      await onScrapeTargetsChanged(input);
-    } catch (error) {
-      logger.warn(
-        `metricstream: scrape-target reconcile hook failed for target ${input.targetId} (${input.action}): ${String(error)}`,
-      );
-    }
   }
 
   /** Resolve the series ids a `(metricName, labelFilters)` selection matches. */
@@ -322,114 +228,59 @@ export function createMetricstreamService({
     async deleteStream({ id }) {
       // Explicit cascade (no FKs): every stream-scoped table is cleared by hand
       // in ONE transaction. Buckets key on seriesId, so they are deleted by the
-      // stream's series ids (batched). Token hashes + scrape-target ids are
-      // captured first so their caches / internal secrets can be cleaned after
-      // commit.
-      const { tokenRows, scrapeTargets } = await withScopedTransaction(
-        db,
-        async (tx) => {
-          const tokens = await tx
-            .select({
-              tokenId: metricStreamTokens.id,
-              tokenHash: metricStreamTokens.tokenHash,
-            })
-            .from(metricStreamTokens)
-            .where(eq(metricStreamTokens.streamId, id));
-          const targets = await tx
-            .select({
-              id: metricScrapeTargets.id,
-              satelliteId: metricScrapeTargets.satelliteId,
-            })
-            .from(metricScrapeTargets)
-            .where(eq(metricScrapeTargets.streamId, id));
-
-          // Delete buckets for this stream's series in bounded batches, then the
-          // series rows themselves.
-          for (;;) {
-            const batch = await tx
-              .select({ id: metricSeries.id })
-              .from(metricSeries)
-              .where(eq(metricSeries.streamId, id))
-              .limit(CASCADE_BATCH);
-            if (batch.length === 0) break;
-            const ids = batch.map((r) => r.id);
-            for (const part of chunk({ items: ids, size: STORAGE_CHUNK_SIZE })) {
-              await tx
-                .delete(metricMinuteBuckets)
-                .where(inArray(metricMinuteBuckets.seriesId, part));
-              await tx
-                .delete(metricHourlyBuckets)
-                .where(inArray(metricHourlyBuckets.seriesId, part));
-            }
-            await tx.delete(metricSeries).where(inArray(metricSeries.id, ids));
-            if (batch.length < CASCADE_BATCH) break;
+      // stream's series ids (batched). (Push tokens are the platform's now - a
+      // `metricstream.push` source instance owns the token; deleting the source
+      // there revokes it. Prometheus scrape targets likewise live in the
+      // telemetry platform, whose source instances the operator manages there.)
+      await withScopedTransaction(db, async (tx) => {
+        // Delete buckets for this stream's series in bounded batches, then the
+        // series rows themselves.
+        for (;;) {
+          const batch = await tx
+            .select({ id: metricSeries.id })
+            .from(metricSeries)
+            .where(eq(metricSeries.streamId, id))
+            .limit(CASCADE_BATCH);
+          if (batch.length === 0) break;
+          const ids = batch.map((r) => r.id);
+          for (const part of chunk({ items: ids, size: STORAGE_CHUNK_SIZE })) {
+            await tx
+              .delete(metricMinuteBuckets)
+              .where(inArray(metricMinuteBuckets.seriesId, part));
+            await tx
+              .delete(metricHourlyBuckets)
+              .where(inArray(metricHourlyBuckets.seriesId, part));
           }
+          await tx.delete(metricSeries).where(inArray(metricSeries.id, ids));
+          if (batch.length < CASCADE_BATCH) break;
+        }
 
-          await tx
-            .delete(metricNames)
-            .where(eq(metricNames.streamId, id));
-          await tx
-            .delete(metricStreamTokens)
-            .where(eq(metricStreamTokens.streamId, id));
-          await tx
-            .delete(metricScrapeTargets)
-            .where(eq(metricScrapeTargets.streamId, id));
-          await tx
-            .delete(metricImportantEvents)
-            .where(eq(metricImportantEvents.streamId, id));
-          await tx
-            .delete(metricStreamSystemLinks)
-            .where(eq(metricStreamSystemLinks.streamId, id));
-          await tx
-            .delete(metricStreamActivity)
-            .where(eq(metricStreamActivity.streamId, id));
-          await tx.delete(metricStreams).where(eq(metricStreams.id, id));
+        await tx.delete(metricNames).where(eq(metricNames.streamId, id));
+        await tx
+          .delete(metricImportantEvents)
+          .where(eq(metricImportantEvents.streamId, id));
+        await tx
+          .delete(metricStreamSystemLinks)
+          .where(eq(metricStreamSystemLinks.streamId, id));
+        await tx
+          .delete(metricStreamActivity)
+          .where(eq(metricStreamActivity.streamId, id));
+        await tx.delete(metricStreams).where(eq(metricStreams.id, id));
+      });
 
-          return { tokenRows: tokens, scrapeTargets: targets };
-        },
-      );
+      // Clean up the stream's ReBAC team grants (best-effort).
+      await deleteStreamGrants({ rpcClient, streamId: id, logger });
 
-      // After commit: drop each token's cached ingest-auth verdict (shared cache,
-      // reaches every pod's HTTP path immediately) and broadcast so pods evict
-      // per-pod negative caches too.
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
+      // Cascade the deletion to the telemetry platform: strip this stream's
+      // binding from every source and fully delete sources left binding-less.
+      // Best-effort for the same reason as the grant cleanup - the stream's own
+      // deletion already succeeded.
+      await cascadeSourceDeletion({
+        sourceLifecycle,
+        signal: "metrics",
+        streamId: id,
         logger,
       });
-      await emitTokensInvalidated({
-        streamId: id,
-        reason: "stream_deleted",
-        tokenIds: tokenRows.map((r) => r.tokenId),
-        tokenHashes: tokenRows.map((r) => r.tokenHash),
-      });
-
-      // Clear each scrape target's internal bearer secret (best-effort).
-      await Promise.all(
-        scrapeTargets.map(async ({ id: targetId }) => {
-          try {
-            await clearScrapeTargetBearer({ internalSecrets, targetId });
-          } catch (error) {
-            logger.warn(
-              `metricstream: failed to clear scrape-target secret ${targetId} on stream delete: ${String(error)}`,
-            );
-          }
-        }),
-      );
-
-      // Clean up the stream's ReBAC team grants, and let the reconciler cancel
-      // any scheduled scrape jobs for the (now gone) targets. Satellite-bound
-      // targets additionally notify their satellite so it drops them. All
-      // best-effort.
-      await deleteStreamGrants({ rpcClient, streamId: id, logger });
-      for (const { id: targetId, satelliteId } of scrapeTargets) {
-        await notifyScrapeChanged({
-          streamId: id,
-          targetId,
-          action: "removed",
-          satelliteIds: satelliteId ? [satelliteId] : [],
-        });
-      }
     },
 
     async listStreams() {
@@ -499,234 +350,6 @@ export function createMetricstreamService({
         .from(metricStreams)
         .orderBy(metricStreams.name);
       return rows.map((r) => ({ id: r.id, name: r.name }));
-    },
-
-    async listTokens({ streamId }) {
-      const rows = await db
-        .select()
-        .from(metricStreamTokens)
-        .where(eq(metricStreamTokens.streamId, streamId))
-        .orderBy(desc(metricStreamTokens.createdAt));
-      return rows.map((row) => mapTokenRow(row));
-    },
-
-    async mintToken({ streamId, name }) {
-      await getStreamRowOrThrow(streamId);
-      const generated = tokenKit.generateToken({ resourceId: streamId });
-      const id = crypto.randomUUID();
-      const createdAt = now();
-      const [row] = await db
-        .insert(metricStreamTokens)
-        .values({
-          id,
-          streamId,
-          name,
-          tokenHash: generated.tokenHash,
-          tokenPrefix: generated.tokenPrefix,
-          createdAt,
-          lastUsedAt: null,
-          revokedAt: null,
-        })
-        .returning();
-      if (!row) {
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          message: "Failed to mint token",
-        });
-      }
-      // Clear this pod's negative (unknown-token) cache + the shared miss marker
-      // so the freshly-minted token authenticates immediately instead of being
-      // shadowed by a stale miss for up to its TTL. Best-effort.
-      try {
-        await auth.clearNegative?.(generated.tokenHash);
-      } catch (error) {
-        logger.warn(
-          `metricstream: failed to clear ingest-token miss marker on mint: ${String(error)}`,
-        );
-      }
-      // Broadcast so every OTHER pod clears its in-process negative cache too.
-      await emitTokensInvalidated({
-        streamId,
-        reason: "minted",
-        tokenIds: [id],
-        tokenHashes: [generated.tokenHash],
-      });
-
-      // The full secret is returned ONCE here and never persisted or logged.
-      return { secret: generated.secret, token: mapTokenRow(row) };
-    },
-
-    async revokeToken({ streamId, tokenId }) {
-      // Scoped to BOTH id AND streamId so a manager of `streamId` cannot revoke
-      // a token belonging to another stream.
-      const [row] = await db
-        .update(metricStreamTokens)
-        .set({ revokedAt: now() })
-        .where(
-          and(
-            eq(metricStreamTokens.id, tokenId),
-            eq(metricStreamTokens.streamId, streamId),
-          ),
-        )
-        .returning({ tokenHash: metricStreamTokens.tokenHash });
-      if (!row) {
-        throw new ORPCError("NOT_FOUND", { message: "Token not found" });
-      }
-      await invalidateTokenCaches({
-        tokenCache,
-        tokenHashes: [row.tokenHash],
-        logger,
-      });
-      await emitTokensInvalidated({
-        streamId,
-        reason: "revoked",
-        tokenIds: [tokenId],
-        tokenHashes: [row.tokenHash],
-      });
-    },
-
-    async listScrapeTargets({ streamId }) {
-      const rows = await db
-        .select()
-        .from(metricScrapeTargets)
-        .where(eq(metricScrapeTargets.streamId, streamId))
-        .orderBy(desc(metricScrapeTargets.createdAt));
-      return rows.map((row) => mapScrapeTargetRow(row));
-    },
-
-    async createScrapeTarget(input) {
-      await getStreamRowOrThrow(input.streamId);
-      const id = crypto.randomUUID();
-      const bearerTokenSecret = await persistBearer({
-        internalSecrets,
-        targetId: id,
-        value: input.bearerToken,
-      });
-      const satelliteId = input.satelliteId ?? null;
-      const [row] = await db
-        .insert(metricScrapeTargets)
-        .values({
-          id,
-          streamId: input.streamId,
-          name: input.name,
-          url: input.url,
-          intervalSeconds: input.intervalSeconds,
-          timeoutMs: input.timeoutMs,
-          bearerTokenSecret,
-          satelliteId,
-          enabled: input.enabled,
-        })
-        .returning();
-      if (!row) {
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          message: "Failed to create scrape target",
-        });
-      }
-      await notifyScrapeChanged({
-        streamId: input.streamId,
-        targetId: row.id,
-        action: "upserted",
-        satelliteIds: satelliteId ? [satelliteId] : [],
-      });
-      return mapScrapeTargetRow(row);
-    },
-
-    async updateScrapeTarget(input) {
-      const [existing] = await db
-        .select()
-        .from(metricScrapeTargets)
-        .where(
-          and(
-            eq(metricScrapeTargets.id, input.targetId),
-            eq(metricScrapeTargets.streamId, input.streamId),
-          ),
-        )
-        .limit(1);
-      if (!existing) {
-        throw new ORPCError("NOT_FOUND", { message: "Scrape target not found" });
-      }
-
-      // bearerToken sentinel: undefined = keep, null = clear, string = set.
-      let bearerTokenSecret = existing.bearerTokenSecret;
-      if (input.bearerToken === null) {
-        await clearScrapeTargetBearer({ internalSecrets, targetId: input.targetId });
-        bearerTokenSecret = null;
-      } else if (typeof input.bearerToken === "string") {
-        bearerTokenSecret = await persistBearer({
-          internalSecrets,
-          targetId: input.targetId,
-          value: input.bearerToken,
-        });
-      }
-
-      // satelliteId sentinel: undefined = keep, null = unbind (core), string =
-      // (re)bind. Capture old + new so BOTH satellites are notified on a rebind.
-      const nextSatelliteId =
-        input.satelliteId === undefined
-          ? existing.satelliteId
-          : input.satelliteId;
-
-      const [row] = await db
-        .update(metricScrapeTargets)
-        .set({
-          name: input.name ?? existing.name,
-          url: input.url ?? existing.url,
-          intervalSeconds: input.intervalSeconds ?? existing.intervalSeconds,
-          timeoutMs: input.timeoutMs ?? existing.timeoutMs,
-          bearerTokenSecret,
-          satelliteId: nextSatelliteId,
-          enabled: input.enabled ?? existing.enabled,
-          updatedAt: now(),
-        })
-        .where(eq(metricScrapeTargets.id, input.targetId))
-        .returning();
-      if (!row) {
-        throw new ORPCError("NOT_FOUND", { message: "Scrape target not found" });
-      }
-      const affectedSatellites = [
-        ...new Set(
-          [existing.satelliteId, nextSatelliteId].filter(
-            (id): id is string => id !== null,
-          ),
-        ),
-      ];
-      await notifyScrapeChanged({
-        streamId: input.streamId,
-        targetId: input.targetId,
-        action: "upserted",
-        satelliteIds: affectedSatellites,
-      });
-      return mapScrapeTargetRow(row);
-    },
-
-    async deleteScrapeTarget({ streamId, targetId }) {
-      const [row] = await db
-        .delete(metricScrapeTargets)
-        .where(
-          and(
-            eq(metricScrapeTargets.id, targetId),
-            eq(metricScrapeTargets.streamId, streamId),
-          ),
-        )
-        .returning({
-          id: metricScrapeTargets.id,
-          satelliteId: metricScrapeTargets.satelliteId,
-        });
-      if (!row) {
-        throw new ORPCError("NOT_FOUND", { message: "Scrape target not found" });
-      }
-      try {
-        await clearScrapeTargetBearer({ internalSecrets, targetId });
-      } catch (error) {
-        logger.warn(
-          `metricstream: failed to clear scrape-target secret ${targetId} on delete: ${String(error)}`,
-        );
-      }
-      await notifyScrapeChanged({
-        streamId,
-        targetId,
-        action: "removed",
-        satelliteIds: row.satelliteId ? [row.satelliteId] : [],
-      });
     },
 
     async listMetricNames({ streamId, query, limit }) {
@@ -814,7 +437,18 @@ export function createMetricstreamService({
         to: input.to,
         explicit: input.grain,
       });
-      if (seriesIds.length === 0) return { grain, points: [] };
+      if (seriesIds.length === 0) return { grain, points: [], exemplars: [] };
+
+      // Union the matching series' recent exemplars over the window - the chart's
+      // click-through-to-trace markers. Independent of the bucket aggregation, so
+      // read it alongside (not inside) the hour-grain transaction.
+      const exemplars = await storage.readSeriesExemplars({
+        runner: db,
+        seriesIds,
+        from: input.from,
+        to: input.to,
+        limit: MAX_CHART_EXEMPLARS,
+      });
 
       if (grain === "minute") {
         const points = await readBucketPoints({
@@ -824,7 +458,7 @@ export function createMetricstreamService({
           to: input.to,
           grain: "minute",
         });
-        return { grain, points };
+        return { grain, points, exemplars };
       }
 
       // Hour grain: coarse part from the hourly tier, recent fine part folded
@@ -863,7 +497,7 @@ export function createMetricstreamService({
           : [];
         return mergeMetricPoints(coarsePoints, finePoints);
       });
-      return { grain: "hour", points };
+      return { grain: "hour", points, exemplars };
     },
 
     async listImportantEvents({ streamId, cursor, limit }) {
@@ -936,55 +570,10 @@ export function createMetricstreamService({
 // =============================================================================
 
 /**
- * Decide the column value for a scrape target's bearer token. A
- * `${{ secrets.NAME }}` REFERENCE is stored verbatim (resolved against the
- * active backend at scrape time); any other non-empty string is an INLINE token
- * extracted to an encrypted internal secret (the returned marker). Undefined =>
- * no token. Always clears any prior internal secret first so an inline->reference
- * switch never orphans one.
- */
-async function persistBearer({
-  internalSecrets,
-  targetId,
-  value,
-}: {
-  internalSecrets: InternalSecretsService;
-  targetId: string;
-  value: string | undefined;
-}): Promise<string | null> {
-  await clearScrapeTargetBearer({ internalSecrets, targetId });
-  if (value === undefined) return null;
-  if (isSecretReference(value)) return value;
-  return storeScrapeTargetBearer({ internalSecrets, targetId, value });
-}
-
-/**
  * Escape LIKE/ILIKE metacharacters so a search term is matched literally.
  */
 export function escapeLikePattern(text: string): string {
   return text.replaceAll(/[\\%_]/g, (c) => `\\${c}`);
-}
-
-async function invalidateTokenCaches({
-  tokenCache,
-  tokenHashes,
-  logger,
-}: {
-  tokenCache: CachedScope;
-  tokenHashes: string[];
-  logger: Logger;
-}): Promise<void> {
-  await Promise.all(
-    tokenHashes.map(async (hash) => {
-      try {
-        await tokenCache.invalidate(ingestTokenCacheKey(hash));
-      } catch (error) {
-        logger.warn(
-          `metricstream: failed to invalidate ingest-token cache: ${String(error)}`,
-        );
-      }
-    }),
-  );
 }
 
 async function deleteStreamGrants({
@@ -1014,6 +603,40 @@ async function deleteStreamGrants({
   }
 }
 
+/**
+ * Cascade a stream deletion to the telemetry platform via
+ * `handleStreamDeleted`, so every source binding this stream is stripped and
+ * sources left binding-less are fully deleted. Best-effort and idempotent: the
+ * stream's own deletion already succeeded, so a lifecycle failure is logged
+ * rather than rethrown. When no `sourceLifecycle` is wired, the cascade is
+ * skipped with a warning.
+ */
+async function cascadeSourceDeletion({
+  sourceLifecycle,
+  signal,
+  streamId,
+  logger,
+}: {
+  sourceLifecycle?: TelemetrySourceLifecycle;
+  signal: "metrics";
+  streamId: string;
+  logger: Logger;
+}): Promise<void> {
+  if (!sourceLifecycle) {
+    logger.warn(
+      "metricstream: telemetry source lifecycle not provided; skipped source cascade for deleted stream (bindings may orphan).",
+    );
+    return;
+  }
+  try {
+    await sourceLifecycle.handleStreamDeleted({ signal, streamId });
+  } catch (error) {
+    logger.warn(
+      `metricstream: failed to cascade telemetry source deletion for stream ${streamId}: ${String(error)}`,
+    );
+  }
+}
+
 // =============================================================================
 // ROW MAPPERS
 // =============================================================================
@@ -1024,40 +647,6 @@ function mapStreamRow(row: typeof metricStreams.$inferSelect): MetricStream {
     name: row.name,
     description: row.description,
     config: MetricStreamConfigSchema.parse(row.config ?? {}),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function mapTokenRow(
-  row: typeof metricStreamTokens.$inferSelect,
-): MetricStreamToken {
-  return {
-    id: row.id,
-    streamId: row.streamId,
-    name: row.name,
-    tokenPrefix: row.tokenPrefix,
-    createdAt: row.createdAt,
-    lastUsedAt: row.lastUsedAt,
-    revokedAt: row.revokedAt,
-  };
-}
-
-function mapScrapeTargetRow(
-  row: typeof metricScrapeTargets.$inferSelect,
-): MetricScrapeTarget {
-  return {
-    id: row.id,
-    streamId: row.streamId,
-    name: row.name,
-    url: row.url,
-    intervalSeconds: row.intervalSeconds,
-    timeoutMs: row.timeoutMs,
-    enabled: row.enabled,
-    satelliteId: row.satelliteId,
-    hasBearerToken: row.bearerTokenSecret !== null,
-    lastScrapeAt: row.lastScrapeAt,
-    lastError: row.lastError,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

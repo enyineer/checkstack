@@ -22,6 +22,7 @@ import {
   deleteBucketsForSeries,
 } from "./buckets";
 import { touchStreamActivity, readStreamActivity } from "./activity";
+import { updateSeriesExemplars, readSeriesExemplars } from "./exemplars";
 
 export * from "./time";
 export * from "./series-id";
@@ -30,6 +31,7 @@ export * from "./series";
 export * from "./names";
 export * from "./buckets";
 export * from "./activity";
+export * from "./exemplars";
 
 /**
  * The storage seam shared by the ingest, health and API areas. Every helper
@@ -61,6 +63,9 @@ export function createStorage({ db }: { db: SafeDatabase<typeof schema> }) {
     // activity
     touchStreamActivity,
     readStreamActivity,
+    // exemplars
+    updateSeriesExemplars,
+    readSeriesExemplars,
   };
 }
 

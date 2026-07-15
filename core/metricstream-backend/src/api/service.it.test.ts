@@ -6,28 +6,14 @@ import {
   createMockLogger,
   type TestDb,
 } from "@checkstack/test-utils-backend";
-import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
 import type { RpcClient } from "@checkstack/backend-api";
-import { createSourceTokenKit } from "@checkstack/ingest-utils";
-import type {
-  IngestAuthenticator,
-  SourceTokenKit,
-} from "@checkstack/ingest-utils";
-import type { InternalSecretsService } from "@checkstack/secrets-backend";
 import { DEFAULT_METRIC_STREAM_CONFIG } from "@checkstack/metricstream-common";
 import { eq } from "drizzle-orm";
-import type { SecretResolverService } from "@checkstack/secrets-backend";
 import * as schema from "../schema";
 import { createStorage, computeSeriesId, floorToHour, floorToMinute } from "../storage";
 import {
-  METRICSTREAM_SECRET_MARKER_PREFIX,
-  resolveScrapeTargetBearer,
-} from "../secrets/scrape-target-secret";
-import { executePrometheusScrape, type ScrapeLookupFn } from "../sources/prometheus/scrape";
-import {
   createMetricstreamService,
   type MetricstreamService,
-  type OnScrapeTargetsChanged,
 } from "./service";
 import type { AssertAddedSystemsReadable } from "./system-links";
 
@@ -38,49 +24,11 @@ const MIGRATIONS = path.join(import.meta.dir, "..", "..", "drizzle");
 const STREAM = "stream-svc-it";
 const CREATED = new Date("2026-01-01T00:00:00.000Z");
 
-/** No-op in-memory cache manager (token invalidation is a best-effort delete). */
-function noopCacheManager(): CacheManager {
-  const provider: CacheProvider = {
-    get: async () => undefined,
-    set: async () => {},
-    delete: async () => {},
-    deleteByPrefix: async () => 0,
-    has: async () => false,
-  };
-  return { getProvider: () => provider } as unknown as CacheManager;
-}
-
-const stubAuth: IngestAuthenticator = {
-  verify: async () => ({ ok: false, reason: "unknown" }),
-  clearNegative: async () => {},
-};
-
-/** In-memory internal-secret store, to prove scrape-target secrets get cleaned. */
-function memInternalSecrets(): {
-  service: InternalSecretsService;
-  store: Map<string, string>;
-} {
-  const store = new Map<string, string>();
-  const key = (parts: string[]) => parts.join("\x00");
-  const service = {
-    set: async ({ parts, value }: { parts: string[]; value: string }) => {
-      store.set(key(parts), value);
-    },
-    get: async ({ parts }: { parts: string[] }) => store.get(key(parts)),
-    delete: async ({ parts }: { parts: string[] }) => {
-      store.delete(key(parts));
-    },
-  } as unknown as InternalSecretsService;
-  return { service, store };
-}
-
 describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", () => {
   let test: TestDb<typeof schema>;
-  let tokenKit: SourceTokenKit;
 
   beforeAll(async () => {
     test = await withTestDb({ schema, migrationsFolder: MIGRATIONS });
-    tokenKit = createSourceTokenKit({ prefix: "ckms_" });
   });
   afterAll(async () => {
     await test.dispose();
@@ -96,8 +44,6 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
       schema.metricImportantEvents,
       schema.metricStreamSystemLinks,
       schema.metricStreamActivity,
-      schema.metricScrapeTargets,
-      schema.metricStreamTokens,
       schema.metricStreams,
     ]) {
       await db.delete(table);
@@ -112,21 +58,14 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
   });
 
   function buildService(overrides?: {
-    onScrapeTargetsChanged?: OnScrapeTargetsChanged;
     rpcClient?: RpcClient;
-    internalSecrets?: InternalSecretsService;
     now?: () => Date;
   }): MetricstreamService {
     return createMetricstreamService({
       db: test.db,
       storage: createStorage({ db: test.db }),
-      cacheManager: noopCacheManager(),
       logger: createMockLogger(),
-      tokenKit,
-      auth: stubAuth,
-      internalSecrets: overrides?.internalSecrets ?? memInternalSecrets().service,
       rpcClient: overrides?.rpcClient,
-      onScrapeTargetsChanged: overrides?.onScrapeTargetsChanged,
       ...(overrides?.now ? { now: overrides.now } : {}),
     });
   }
@@ -166,33 +105,12 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
     expect(new Set(seen).size).toBe(5); // each row once, none skipped
   });
 
-  it("deleteStream cascades every stream-scoped table + cleans grants/secrets", async () => {
+  it("deleteStream cascades every stream-scoped table + cleans grants", async () => {
     const { db } = test;
     const seriesId = computeSeriesId({ streamId: STREAM, name: "m", labels: {} });
-    const secrets = memInternalSecrets();
-    await secrets.service.set({
-      parts: ["metricstream", "scrape-target", "target-1", "bearerToken"],
-      value: "s3cret",
-    });
 
-    // Seed one row in every stream-scoped table.
-    await db.insert(schema.metricStreamTokens).values({
-      id: "tok-1",
-      streamId: STREAM,
-      name: "shipper",
-      tokenHash: tokenKit.hashToken("ckms_x_abc"),
-      tokenPrefix: "ckms_x_a",
-    });
-    await db.insert(schema.metricScrapeTargets).values({
-      id: "target-1",
-      streamId: STREAM,
-      name: "prom",
-      url: "https://example.com/metrics",
-      intervalSeconds: 60,
-      timeoutMs: 10_000,
-      bearerTokenSecret: `${METRICSTREAM_SECRET_MARKER_PREFIX}target-1`,
-      enabled: true,
-    });
+    // Seed one row in every stream-scoped table. (Push tokens are the platform's
+    // now - deleting a stream no longer touches a plugin token table.)
     await db.insert(schema.metricNames).values({
       streamId: STREAM,
       name: "m",
@@ -254,22 +172,13 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
       }),
     } as unknown as RpcClient;
 
-    let reconcileCalled: string | undefined;
-    const service = buildService({
-      rpcClient,
-      internalSecrets: secrets.service,
-      onScrapeTargetsChanged: ({ streamId }) => {
-        reconcileCalled = streamId;
-      },
-    });
+    const service = buildService({ rpcClient });
 
     await service.deleteStream({ id: STREAM });
 
     // Every stream-scoped table is empty.
     for (const table of [
       schema.metricStreams,
-      schema.metricStreamTokens,
-      schema.metricScrapeTargets,
       schema.metricNames,
       schema.metricSeries,
       schema.metricMinuteBuckets,
@@ -280,28 +189,11 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
       const rows = await db.select().from(table);
       expect(rows).toHaveLength(0);
     }
-    // Grants cleaned under the qualified type; scrape secret cleared; reconciler notified.
+    // Grants cleaned under the qualified type.
     expect(grantCleanup).toEqual({
       objectType: "metricstream.stream",
       objectId: STREAM,
     });
-    expect(secrets.store.size).toBe(0);
-    expect(reconcileCalled).toBe(STREAM);
-  });
-
-  it("mint then revoke a token; list never leaks secret material", async () => {
-    const service = buildService();
-    const minted = await service.mintToken({ streamId: STREAM, name: "shipper" });
-    expect(minted.secret.startsWith("ckms_")).toBe(true);
-
-    const listed = await service.listTokens({ streamId: STREAM });
-    expect(listed).toHaveLength(1);
-    expect(listed[0]).not.toHaveProperty("tokenHash");
-    expect(listed[0]!.revokedAt).toBeNull();
-
-    await service.revokeToken({ streamId: STREAM, tokenId: minted.token.id });
-    const after = await service.listTokens({ streamId: STREAM });
-    expect(after[0]!.revokedAt).not.toBeNull();
   });
 
   it("label autocomplete returns distinct keys and filtered values", async () => {
@@ -427,75 +319,6 @@ describe.skipIf(!isIntegrationEnabled())("metricstream service (integration)", (
     expect(byHour.get(floorToHour(fineMinute).getTime())).toBe(22);
   });
 
-  it("stores a scrape-target bearer as a marker (never plaintext) and resolves it onto the scrape", async () => {
-    const { db } = test;
-    const secrets = memInternalSecrets();
-    const service = buildService({ internalSecrets: secrets.service });
-
-    const PLAINTEXT = "super-secret-bearer";
-    const created = await service.createScrapeTarget({
-      streamId: STREAM,
-      name: "prom",
-      url: "https://prometheus.example.com/metrics",
-      intervalSeconds: 60,
-      timeoutMs: 10_000,
-      bearerToken: PLAINTEXT,
-      enabled: true,
-    });
-
-    // The column holds the MARKER, never the plaintext.
-    const [row] = await db
-      .select({ secret: schema.metricScrapeTargets.bearerTokenSecret })
-      .from(schema.metricScrapeTargets)
-      .where(eq(schema.metricScrapeTargets.id, created.id));
-    expect(row!.secret).toBe(`${METRICSTREAM_SECRET_MARKER_PREFIX}${created.id}`);
-    expect(row!.secret).not.toContain(PLAINTEXT);
-    // Every stored value across the internal-secret store is the plaintext, keyed
-    // under the target - i.e. plaintext lives ONLY in the encrypted-at-rest store.
-    expect([...secrets.store.values()]).toContain(PLAINTEXT);
-
-    // Resolve just-in-time (the reconciler's path) and prove it reaches the wire.
-    const secretResolver = {
-      resolveForRun: async ({ secretEnv }: { secretEnv: Record<string, string> }) => ({
-        env: secretEnv,
-      }),
-    } as unknown as SecretResolverService;
-    const resolved = await resolveScrapeTargetBearer({
-      stored: row!.secret,
-      targetId: created.id,
-      internalSecrets: secrets.service,
-      secretResolver,
-    });
-    expect(resolved).toBe(PLAINTEXT);
-
-    const publicLookup: ScrapeLookupFn = async () => [
-      { address: "93.184.216.34", family: 4 },
-    ];
-    const seen: { auth: string | null } = { auth: null };
-    const fetchImpl = (async (_url: string, init: RequestInit) => {
-      seen.auth = new Headers(init.headers).get("authorization");
-      return new Response(`# TYPE up gauge\nup 1`, {
-        headers: { "content-type": "text/plain" },
-      });
-    }) as unknown as typeof fetch;
-
-    await executePrometheusScrape({
-      target: {
-        id: created.id,
-        streamId: STREAM,
-        name: "prom",
-        url: created.url,
-        timeoutMs: 10_000,
-        bearerToken: resolved,
-        maxSeries: 1000,
-      },
-      sink: { ingest: () => ({ accepted: 1, rejected: 0 }) },
-      logger: createMockLogger(),
-      fetchImpl,
-      lookupFn: publicLookup,
-    });
-    expect(seen.auth).toBe(`Bearer ${PLAINTEXT}`);
-  });
 
   it("setSystemLinks replaces the whole set (picker semantics, not a patch)", async () => {
     const service = buildService();

@@ -10,6 +10,7 @@
 
 import {
   AGGREGATION_TEMPORALITY,
+  type OtlpExemplar,
   type OtlpHistogramPoint,
   type OtlpMetric,
   type OtlpMetricData,
@@ -91,6 +92,7 @@ function numberPoints(data: Record<string, unknown>): OtlpNumberPoint[] {
       attributes: kvListToObject(asArray(pick(dp, "attributes"))),
       timeUnixNano: asBigint(pick(dp, "timeUnixNano", "time_unix_nano")),
       value: jsonNumberValue(dp),
+      exemplars: jsonExemplars(dp),
     });
   }
   return out;
@@ -107,6 +109,29 @@ function histogramPoints(data: Record<string, unknown>): OtlpHistogramPoint[] {
       timeUnixNano: asBigint(pick(dp, "timeUnixNano", "time_unix_nano")),
       count: asNumber(pick(dp, "count")),
       sum: sum === undefined ? undefined : asNumber(sum),
+      exemplars: jsonExemplars(dp),
+    });
+  }
+  return out;
+}
+
+/**
+ * A datapoint's exemplars. OTLP/JSON encodes an exemplar's `traceId`/`spanId`
+ * as HEX strings (the OTLP JSON mapping special-cases id bytes as hex, not
+ * base64), so they pass straight through lowercased; the normalizer validates
+ * the 32-hex trace id and drops the rest. Missing/malformed exemplars are
+ * skipped, never fatal.
+ */
+function jsonExemplars(dp: Record<string, unknown>): OtlpExemplar[] {
+  const out: OtlpExemplar[] = [];
+  for (const raw of asArray(pick(dp, "exemplars"))) {
+    const ex = asRecord(raw);
+    if (!ex) continue;
+    out.push({
+      timeUnixNano: asBigint(pick(ex, "timeUnixNano", "time_unix_nano")),
+      value: jsonNumberValue(ex),
+      traceId: (asString(pick(ex, "traceId", "trace_id")) ?? "").toLowerCase(),
+      spanId: (asString(pick(ex, "spanId", "span_id")) ?? "").toLowerCase(),
     });
   }
   return out;

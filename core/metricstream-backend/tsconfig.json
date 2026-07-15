@@ -50,9 +50,6 @@
       "path": "../satellite-backend"
     },
     {
-      "path": "../satellite-common"
-    },
-    {
       "path": "../secrets-backend"
     },
     {
