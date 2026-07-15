@@ -91,7 +91,13 @@ describe("SatelliteScriptPackages", () => {
     // Final desired hash (h2) is what we converged toward.
     const lastReport = reports.at(-1);
     expect(lastReport?.lockfileHash).toBe("h2");
-  });
+    // Deliberate starvation ceiling (~2x worst observed): this test runs in
+    // ~250ms in isolation, but it serializes TWO reconciles (the second held
+    // behind the first's gated manifest request) each doing tmpdir tree
+    // materialization - under the parallel suite's FS/event-loop saturation
+    // that chain was starved to 71.9s past the 30s default. The assertions,
+    // not the clock, carry the correctness; the ceiling only bounds a hang.
+  }, { timeout: 150_000 });
 
   test("empty manifest reconciles to ready (no blobs to pull)", async () => {
     const sp = new SatelliteScriptPackages(
