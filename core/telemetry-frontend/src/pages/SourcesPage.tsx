@@ -36,7 +36,7 @@ import {
   type TelemetrySource,
 } from "@checkstack/telemetry-common";
 import { indexSourceTypes } from "../lib/sources-section.logic";
-import { isWebhookType } from "../lib/source-form.logic";
+import { isPushType, isWebhookType } from "../lib/source-form.logic";
 import { deriveSourceHealth } from "../lib/source-health.logic";
 import { SourceBindingsSummary } from "../components/SourceBindingsSummary";
 import { AddSourceDialog } from "../components/AddSourceDialog";
@@ -63,7 +63,10 @@ export function SourcesPage() {
     source: TelemetrySource;
     descriptor: SourceTypeDescriptor;
   } | null>(null);
-  const [rotateSource, setRotateSource] = useState<TelemetrySource | null>(null);
+  const [rotateState, setRotateState] = useState<{
+    source: TelemetrySource;
+    descriptor: SourceTypeDescriptor;
+  } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TelemetrySource | null>(null);
 
   const {
@@ -236,12 +239,16 @@ export function SourcesPage() {
             >
               <Pencil className="size-4" />
             </Button>
-            {isWebhookType(descriptor) && (
+            {(isWebhookType(descriptor) || isPushType(descriptor)) && (
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label="Rotate webhook secret"
-                onClick={() => setRotateSource(s)}
+                aria-label={
+                  isPushType(descriptor)
+                    ? "Rotate source token"
+                    : "Rotate webhook secret"
+                }
+                onClick={() => setRotateState({ source: s, descriptor })}
               >
                 <KeyRound className="size-4" />
               </Button>
@@ -263,7 +270,7 @@ export function SourcesPage() {
   return (
     <PageLayout
       title="Sources"
-      subtitle="Pollers, webhooks and listeners that ingest telemetry into your streams"
+      subtitle="Push endpoints, pollers, webhooks and listeners that ingest telemetry into your streams"
       icon={Cable}
       actions={sources.length > 0 ? createButton : undefined}
     >
@@ -283,7 +290,7 @@ export function SourcesPage() {
         <EmptyState
           icon={<Cable className="h-8 w-8" />}
           title="Ingest telemetry from anywhere"
-          description="A source pulls or receives telemetry from an external system - a Prometheus endpoint, a vendor webhook, a syslog listener - and routes it into your log and metric streams."
+          description="A source pushes, pulls, or receives telemetry from an external system - an OTLP shipper, a Prometheus endpoint, a vendor webhook, a syslog listener - and routes it into your log and metric streams."
           steps={
             sourceTypes.length === 0
               ? [
@@ -321,11 +328,12 @@ export function SourcesPage() {
         />
       )}
 
-      {rotateSource && (
+      {rotateState && (
         <RotateSecretDialog
-          source={rotateSource}
-          open={rotateSource !== null}
-          onOpenChange={(open) => !open && setRotateSource(null)}
+          source={rotateState.source}
+          descriptor={rotateState.descriptor}
+          open={rotateState !== null}
+          onOpenChange={(open) => !open && setRotateState(null)}
         />
       )}
 

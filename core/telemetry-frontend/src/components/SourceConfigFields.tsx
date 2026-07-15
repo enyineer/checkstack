@@ -17,13 +17,16 @@ import {
 } from "@checkstack/telemetry-common";
 import {
   asConfigSchema,
+  hasEmptyConfigSchema,
   isPullType,
+  isPushType,
   supportsSatellitePicker,
   type SourceEditorValues,
 } from "../lib/source-form.logic";
 import { selectConfigFiller } from "../lib/source-config-slot.logic";
 import { TestConnectionButton } from "./TestConnectionButton";
 import { RunFromSatelliteSelect } from "./RunFromSatelliteSelect";
+import { PushSnippetsPanel } from "./PushSnippetsPanel";
 
 export interface SourceConfigFieldsProps {
   descriptor: SourceTypeDescriptor;
@@ -51,6 +54,11 @@ export function SourceConfigFields({
   disabled,
 }: SourceConfigFieldsProps) {
   const pull = isPullType(descriptor);
+  // A push-mode type with an empty config schema has nothing to configure - the
+  // platform Sources section is its only ingest surface. Skip the empty form and
+  // (when it declares endpoints) show its setup snippets in place instead.
+  const pushWithoutConfig =
+    isPushType(descriptor) && hasEmptyConfigSchema(descriptor);
   const accessApi = useApi(accessApiRef);
 
   // The "Run from" picker calls the satellite API, which needs satellite read
@@ -91,13 +99,22 @@ export function SourceConfigFields({
         />
       </div>
 
-      <ConfigSection
-        descriptor={descriptor}
-        config={values.config}
-        onConfigChange={(config) => onChange({ config })}
-        keepExistingSecretFields={keepExistingSecretFields}
-        disabled={disabled}
-      />
+      {pushWithoutConfig ? (
+        descriptor.push && (
+          <PushSnippetsPanel
+            endpoints={descriptor.push.endpoints}
+            signals={descriptor.signals}
+          />
+        )
+      ) : (
+        <ConfigSection
+          descriptor={descriptor}
+          config={values.config}
+          onConfigChange={(config) => onChange({ config })}
+          keepExistingSecretFields={keepExistingSecretFields}
+          disabled={disabled}
+        />
+      )}
 
       {pull && (
         <div className="space-y-1.5">

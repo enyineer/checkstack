@@ -30,3 +30,23 @@ export function deriveSourceHealth(source: TelemetrySource): SourceHealthView {
     timeAt: source.lastRunAt ?? source.updatedAt,
   };
 }
+
+/**
+ * Liveness view for a PUSH source, which has no poll schedule: `lastRunAt` is
+ * stamped only when verified telemetry is received. So "has it ever received?"
+ * and "when last?" are the meaningful signals, rendered as a "last received"
+ * hint instead of the pull/run "Ran/Updated" timestamp.
+ */
+export interface PushLivenessView {
+  /** True once verified ingest has stamped `lastRunAt`. */
+  received: boolean;
+  /** Timestamp of the last received push, or `null` if none yet. */
+  receivedAt: Date | null;
+}
+
+export function derivePushLiveness(source: TelemetrySource): PushLivenessView {
+  return {
+    received: source.lastRunAt !== null,
+    receivedAt: source.lastRunAt,
+  };
+}

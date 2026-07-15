@@ -13,70 +13,108 @@ import {
 } from "@checkstack/ui";
 import {
   TelemetryApi,
+  type SourceTypeDescriptor,
   type TelemetrySource,
 } from "@checkstack/telemetry-common";
+import { isPushType } from "../lib/source-form.logic";
 import {
-  initialWebhookPanelState,
-  isWebhookPanelOpen,
-  webhookPanelReducer,
-} from "../lib/webhook-panel.logic";
+  initialSecretRevealState,
+  isSecretRevealOpen,
+  secretRevealReducer,
+} from "../lib/secret-reveal.logic";
 import { WebhookSecretPanel } from "./WebhookSecretPanel";
+import { PushSecretPanel } from "./PushSecretPanel";
 
 export interface RotateSecretDialogProps {
   source: TelemetrySource;
+  descriptor: SourceTypeDescriptor;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 /**
- * Rotate a webhook-mode source's endpoint secret. The previous secret stops
- * verifying immediately; the new one is revealed once (same shown-once panel as
- * create). Gated on the source's manage verdict.
+ * Rotate a push- or webhook-mode source's ingest secret. The previous secret
+ * stops being accepted immediately; the new one is revealed once (same
+ * shown-once panel as create). Which secret rotates is decided by the type's
+ * mode. Gated on the source's manage verdict.
  */
 export function RotateSecretDialog({
   source,
+  descriptor,
   open,
   onOpenChange,
 }: RotateSecretDialogProps) {
   const client = usePluginClient(TelemetryApi);
   const toast = useToast();
-  const [webhook, dispatchWebhook] = useReducer(
-    webhookPanelReducer,
-    initialWebhookPanelState,
+  const [reveal, dispatchReveal] = useReducer(
+    secretRevealReducer,
+    initialSecretRevealState,
   );
 
-  const rotateMutation = client.rotateWebhookSecret.useGatedMutation({
+  const push = isPushType(descriptor);
+  const noun = push ? "token" : "secret";
+
+  const rotateWebhook = client.rotateWebhookSecret.useGatedMutation({
     gateInput: { id: source.id },
     onSuccess: (info) => {
-      dispatchWebhook({ type: "reveal", info });
+      dispatchReveal({ type: "reveal", reveal: { kind: "webhook", info } });
       toast.success("Webhook secret rotated");
     },
     onError: (error) => toastError(toast, "Failed to rotate secret", error),
   });
 
+  const rotatePush = client.rotatePushToken.useGatedMutation({
+    gateInput: { id: source.id },
+    onSuccess: (info) => {
+      dispatchReveal({ type: "reveal", reveal: { kind: "push", info } });
+      toast.success("Source token rotated");
+    },
+    onError: (error) => toastError(toast, "Failed to rotate token", error),
+  });
+
+  const rotating = push ? rotatePush.isPending : rotateWebhook.isPending;
+
   useEffect(() => {
-    if (open) dispatchWebhook({ type: "dismiss" });
+    if (open) dispatchReveal({ type: "dismiss" });
   }, [open]);
 
-  const revealed = isWebhookPanelOpen(webhook);
+  const rotate = () => {
+    if (push) rotatePush.mutate({ id: source.id });
+    else rotateWebhook.mutate({ id: source.id });
+  };
+
+  const revealed = isSecretRevealOpen(reveal);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="default">
+      <DialogContent size={revealed && push ? "lg" : "default"}>
         <DialogHeader>
           <DialogTitle>
-            {revealed ? "New webhook secret" : "Rotate webhook secret"}
+            {revealed
+              ? push
+                ? "New source token"
+                : "New webhook secret"
+              : push
+                ? "Rotate source token"
+                : "Rotate webhook secret"}
           </DialogTitle>
           <DialogDescription>
             {revealed
-              ? "Update the sender with this secret. It is shown once."
-              : `Rotating immediately invalidates the current secret for ${source.name}. Any sender using it will stop being accepted until updated.`}
+              ? `Update the sender with this ${noun}. It is shown once.`
+              : `Rotating immediately invalidates the current ${noun} for ${source.name}. Any sender using it will stop being accepted until updated.`}
           </DialogDescription>
         </DialogHeader>
 
-        {revealed && webhook.info ? (
+        {revealed && reveal.reveal ? (
           <div className="space-y-4">
-            <WebhookSecretPanel info={webhook.info} />
+            {reveal.reveal.kind === "webhook" ? (
+              <WebhookSecretPanel info={reveal.reveal.info} />
+            ) : (
+              <PushSecretPanel
+                info={reveal.reveal.info}
+                signals={descriptor.signals}
+              />
+            )}
             <DialogFooter>
               <Button onClick={() => onOpenChange(false)}>Done</Button>
             </DialogFooter>
@@ -87,17 +125,17 @@ export function RotateSecretDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={rotateMutation.isPending}
+              disabled={rotating}
             >
               Cancel
             </Button>
             <Button
               type="button"
               variant="destructive"
-              onClick={() => rotateMutation.mutate({ id: source.id })}
-              disabled={rotateMutation.isPending}
+              onClick={rotate}
+              disabled={rotating}
             >
-              {rotateMutation.isPending ? "Rotating..." : "Rotate secret"}
+              {rotating ? "Rotating..." : `Rotate ${noun}`}
             </Button>
           </DialogFooter>
         )}

@@ -1,10 +1,13 @@
-import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { createFrontendPlugin, createSlotExtension } from "@checkstack/frontend-api";
 import { Cable } from "lucide-react";
 import {
   pluginMetadata,
   telemetryAccess,
   telemetryResourceTypes,
   telemetryRoutes,
+  SourceConfigSlot,
+  LOG_TO_METRIC_SOURCE_TYPE_ID,
+  LOG_TO_TRACE_SOURCE_TYPE_ID,
   TELEMETRY_SOURCE_CHANGED,
 } from "@checkstack/telemetry-common";
 
@@ -46,6 +49,28 @@ export default createFrontendPlugin({
         accessRule: telemetryAccess.read,
       },
     },
+  ],
+  // Bespoke config editors for the platform's built-in DERIVE source types. Each
+  // filler matches the generic source dialog's config section by the type's
+  // qualified id (single-sourced in telemetry-common), giving the derive types a
+  // real input-stream picker instead of the schema-driven DynamicForm.
+  extensions: [
+    createSlotExtension(SourceConfigSlot, {
+      id: "telemetry.log-to-metric-config",
+      metadata: { sourceTypeId: LOG_TO_METRIC_SOURCE_TYPE_ID },
+      load: () =>
+        import("./components/derive/LogToMetricConfig").then((m) => ({
+          default: m.LogToMetricConfig,
+        })),
+    }),
+    createSlotExtension(SourceConfigSlot, {
+      id: "telemetry.log-to-trace-config",
+      metadata: { sourceTypeId: LOG_TO_TRACE_SOURCE_TYPE_ID },
+      load: () =>
+        import("./components/derive/LogToTraceConfig").then((m) => ({
+          default: m.LogToTraceConfig,
+        })),
+    }),
   ],
 });
 

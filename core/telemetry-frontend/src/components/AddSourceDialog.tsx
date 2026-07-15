@@ -35,14 +35,15 @@ import {
   initialBindingSelection,
 } from "../lib/binding-editor.logic";
 import {
-  initialWebhookPanelState,
-  isWebhookPanelOpen,
-  webhookPanelReducer,
-} from "../lib/webhook-panel.logic";
+  initialSecretRevealState,
+  isSecretRevealOpen,
+  secretRevealReducer,
+} from "../lib/secret-reveal.logic";
 import { BindingEditor } from "./BindingEditor";
 import { SourceConfigFields } from "./SourceConfigFields";
 import { SourceTypeCatalog } from "./SourceTypeCatalog";
 import { WebhookSecretPanel } from "./WebhookSecretPanel";
+import { PushSecretPanel } from "./PushSecretPanel";
 
 export interface AddSourceDialogProps {
   /**
@@ -102,9 +103,9 @@ export function AddSourceDialog({
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [webhook, dispatchWebhook] = useReducer(
-    webhookPanelReducer,
-    initialWebhookPanelState,
+  const [reveal, dispatchReveal] = useReducer(
+    secretRevealReducer,
+    initialSecretRevealState,
   );
 
   // A caller who holds the global manage rule may create a global (un-owned)
@@ -114,7 +115,18 @@ export function AddSourceDialog({
   const createMutation = client.createSource.useGatedMutation({
     onSuccess: (source) => {
       if (source.webhook) {
-        dispatchWebhook({ type: "reveal", info: source.webhook });
+        dispatchReveal({
+          type: "reveal",
+          reveal: { kind: "webhook", info: source.webhook },
+        });
+        toast.success(`Created ${source.name}`);
+        return;
+      }
+      if (source.push) {
+        dispatchReveal({
+          type: "reveal",
+          reveal: { kind: "push", info: source.push },
+        });
         toast.success(`Created ${source.name}`);
         return;
       }
@@ -139,7 +151,7 @@ export function AddSourceDialog({
       setOwnerTeamId(null);
       setOwnerTeamError(null);
       setFormError(null);
-      dispatchWebhook({ type: "dismiss" });
+      dispatchReveal({ type: "dismiss" });
       resetStep();
     }
   }, [open, resetStep]);
@@ -194,7 +206,7 @@ export function AddSourceDialog({
     );
   };
 
-  const revealed = isWebhookPanelOpen(webhook);
+  const revealed = isSecretRevealOpen(reveal);
   const saving = createMutation.isPending;
 
   const title = useMemo(() => {
@@ -209,14 +221,23 @@ export function AddSourceDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {revealed
-              ? "Point your webhook at this endpoint. The secret is shown once."
+              ? reveal.reveal?.kind === "push"
+                ? "Ship telemetry to these endpoints. The token is shown once."
+                : "Point your webhook at this endpoint. The secret is shown once."
               : "A source ingests telemetry into this stream. Pick a type, then configure it."}
           </DialogDescription>
         </DialogHeader>
 
-        {revealed && webhook.info ? (
+        {revealed && reveal.reveal ? (
           <div className="space-y-4">
-            <WebhookSecretPanel info={webhook.info} />
+            {reveal.reveal.kind === "webhook" ? (
+              <WebhookSecretPanel info={reveal.reveal.info} />
+            ) : (
+              <PushSecretPanel
+                info={reveal.reveal.info}
+                signals={descriptor?.signals ?? []}
+              />
+            )}
             <DialogFooter>
               <Button onClick={() => onOpenChange(false)}>Done</Button>
             </DialogFooter>

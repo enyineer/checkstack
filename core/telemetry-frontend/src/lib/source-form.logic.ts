@@ -32,6 +32,26 @@ export function isWebhookType(descriptor: SourceTypeDescriptor): boolean {
   return descriptor.modes.includes("webhook");
 }
 
+export function isPushType(descriptor: SourceTypeDescriptor): boolean {
+  return descriptor.modes.includes("push");
+}
+
+/**
+ * Whether the config step should render NO schema form: a push-mode type whose
+ * config schema has no properties (the platform Sources section is its only
+ * ingest surface, so it carries name/description/binding but no config fields).
+ * Such a type shows its push endpoints/snippets in place of an empty form.
+ */
+export function hasEmptyConfigSchema(
+  descriptor: SourceTypeDescriptor,
+): boolean {
+  const schema = descriptor.configSchema;
+  const properties = schema.properties;
+  if (properties === undefined || properties === null) return true;
+  if (typeof properties !== "object") return true;
+  return Object.keys(properties).length === 0;
+}
+
 /**
  * The interval an editor should seed for a pull-capable type: the instance's
  * own override when set, else the type's default. `null` for non-pull types

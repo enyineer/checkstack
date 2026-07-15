@@ -86,7 +86,8 @@ export function StreamSourcesSection({
             <CardTitle>Sources</CardTitle>
             <CardDescription>
               Pluggable sources that ingest telemetry into this stream, whether
-              polled on a schedule or pushed to a webhook endpoint.
+              pushed to an endpoint, pulled on a schedule, received on a webhook,
+              or accepted by a listener.
             </CardDescription>
           </div>
           {canCreate && sourceTypes.length > 0 && (
@@ -102,7 +103,7 @@ export function StreamSourcesSection({
           <EmptyState
             icon={<Antenna className="h-6 w-6" />}
             title="No sources yet"
-            description="Add a source to pull or receive telemetry into this stream."
+            description="Add a source to push, pull, or receive telemetry into this stream."
             actions={
               canCreate && sourceTypes.length > 0 ? (
                 <Button onClick={() => setAddOpen(true)}>

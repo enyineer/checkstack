@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import type { TelemetrySource } from "@checkstack/telemetry-common";
-import { deriveSourceHealth } from "./source-health.logic";
+import { derivePushLiveness, deriveSourceHealth } from "./source-health.logic";
 
 const runAt = new Date("2026-07-14T10:00:00Z");
 const updatedAt = new Date("2026-07-14T09:00:00Z");
@@ -46,5 +46,19 @@ describe("deriveSourceHealth", () => {
     const health = deriveSourceHealth(source({ lastRunAt: null }));
     expect(health.timeLabel).toBe("updated");
     expect(health.timeAt).toBe(updatedAt);
+  });
+});
+
+describe("derivePushLiveness", () => {
+  it("reports the last received time once ingest has stamped lastRunAt", () => {
+    const liveness = derivePushLiveness(source({ lastRunAt: runAt }));
+    expect(liveness.received).toBe(true);
+    expect(liveness.receivedAt).toBe(runAt);
+  });
+
+  it("reports never-received when lastRunAt is null", () => {
+    const liveness = derivePushLiveness(source({ lastRunAt: null }));
+    expect(liveness.received).toBe(false);
+    expect(liveness.receivedAt).toBeNull();
   });
 });

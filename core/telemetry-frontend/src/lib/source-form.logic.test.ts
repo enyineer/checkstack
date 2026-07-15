@@ -9,7 +9,9 @@ import {
   buildUpdatePayload,
   clampInterval,
   deriveInitialInterval,
+  hasEmptyConfigSchema,
   isPullType,
+  isPushType,
   isWebhookType,
   supportsSatellitePicker,
   type SourceEditorValues,
@@ -50,6 +52,22 @@ const pullSatelliteDescriptor: SourceTypeDescriptor = {
   supportsSatellite: true,
 };
 
+const pushDescriptor: SourceTypeDescriptor = {
+  id: "demo.push",
+  ownerPluginId: "demo",
+  displayName: "Push",
+  description: "",
+  signals: ["metrics"],
+  modes: ["push"],
+  configSchema: { type: "object", properties: {} },
+  push: {
+    endpoints: [
+      { kind: "otlp", path: "/api/demo/v1/metrics", label: "OTLP metrics" },
+    ],
+  },
+  supportsSatellite: false,
+};
+
 const existingSource: TelemetrySource = {
   id: "src-1",
   sourceTypeId: "demo.poller",
@@ -80,11 +98,34 @@ const values = (over: Partial<SourceEditorValues>): SourceEditorValues => ({
 });
 
 describe("mode predicates", () => {
-  it("classifies pull vs webhook", () => {
+  it("classifies pull vs webhook vs push", () => {
     expect(isPullType(pullDescriptor)).toBe(true);
     expect(isWebhookType(pullDescriptor)).toBe(false);
     expect(isWebhookType(webhookDescriptor)).toBe(true);
     expect(isPullType(webhookDescriptor)).toBe(false);
+    expect(isPushType(pushDescriptor)).toBe(true);
+    expect(isPushType(pullDescriptor)).toBe(false);
+    expect(isPullType(pushDescriptor)).toBe(false);
+  });
+});
+
+describe("hasEmptyConfigSchema", () => {
+  it("is true for a schema with no properties", () => {
+    expect(hasEmptyConfigSchema(pushDescriptor)).toBe(true);
+    expect(hasEmptyConfigSchema(webhookDescriptor)).toBe(true);
+  });
+
+  it("is true when properties is missing entirely", () => {
+    expect(
+      hasEmptyConfigSchema({
+        ...pushDescriptor,
+        configSchema: { type: "object" },
+      }),
+    ).toBe(true);
+  });
+
+  it("is false when the schema declares fields", () => {
+    expect(hasEmptyConfigSchema(pullDescriptor)).toBe(false);
   });
 });
 

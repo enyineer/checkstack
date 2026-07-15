@@ -18,8 +18,11 @@ import {
   type SourceTypeDescriptor,
   type TelemetrySource,
 } from "@checkstack/telemetry-common";
-import { isPullType, isWebhookType } from "../lib/source-form.logic";
-import { deriveSourceHealth } from "../lib/source-health.logic";
+import { isPullType, isPushType, isWebhookType } from "../lib/source-form.logic";
+import {
+  derivePushLiveness,
+  deriveSourceHealth,
+} from "../lib/source-health.logic";
 import { EditSourceDialog } from "./EditSourceDialog";
 import { RotateSecretDialog } from "./RotateSecretDialog";
 import { TestConnectionButton } from "./TestConnectionButton";
@@ -35,9 +38,10 @@ export interface SourceInstanceListProps {
 /**
  * List of a stream's bound source instances. Each row shows the source's name,
  * its type (icon + display name) and mode badges, an enable/disable toggle, and
- * manage actions (edit, delete, and - for webhook types - rotate secret). Pull
- * types expose an inline "Test connection" that reuses the instance's stored
- * secrets. All writes are gated on the per-row manage verdict.
+ * manage actions (edit, delete, and - for webhook and push types - rotate the
+ * secret/token). Push types show a "last received" liveness hint instead of the
+ * run timestamp. Pull types expose an inline "Test connection" that reuses the
+ * instance's stored secrets. All writes are gated on the per-row manage verdict.
  */
 export function SourceInstanceList({
   sources,
@@ -51,7 +55,10 @@ export function SourceInstanceList({
     source: TelemetrySource;
     descriptor: SourceTypeDescriptor;
   } | null>(null);
-  const [rotateSource, setRotateSource] = useState<TelemetrySource | null>(null);
+  const [rotateState, setRotateState] = useState<{
+    source: TelemetrySource;
+    descriptor: SourceTypeDescriptor;
+  } | null>(null);
   const [deleteSource, setDeleteSource] = useState<TelemetrySource | null>(null);
 
   const toggleMutation = client.updateSource.useMutation({
@@ -72,6 +79,8 @@ export function SourceInstanceList({
         const descriptor = typeIndex.get(source.sourceTypeId);
         const manageable = canManage(source.id);
         const health = deriveSourceHealth(source);
+        const push = descriptor ? isPushType(descriptor) : false;
+        const liveness = push ? derivePushLiveness(source) : null;
         return (
           <li
             key={source.id}
@@ -128,10 +137,18 @@ export function SourceInstanceList({
                           : ""}
                       </span>
                     )}
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {health.timeLabel === "ran" ? "Ran" : "Updated"}{" "}
-                      {formatRelativeTime(health.timeAt)}
-                    </span>
+                    {liveness ? (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {liveness.received && liveness.receivedAt
+                          ? `Last received ${formatRelativeTime(liveness.receivedAt)}`
+                          : "No telemetry received yet"}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {health.timeLabel === "ran" ? "Ran" : "Updated"}{" "}
+                        {formatRelativeTime(health.timeAt)}
+                      </span>
+                    )}
                   </div>
                   {health.failing && health.lastError && (
                     <p
@@ -174,16 +191,22 @@ export function SourceInstanceList({
                     <Pencil className="size-4" />
                   </Button>
                 )}
-                {manageable && descriptor && isWebhookType(descriptor) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Rotate webhook secret"
-                    onClick={() => setRotateSource(source)}
-                  >
-                    <KeyRound className="size-4" />
-                  </Button>
-                )}
+                {manageable &&
+                  descriptor &&
+                  (isWebhookType(descriptor) || isPushType(descriptor)) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={
+                        isPushType(descriptor)
+                          ? "Rotate source token"
+                          : "Rotate webhook secret"
+                      }
+                      onClick={() => setRotateState({ source, descriptor })}
+                    >
+                      <KeyRound className="size-4" />
+                    </Button>
+                  )}
                 {manageable && (
                   <Button
                     variant="ghost"
@@ -217,11 +240,12 @@ export function SourceInstanceList({
         />
       )}
 
-      {rotateSource && (
+      {rotateState && (
         <RotateSecretDialog
-          source={rotateSource}
-          open={rotateSource !== null}
-          onOpenChange={(open) => !open && setRotateSource(null)}
+          source={rotateState.source}
+          descriptor={rotateState.descriptor}
+          open={rotateState !== null}
+          onOpenChange={(open) => !open && setRotateState(null)}
         />
       )}
 
