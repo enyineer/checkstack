@@ -18,10 +18,12 @@ Updated dependencies:
 - `bullmq` 5.80.1 -> 5.80.2
 - `caniuse-lite` 1.0.30001803 -> 1.0.30001805
 - `dompurify` 3.4.11 -> 3.4.12
+- `es-module-lexer` 2.3.0 -> 2.3.1
 - `fast-xml-builder` 1.2.1 -> 1.3.0
 - `fast-xml-parser` 5.9.3 -> 5.10.0
 - `is-unsafe` 1.0.1 -> 2.0.0
 - `ldapts` 8.1.8 -> 8.2.0
 - `postcss` 8.5.16 -> 8.5.17
 - `svgo` 4.0.1 -> 4.0.2
+- `tar` 7.5.19 -> 7.5.20
 - `xml-naming` 0.1.0 -> 0.3.0
