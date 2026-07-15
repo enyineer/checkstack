@@ -1,5 +1,87 @@
 # @checkstack/backend-api
 
+## 0.34.0
+
+### Minor Changes
+
+- 6c8b36b: Promote the SSRF-guarded, redirect-revalidating fetch into backend-api as
+  `createGuardedFetch` / `GuardedFetchError`: scheme allow-list, host validation
+  on EVERY redirect hop, spec-correct redirect semantics (301/302/303 downgrade
+  to GET and drop the body; 307/308 preserve the method and refuse
+  non-replayable stream bodies), and `maxRedirects: 0` returning the 3xx as-is
+  for callers that must not follow.
+
+  The Prometheus scrape executor now uses it: previously the scraper validated
+  only the ORIGINAL host and then followed redirects blindly, so a compliant
+  target could redirect a scrape to an internal address; every hop is now
+  re-validated. (The AI probe-url tool and the notification egress validator
+  deliberately keep their own guards - both are STRICTER than the shared
+  default: probe-url blocks all private ranges and metadata hostnames by name,
+  notification egress fails closed on any redirect.)
+
+  Credential headers (`authorization`, `proxy-authorization`, `cookie`) are now
+  stripped from the forwarded request when a redirect crosses to a different
+  origin (scheme, host, or port), matching browser / undici behavior. Previously
+  the manual follower re-sent every request header verbatim, so a redirecting
+  target (e.g. a Prometheus scrape endpoint) could replay the configured bearer
+  to another host. Same-origin redirects keep the credentials.
+
+- 6c8b36b: Promote the t-digest percentile helpers from healthcheck-backend into
+  backend-api (`createTDigest`, `serializeTDigest`, `deserializeTDigest`,
+  `mergeTDigestStates`, `percentileFromState`, ...), so any plugin can maintain
+  mergeable percentile sketches; tracestream's per-operation p95 buckets are the
+  first new consumer. healthcheck-backend now imports the shared module (the
+  local copy is removed, no behavior change).
+- 6c8b36b: Catalog **Groups** and **Environments** are now team-manageable. Their reads
+  stay public (they are shared browse facets everyone can see), but creating,
+  renaming, and deleting them is team-scoped exactly like Systems: a create
+  writes an owning-team grant, and edit/delete require a per-instance manage
+  grant. A team that can create Systems can also create Groups and Environments
+  (and attach them to systems it manages) with no extra grant.
+
+  New reusable platform seam `instanceAccess.create.alsoAcceptCreatorOf: string[]`:
+  a create procedure can declare sibling types whose `creator` (create-capability)
+  grant also authorizes the create - strictly the type-level creator grant, so it
+  stays orthogonal to `create.parent` (which is instance-manage). It is backed by a
+  new strict-creator auth primitive `hasCreateCapability({ objectType })` consumed
+  by BOTH the create middleware and the frontend `canCreate` verdict (extended with
+  an optional `alsoAcceptCreatorOf`), so the button gate and the backend can never
+  drift. The boot conformance check now also verifies every `alsoAcceptCreatorOf`
+  type is a real team-scoped type, and `catalog.group` / `catalog.environment` gain
+  resource-name resolvers so their team grants render by name.
+
+  BREAKING: `catalog.deleteGroup` input reshaped from a bare `string` to
+  `{ id: string }` (mirrors the earlier `deleteSystem` reshape) so the per-group
+  manage check can resolve the target id. `catalog.reorderGroups` stays a
+  global-admin operation (it rewrites the single global sort order for all groups).
+  Existing ownerless (global) groups and environments remain editable only by
+  global catalog admins until re-owned; no data migration is required (team grants
+  live in the auth relation store).
+
+- 6c8b36b: Promote the user-scoped cross-plugin RPC client into
+  `@checkstack/backend-api` (`createUserScopedRpcClient` +
+  `forwardableAuthHeadersFrom`): the caller-identity re-entry used by
+  "cannot expose what you cannot see" gates (catalog readability on stream
+  links, satellite binding auth, AI deferred tool routing, status-page
+  publish) now has ONE implementation instead of six near-verbatim copies.
+  Only the session cookie and bearer Authorization are ever forwarded, and a
+  request without them re-enters anonymous (fail closed). ai-backend,
+  status-page-backend and telemetry-backend migrate to the shared export;
+  behavior is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/healthcheck-common@1.18.0
+  - @checkstack/queue-api@0.4.0
+  - @checkstack/common@0.23.0
+  - @checkstack/cache-api@0.3.20
+  - @checkstack/signal-common@0.3.1
+  - @checkstack/template-engine@0.4.12
+
 ## 0.33.0
 
 ### Minor Changes

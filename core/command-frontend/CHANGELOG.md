@@ -1,5 +1,22 @@
 # @checkstack/command-frontend
 
+## 0.5.14
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/command-common@0.3.12
+
 ## 0.5.13
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @checkstack/pluginmanager-frontend
 
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/tips-frontend@0.5.4
+  - @checkstack/pluginmanager-common@0.2.17
+
 ## 0.6.7
 
 ### Patch Changes

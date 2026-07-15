@@ -1,5 +1,21 @@
 # @checkstack/queue-api
 
+## 0.4.0
+
+### Minor Changes
+
+- 6c8b36b: Add `reconcileRecurringJobs`, a shared convergence helper for recurring queue
+  jobs. It (re-)schedules a desired set of jobs by stable jobId and cancels every
+  existing recurring job the caller owns (`ownsJobId`) that is no longer desired,
+  running schedules and cancels concurrently. The metricstream Prometheus scrape
+  scheduler and the telemetry pull reconciler now both use it instead of
+  hand-rolling the same list/schedule/cancel dance, with identical behaviour.
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+  - @checkstack/common@0.23.0
+
 ## 0.3.19
 
 ### Patch Changes

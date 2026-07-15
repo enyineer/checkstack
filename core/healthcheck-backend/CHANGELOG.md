@@ -1,5 +1,75 @@
 # @checkstack/healthcheck-backend
 
+## 1.21.3
+
+### Patch Changes
+
+- 6c8b36b: Promote the health-check run-queue contract and the observability window
+  math into `@checkstack/healthcheck-common`: `HEALTH_CHECK_QUEUE`,
+  `HealthCheckJobPayload`, `fastPathJobId` (per-plugin prefix) and
+  `computeWindowBounds`/`computeSecondsSinceLast` now have ONE definition
+  that the queue owner (healthcheck-backend) and every observability
+  strategy plugin import, replacing the per-plugin mirror copies that had
+  to be kept in lock-step by convention. Enqueued job ids and window
+  semantics are byte-identical; this is a drift-proofing refactor, not a
+  behavior change.
+- 6c8b36b: Run the config-secrets backfill in afterPluginsReady instead of init.
+  Health-check strategies contributed by other plugins register during THEIR
+  init, and plugin init order follows the service-ref graph, so running the
+  backfill during healthcheck's own init could scan configurations before a
+  contributor (e.g. logstream's health strategy) had registered - skipping
+  that strategy's config with a "strategy not registered" warning at boot.
+  Only afterPluginsReady guarantees a complete registry. The backfill is
+  idempotent, so any configuration skipped by an earlier boot is picked up
+  on the next one.
+- 6c8b36b: Promote the t-digest percentile helpers from healthcheck-backend into
+  backend-api (`createTDigest`, `serializeTDigest`, `deserializeTDigest`,
+  `mergeTDigestStates`, `percentileFromState`, ...), so any plugin can maintain
+  mergeable percentile sketches; tracestream's per-operation p95 buckets are the
+  first new consumer. healthcheck-backend now imports the shared module (the
+  local copy is removed, no behavior change).
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ai-backend@0.11.3
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/healthcheck-common@1.18.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/queue-api@0.4.0
+  - @checkstack/common@0.23.0
+  - @checkstack/catalog-backend@1.10.0
+  - @checkstack/status-page-backend@0.6.5
+  - @checkstack/automation-backend@0.11.7
+  - @checkstack/incident-backend@1.13.5
+  - @checkstack/script-packages-backend@0.4.5
+  - @checkstack/sdk@0.133.1
+  - @checkstack/command-backend@0.2.26
+  - @checkstack/gitops-backend@0.5.26
+  - @checkstack/satellite-backend@0.9.3
+  - @checkstack/secrets-backend@0.3.8
+  - @checkstack/incident-common@1.10.4
+  - @checkstack/maintenance-common@1.10.4
+  - @checkstack/status-page-common@0.6.4
+  - @checkstack/ai-common@0.6.7
+  - @checkstack/cache-api@0.3.20
+  - @checkstack/gitops-common@0.7.4
+  - @checkstack/notification-common@1.7.2
+  - @checkstack/secrets-common@0.3.3
+  - @checkstack/signal-common@0.3.1
+  - @checkstack/cache-utils@0.3.1
+
 ## 1.21.2
 
 ### Patch Changes

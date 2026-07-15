@@ -1,5 +1,13 @@
 # @checkstack/queue-common
 
+## 0.6.13
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+  - @checkstack/common@0.23.0
+  - @checkstack/signal-common@0.3.1
+
 ## 0.6.12
 
 ### Patch Changes

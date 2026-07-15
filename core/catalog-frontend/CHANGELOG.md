@@ -1,5 +1,205 @@
 # @checkstack/catalog-frontend
 
+## 0.21.0
+
+### Minor Changes
+
+- 6c8b36b: Catalog manage tabs: per-row owner badge, de-bloated membership chips, and a
+  reusable batched ownership lookup.
+
+  - New batched auth primitive `listObjectRelationsBulk({ objectType, objectIds })`
+    resolves the owning team(s) and privacy for MANY resources of one type in a
+    single query (mirrors the per-object `listObjectRelations`). Backed by a new
+    `RelationTupleStore.listObjectRelationsBulk`. This is the table-friendly
+    counterpart any plugin can use to render an owner indicator per row without an
+    N+1.
+  - New `@checkstack/auth-frontend` helpers built on it: `useResourcesManagedBy`
+    (batched hook, gated on `auth.teams.read`) and the compact `ResourceOwnerBadge`
+    presentational pill. The catalog Groups and Environments manage tabs now show a
+    per-row "owned by <team>" badge and a one-line note that these are shared,
+    globally-visible objects only the owning team can rename/delete.
+  - Membership chips on the Systems / Groups / Environments manage tabs collapse to
+    a single count pill ("N systems") whose popover holds the members plus a
+    name-sorted, searchable add list, instead of wrapping a full chip wall that
+    made rows tall. Attaching/detaching a system to a group/environment is offered
+    and enabled only for systems the caller can manage (matching the backend, which
+    authorizes membership per `catalog.system` manage).
+  - Groups and Environments manage rows gain the same per-row "Scope to team"
+    quick action Systems already had, so an owner can grant a team Manage/Read on a
+    group or environment straight from the table. The action is a reusable
+    `ScopeToTeamAction` (any team-scoped resource type) exported from
+    `@checkstack/auth-frontend`; `ScopeSystemToTeamAction` is now a thin adapter
+    over it. It self-gates on `auth.teams.manage` and defers mounting its dialog
+    until first use.
+  - The Groups and Environments manage tabs gain row selection and a bulk-action
+    bar, matching Systems: select the rows you manage, then bulk **Scope to team**
+    (grant a team on many at once), bulk **Add system** (attach one system to every
+    selected group/environment), or bulk **Delete**. Rows you cannot manage render
+    a disabled checkbox and are excluded from "select all". The bulk scope button
+    is a reusable `BulkScopeToTeamAction` exported from `@checkstack/auth-frontend`
+    (the multi-select counterpart of `ScopeToTeamAction`); the systems bulk filler
+    is now a thin adapter over it. Attaching a system to many environments is a
+    single desired-set write, so the writes cannot race.
+  - Consistency polish across the three manage tabs: all row **Edit** actions now
+    use the same pencil icon (Systems previously used a different one); **Groups**
+    now edit through the same dialog editor as Systems and Environments (with a
+    per-row Edit action) instead of an inline name field that had no matching Edit
+    button; and the Systems **Health** column keeps its state badges on one row
+    (side by side) instead of wrapping a second badge onto its own line.
+  - `@checkstack/ui` `DataTable` gains a per-column `truncate` option: the column
+    absorbs the table's spare width and ellipsizes overflowing free-text (a long
+    name/description) instead of letting one long value force the whole table to
+    scroll horizontally. Cell content is vertically centered by default.
+
+- 6c8b36b: Smooth out loading states so surfaces no longer flash a wrong resolved state or
+  pop content in one piece at a time.
+
+  - **Dashboard no longer flashes "all systems healthy".** The overview aggregates
+    per-system signals from many plugins (health, incidents, SLOs, anomalies,
+    dependencies, log/metric/trace streams), each reporting asynchronously - so
+    before any had loaded, an empty problem list briefly read as an all-clear.
+    `SystemSignalsSlot` gains an additive `onLoadingChange` report; every source
+    filler reports its load state, and the dashboard holds its existing skeleton
+    until all mounted sources have settled (bounded by a grace period so a
+    non-reporting source cannot hang it).
+  - **System detail overview cards reveal together.** Each `SystemDetailsSlot` card
+    self-loads and several self-hide when empty, so they popped in one after
+    another. The slot gains an additive `onLoadingChange`; each card reports, and
+    the detail page keeps the cards mounted but behind a skeleton set until all
+    have settled, then reveals them at once - no stagger, no layout shift, and
+    cards with no content simply never appear.
+  - **Catalog manage "Health" column no longer pops in.** `CatalogBrowseHealthSlot`
+    gains an additive `onLoading` report (sourced from the health filler's bulk
+    fetch); the manage Systems tab shows a per-row placeholder until the health
+    data settles, so the status badges swap in instead of appearing onto an empty
+    cell. The same tab also keeps its state badges on one row (side by side)
+    instead of wrapping.
+  - The system detail **Dependencies** and **Logs / Metrics / Traces** cards are now
+    collapsed by default: each shows a compact "<title> N" summary and expands its
+    detail on click, so the overview column stays short. They render through a new
+    shared `CollapsibleDetailCard` (`@checkstack/ui`) that single-sources the header
+    layout (icon + title + count + rotating chevron) so every collapsible overview
+    card is vertically centred and behaves identically - the earlier per-card header
+    markup had drifted and left the Logs/Metrics/Traces titles off-centre when
+    collapsed.
+  - Moved the system detail **SLO card** from the full-width alert strip into the
+    left (monitoring) column, so it sits at the same width as the dependencies and
+    health cards; only maintenances and incidents stay full width. It now joins the
+    coordinated card reveal above.
+  - Removed a dead, unreferenced duplicate dashboard component
+    (`dashboard-frontend/src/Dashboard.tsx`); the live overview is
+    `DashboardSystemHealthSection`.
+
+  All slot-contract additions are optional/additive - existing fillers and
+  consumers keep working unchanged.
+
+- 6c8b36b: Explicit stream-to-system links and AI tool projections for all three
+  observability streams:
+
+  - Every stream plugin declares the same four link procedures over its own
+    junction table (shared schemas in `@checkstack/telemetry-common`):
+    list/replace a stream's linked systems - the write verifies the caller
+    can READ every NEWLY ADDED system (one user-scoped catalog `getSystems`
+    membership pass before anything persists; retained or removed links need
+    no readability, so a manager is never dead-locked by a link a
+    broader-privileged user authorized) - plus two read-filtered reverse
+    lookups powering the catalog system page and the dashboard (chunked
+    client-side, so deployments beyond the 500-system lookup cap keep their
+    signals).
+  - catalog-frontend ships the shared `StreamSystemLinksEditor`: a
+    controlled system picker with "suggested from observed service names"
+    chips that a human explicitly applies - suggestions are never
+    auto-linked. Suggestion sources: tracestream's service catalog,
+    metricstream label values, and logstream's new bounded
+    `listServiceNames` scan.
+  - The catalog system page gains self-hiding Logs/Metrics/Traces cards
+    (SystemDetailsSlot) and the dashboard gains conservative per-stream
+    signals (SystemSignalsSlot, one bulk query per plugin).
+  - AI tool projections: logstream (`searchLogs` slimmed, `severityStats`,
+    `listStreams`), metricstream (`listStreams`, `listMetricNames`,
+    `metricBuckets` - the unbounded raw-series read is deliberately not
+    projected), tracestream (`searchTraces`, `getTraceSummary` with spans
+    reduced to seven scalar fields, `serviceStats`, `listServices`). All
+    read-only, RLAC-enforced by routed re-entry as the caller.
+
+- 6c8b36b: Catalog **Groups** and **Environments** are now team-manageable. Their reads
+  stay public (they are shared browse facets everyone can see), but creating,
+  renaming, and deleting them is team-scoped exactly like Systems: a create
+  writes an owning-team grant, and edit/delete require a per-instance manage
+  grant. A team that can create Systems can also create Groups and Environments
+  (and attach them to systems it manages) with no extra grant.
+
+  New reusable platform seam `instanceAccess.create.alsoAcceptCreatorOf: string[]`:
+  a create procedure can declare sibling types whose `creator` (create-capability)
+  grant also authorizes the create - strictly the type-level creator grant, so it
+  stays orthogonal to `create.parent` (which is instance-manage). It is backed by a
+  new strict-creator auth primitive `hasCreateCapability({ objectType })` consumed
+  by BOTH the create middleware and the frontend `canCreate` verdict (extended with
+  an optional `alsoAcceptCreatorOf`), so the button gate and the backend can never
+  drift. The boot conformance check now also verifies every `alsoAcceptCreatorOf`
+  type is a real team-scoped type, and `catalog.group` / `catalog.environment` gain
+  resource-name resolvers so their team grants render by name.
+
+  BREAKING: `catalog.deleteGroup` input reshaped from a bare `string` to
+  `{ id: string }` (mirrors the earlier `deleteSystem` reshape) so the per-group
+  manage check can resolve the target id. `catalog.reorderGroups` stays a
+  global-admin operation (it rewrites the single global sort order for all groups).
+  Existing ownerless (global) groups and environments remain editable only by
+  global catalog admins until re-owned; no data migration is required (team grants
+  live in the auth relation store).
+
+### Patch Changes
+
+- 6c8b36b: The Logs, Metrics, and Traces cards on the system overview page now match the
+  other cards. They had drifted to a flat `bg-card` background with a
+  hairline-only shadow, so they rendered visibly flatter than their siblings
+  (health, dependency, SLO, incident, anomaly, maintenance), which all use the
+  detail-page gradient plus a soft two-layer elevation shadow.
+
+  The shared card surface is now a single primitive - `DetailCard` (and the
+  `detailCardSurface` / `detailCardSurfaceFlat` class constants) in
+  `@checkstack/ui` - instead of a className that was copy-pasted (and could
+  diverge) in every system-overview card. All of those cards now render from the
+  one primitive, so they cannot drift apart again. A new `error`-level ESLint
+  rule `checkstack/no-inline-detail-card-chrome` fails the build if a card in that
+  family re-declares the surface inline instead of using `DetailCard`.
+
+- 6c8b36b: Edit forms stay stable while you are typing. Previously, editing a system's
+  description (and many other edit dialogs/settings pages) would reset the field
+  mid-edit whenever a webhook update or realtime signal refetched the underlying
+  query: the form re-seeded its local state from the fresh query result on every
+  refetch. Forms now seed their local state ONCE - on the dialog's open
+  transition, or once per record via a stable key - and ignore background
+  refetches while you are editing.
+
+  New shared primitive `useSeedFormOnOpen(open, onInit)` in `@checkstack/ui`
+  (alongside the existing `useInitOnceForKey`) seeds a dialog form once per
+  open transition, StrictMode-safe. Fixed surfaces include the catalog
+  system/environment/group editors, the healthcheck platform-defaults dialog,
+  the SLO / gitops-provider / telemetry-source / satellite / announcement /
+  role edit dialogs, and the cache / queue / notification / secrets / anomaly /
+  profile / strategies settings pages (query-seeded pages also drop their loader
+  cache via `gcTime: 0` so a warm cache cannot race the one-shot seed).
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/ui@1.29.0
+  - @checkstack/auth-common@0.15.0
+  - @checkstack/auth-frontend@0.14.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/gitops-frontend@0.7.8
+  - @checkstack/notification-frontend@0.9.6
+  - @checkstack/common@0.23.0
+  - @checkstack/tips-frontend@0.5.4
+  - @checkstack/notification-common@1.7.2
+
 ## 0.20.2
 
 ### Patch Changes

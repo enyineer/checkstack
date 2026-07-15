@@ -1,5 +1,188 @@
 # @checkstack/ui
 
+## 1.29.0
+
+### Minor Changes
+
+- 6c8b36b: Catalog manage tabs: per-row owner badge, de-bloated membership chips, and a
+  reusable batched ownership lookup.
+
+  - New batched auth primitive `listObjectRelationsBulk({ objectType, objectIds })`
+    resolves the owning team(s) and privacy for MANY resources of one type in a
+    single query (mirrors the per-object `listObjectRelations`). Backed by a new
+    `RelationTupleStore.listObjectRelationsBulk`. This is the table-friendly
+    counterpart any plugin can use to render an owner indicator per row without an
+    N+1.
+  - New `@checkstack/auth-frontend` helpers built on it: `useResourcesManagedBy`
+    (batched hook, gated on `auth.teams.read`) and the compact `ResourceOwnerBadge`
+    presentational pill. The catalog Groups and Environments manage tabs now show a
+    per-row "owned by <team>" badge and a one-line note that these are shared,
+    globally-visible objects only the owning team can rename/delete.
+  - Membership chips on the Systems / Groups / Environments manage tabs collapse to
+    a single count pill ("N systems") whose popover holds the members plus a
+    name-sorted, searchable add list, instead of wrapping a full chip wall that
+    made rows tall. Attaching/detaching a system to a group/environment is offered
+    and enabled only for systems the caller can manage (matching the backend, which
+    authorizes membership per `catalog.system` manage).
+  - Groups and Environments manage rows gain the same per-row "Scope to team"
+    quick action Systems already had, so an owner can grant a team Manage/Read on a
+    group or environment straight from the table. The action is a reusable
+    `ScopeToTeamAction` (any team-scoped resource type) exported from
+    `@checkstack/auth-frontend`; `ScopeSystemToTeamAction` is now a thin adapter
+    over it. It self-gates on `auth.teams.manage` and defers mounting its dialog
+    until first use.
+  - The Groups and Environments manage tabs gain row selection and a bulk-action
+    bar, matching Systems: select the rows you manage, then bulk **Scope to team**
+    (grant a team on many at once), bulk **Add system** (attach one system to every
+    selected group/environment), or bulk **Delete**. Rows you cannot manage render
+    a disabled checkbox and are excluded from "select all". The bulk scope button
+    is a reusable `BulkScopeToTeamAction` exported from `@checkstack/auth-frontend`
+    (the multi-select counterpart of `ScopeToTeamAction`); the systems bulk filler
+    is now a thin adapter over it. Attaching a system to many environments is a
+    single desired-set write, so the writes cannot race.
+  - Consistency polish across the three manage tabs: all row **Edit** actions now
+    use the same pencil icon (Systems previously used a different one); **Groups**
+    now edit through the same dialog editor as Systems and Environments (with a
+    per-row Edit action) instead of an inline name field that had no matching Edit
+    button; and the Systems **Health** column keeps its state badges on one row
+    (side by side) instead of wrapping a second badge onto its own line.
+  - `@checkstack/ui` `DataTable` gains a per-column `truncate` option: the column
+    absorbs the table's spare width and ellipsizes overflowing free-text (a long
+    name/description) instead of letting one long value force the whole table to
+    scroll horizontally. Cell content is vertically centered by default.
+
+- 6c8b36b: The Logs, Metrics, and Traces cards on the system overview page now match the
+  other cards. They had drifted to a flat `bg-card` background with a
+  hairline-only shadow, so they rendered visibly flatter than their siblings
+  (health, dependency, SLO, incident, anomaly, maintenance), which all use the
+  detail-page gradient plus a soft two-layer elevation shadow.
+
+  The shared card surface is now a single primitive - `DetailCard` (and the
+  `detailCardSurface` / `detailCardSurfaceFlat` class constants) in
+  `@checkstack/ui` - instead of a className that was copy-pasted (and could
+  diverge) in every system-overview card. All of those cards now render from the
+  one primitive, so they cannot drift apart again. A new `error`-level ESLint
+  rule `checkstack/no-inline-detail-card-chrome` fails the build if a card in that
+  family re-declares the surface inline instead of using `DetailCard`.
+
+- 6c8b36b: Smooth out loading states so surfaces no longer flash a wrong resolved state or
+  pop content in one piece at a time.
+
+  - **Dashboard no longer flashes "all systems healthy".** The overview aggregates
+    per-system signals from many plugins (health, incidents, SLOs, anomalies,
+    dependencies, log/metric/trace streams), each reporting asynchronously - so
+    before any had loaded, an empty problem list briefly read as an all-clear.
+    `SystemSignalsSlot` gains an additive `onLoadingChange` report; every source
+    filler reports its load state, and the dashboard holds its existing skeleton
+    until all mounted sources have settled (bounded by a grace period so a
+    non-reporting source cannot hang it).
+  - **System detail overview cards reveal together.** Each `SystemDetailsSlot` card
+    self-loads and several self-hide when empty, so they popped in one after
+    another. The slot gains an additive `onLoadingChange`; each card reports, and
+    the detail page keeps the cards mounted but behind a skeleton set until all
+    have settled, then reveals them at once - no stagger, no layout shift, and
+    cards with no content simply never appear.
+  - **Catalog manage "Health" column no longer pops in.** `CatalogBrowseHealthSlot`
+    gains an additive `onLoading` report (sourced from the health filler's bulk
+    fetch); the manage Systems tab shows a per-row placeholder until the health
+    data settles, so the status badges swap in instead of appearing onto an empty
+    cell. The same tab also keeps its state badges on one row (side by side)
+    instead of wrapping.
+  - The system detail **Dependencies** and **Logs / Metrics / Traces** cards are now
+    collapsed by default: each shows a compact "<title> N" summary and expands its
+    detail on click, so the overview column stays short. They render through a new
+    shared `CollapsibleDetailCard` (`@checkstack/ui`) that single-sources the header
+    layout (icon + title + count + rotating chevron) so every collapsible overview
+    card is vertically centred and behaves identically - the earlier per-card header
+    markup had drifted and left the Logs/Metrics/Traces titles off-centre when
+    collapsed.
+  - Moved the system detail **SLO card** from the full-width alert strip into the
+    left (monitoring) column, so it sits at the same width as the dependencies and
+    health cards; only maintenances and incidents stay full width. It now joins the
+    coordinated card reveal above.
+  - Removed a dead, unreferenced duplicate dashboard component
+    (`dashboard-frontend/src/Dashboard.tsx`); the live overview is
+    `DashboardSystemHealthSection`.
+
+  All slot-contract additions are optional/additive - existing fillers and
+  consumers keep working unchanged.
+
+- 6c8b36b: Edit forms stay stable while you are typing. Previously, editing a system's
+  description (and many other edit dialogs/settings pages) would reset the field
+  mid-edit whenever a webhook update or realtime signal refetched the underlying
+  query: the form re-seeded its local state from the fresh query result on every
+  refetch. Forms now seed their local state ONCE - on the dialog's open
+  transition, or once per record via a stable key - and ignore background
+  refetches while you are editing.
+
+  New shared primitive `useSeedFormOnOpen(open, onInit)` in `@checkstack/ui`
+  (alongside the existing `useInitOnceForKey`) seeds a dialog form once per
+  open transition, StrictMode-safe. Fixed surfaces include the catalog
+  system/environment/group editors, the healthcheck platform-defaults dialog,
+  the SLO / gitops-provider / telemetry-source / satellite / announcement /
+  role edit dialogs, and the cache / queue / notification / secrets / anomaly /
+  profile / strategies settings pages (query-seeded pages also drop their loader
+  cache via `gcTime: 0` so a warm cache cannot race the one-shot seed).
+
+- 6c8b36b: Speed up the catalog manage Systems tab and unify its per-row actions.
+
+  - The per-row `SystemHealthCheckAssignment` no longer runs two allocation-heavy
+    access hooks (`useCanAccessType` + `useResourceAccess`) plus a counts query
+    PER ROW - profiling showed this as the dominant, GC-bound cost of opening the
+    Systems tab. A new `CatalogSystemHealthCheckDataProvider`, folded around the
+    catalog tree via `CatalogBrowseDataBoundarySlot`, resolves the gate + counts
+    once for the whole visible list; the row action reads them from context (the
+    heavy standalone path is only rendered on surfaces without the provider, e.g.
+    the system detail page).
+  - The per-row `SystemAnomalyBadge` no longer instantiates two live query
+    observers (and scans up to 500-element arrays) per row. A new
+    `AnomalyBadgeDataProvider`, folded around the catalog browse/manage tree via
+    `CatalogBrowseDataBoundarySlot`, fetches the active + suspicious anomaly sets
+    once and exposes an O(1) per-system lookup - matching the SLO / incident /
+    health / dependency badges. Without the provider the badge falls back to its
+    own (deduped) queries, so the system detail page is unchanged.
+  - `ScopeSystemToTeamAction` and `SystemHealthCheckAssignment` now render through
+    the shared `RowAction`, so a system row's action cluster looks uniform.
+    `ScopeSystemToTeamAction` additionally defers mounting its Radix dialog until
+    first use, so a table of rows no longer mounts an idle dialog per row.
+  - `@checkstack/ui` `RowAction` gains an optional `badge` (e.g. an assigned-count
+    indicator) rendered next to the icon, so a count action stays a normal
+    `RowAction` instead of a bespoke button.
+
+- 6c8b36b: Introduce tracestream: distributed-tracing streams with OTLP ingestion,
+  tail-based sampling, trace search and waterfalls.
+
+  - `tracestream-common`: team-scoped stream contract (mirrors the reviewed
+    log/metric stream RLAC modes), fully-defaulted stream config (retention
+    tiers, sampling policy, caps, rate limits), `cktr_` source-token format,
+    trace/span/summary DTOs, browser-safe OTLP + native span decoding
+    (hostile-input hardened), realtime signals.
+  - `tracestream-backend`: port-based storage (spans, tri-state trace summaries,
+    per-operation minute/hourly buckets with t-digest p95, service/operation
+    catalog with caps), tail-based sampling jobs (keep all error traces, slow
+    traces over the configured threshold, and a deterministic baseline sample;
+    hot sweep, rollup, cleanup, silence detection), OTLP/HTTP + native ingest
+    endpoints with per-stream tokens, buffering and caps, the full query API
+    (keyset trace search, waterfall reads, RED buckets, overview, cross-stream
+    `findTraceById`), and the TRACES sink for the telemetry platform (trace
+    streams are now bindable telemetry source targets).
+  - `tracestream-frontend`: stream list + detail (Overview / Traces / Services /
+    Settings), trace search with keyset paging, trace waterfall view with span
+    detail panel, sampling policy editor with plain-language copy, tokens +
+    ship-instructions (OTel SDK env vars, Collector YAML, native JSON), and the
+    telemetry Sources embed.
+  - `ui`: new `TraceWaterfall` chart component (virtualized hierarchical span
+    waterfall with service color lanes, collapse/expand and error highlighting)
+    with Storybook story.
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/frontend-api@0.16.1
+  - @checkstack/common@0.23.0
+  - @checkstack/template-engine@0.4.12
+
 ## 1.28.2
 
 ### Patch Changes

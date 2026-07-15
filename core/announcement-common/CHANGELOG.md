@@ -1,5 +1,13 @@
 # @checkstack/announcement-common
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [6c8b36b]
+  - @checkstack/common@0.23.0
+  - @checkstack/signal-common@0.3.1
+
 ## 0.7.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/ingest-utils",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Elastic-2.0",
   "checkstack": {
     "type": "tooling"

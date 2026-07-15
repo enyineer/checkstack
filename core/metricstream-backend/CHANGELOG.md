@@ -1,5 +1,280 @@
 # @checkstack/metricstream-backend
 
+## 0.2.0
+
+### Minor Changes
+
+- 6c8b36b: Metric exemplars and trace drop-counter surfacing:
+
+  - Metric points now carry OTLP/OpenMetrics EXEMPLARS (trace-context samples,
+    capped at 4 per point): decoded from OTLP protobuf and JSON and from the
+    OpenMetrics text `# {trace_id=...}` suffix that was previously stripped,
+    stored as the newest few per series (`last_exemplars`, additive
+    migration), returned windowed on the chart read, and rendered as a
+    diamond lane under the metric chart - clicking an exemplar resolves the
+    trace via tracestream's `findTraceById` and jumps to the waterfall.
+    Exemplars ride the satellite wire with full fidelity on both the
+    metric-forward and telemetry-pull channels (wire schemas serialize
+    exemplar timestamps as strings, so an exemplar-bearing batch parses
+    cleanly core-side), flow through the metricstream telemetry sink, and
+    persist by MERGING with a series' stored exemplars (newest few,
+    deduped by trace id, written in one batched update per flush) so a
+    chart window keeps jump-offs from earlier flushes. The chart-to-trace
+    helper (`buildViewTraceHref`) is exported once from
+    `@checkstack/tracestream-common`.
+  - The trace stream Overview now surfaces the three drop counters
+    (dropped spans, dropped traces, dropped in transit) as warn-toned stat
+    tiles, mirroring logstream's precedent.
+
+- 6c8b36b: Prometheus scraping now runs on the telemetry platform as the pull source
+  type `metricstream.prometheus-scrape` - the canonical reference for
+  external source types. Existing scrape targets are migrated in place: a
+  guarded cross-schema data migration copies every target into
+  `telemetry_sources` (bindings, interval, satellite assignment, state), and
+  a one-shot re-keys encrypted bearer tokens under the platform's secret
+  store; `${{ secrets.NAME }}` references pass through unchanged. The
+  per-stream Sources tab keeps one UX: the platform's sources section.
+
+  Parity and correctness details: the telemetry pull seam gains optional
+  `onRunFailure`/`onRunRecovery` health hooks (invoked with the stored
+  consecutive-failure count on both core-scheduled and satellite-reported
+  runs), which the scrape source type uses to keep emitting the
+  `scrape_failing` important event exactly when three consecutive
+  failures are crossed - once per outage episode, as before the
+  migration. Satellite execution honors the instance's own `timeoutMs`
+  (previously hard-capped at the platform's 30s default), resolves
+  just-in-time secrets fresh per run so a rotated `${{ secrets.NAME }}`
+  reference takes effect on the next scrape, and shares one
+  size/series-capped response reader with the core path. The bearer
+  re-key pass isolates per-source failures so one broken source cannot
+  stall the rest, and a satellite still configured with the removed
+  `CHECKSTACK_SATELLITE_SCRAPE` env var logs an explicit startup warning.
+  Telemetry listener sources additionally only bind on the DEFAULT
+  instance, so a namespaced secondary instance (PR preview) can never
+  race the primary for listener ports.
+
+  BREAKING CHANGES (platform is BETA): metricstream's private source
+  extension point (`metricSourceExtensionPoint`) and the scrape-target CRUD
+  procedures, schemas, and UI are REMOVED outright - manage scrape targets
+  as telemetry sources instead. The satellite `scrape` capability
+  (`CHECKSTACK_SATELLITE_SCRAPE`) is removed; satellites execute Prometheus
+  scrapes through the `telemetry-pull` capability
+  (`CHECKSTACK_SATELLITE_TELEMETRY_PULL`) via the statically-linked pull
+  executor - update satellite deployment env accordingly. The legacy
+  `metric_scrape_targets` table is DROPPED in the same release: plugin
+  migrations run in dependency order, so the platform's promotion migration
+  is guaranteed to precede metricstream's drop, and the bearer re-key
+  one-shot now also deletes each migrated internal secret after re-keying
+  it, leaving no orphans.
+
+- 6c8b36b: Push ingestion becomes a first-class telemetry PUSH source mode: a stream's
+  OTLP/native push access is now a "Push (OTLP / native)" source instance on
+  the stream's Sources tab - one instance per token, created with the token
+  shown once, rotatable from the source row, revoked by disabling or deleting
+  the instance, with "last received" liveness on the list. The seam is a
+  generic platform surface any plugin can adopt for its own inbound endpoint:
+  declare `push: { tokenPrefix, endpoints }` on the source type, and verify
+  presented bearers with `createPushTokenLookup` (scoped to the source type -
+  a token minted for one push type never authenticates another) composed with
+  the shared ingest authenticator; cache convergence rides the new
+  `telemetry.push-token.invalidated` cross-pod hook, which also fixes
+  tracestream's previous mint-vs-negative-cache race.
+
+  EXISTING SHIPPER TOKENS KEEP WORKING: every non-revoked stream token is
+  promoted in place to a push source instance (same id, same sha256 hash,
+  same `ckls_`/`ckms_`/`cktr_` prefixes), so nothing needs re-minting. A
+  one-shot grant backfill mirrors each bound stream's team relations (and
+  public visibility) onto the promoted instances, so team-scoped users who
+  managed a stream's tokens keep managing its migrated push and scrape
+  sources.
+
+  Lifecycle correctness that shipped with the review round: deleting a
+  stream now CASCADES through the platform (`handleStreamDeleted`) - bound
+  sources lose that binding, sources left binding-less are fully deleted
+  (secrets, schedule, team grants, push token revoked), so a deleted
+  stream's shippers get 401s instead of black-holing data; a push
+  instance's cached ingest verdict is evicted cluster-wide on any binding
+  change, not only on disable/rotate.
+
+  BREAKING CHANGES (platform is BETA): the per-plugin token CRUD procedures
+  (`listTokens`/`mintToken`/`revokeToken`), their schemas, and the bespoke
+  token UI (TokensSection, MintTokenDialog, PushEndpointsCard, ship-snippet
+  components) are REMOVED from logstream, metricstream, and tracestream -
+  manage push access as telemetry sources instead. The legacy
+  `log_stream_tokens`/`metric_stream_tokens`/`trace_stream_tokens` tables are
+  DROPPED (safe: plugin migrations run in dependency order, so the platform's
+  promotion always precedes the owner's drop). All three stream detail pages
+  now have a dedicated Sources tab.
+
+- 6c8b36b: Explicit stream-to-system links and AI tool projections for all three
+  observability streams:
+
+  - Every stream plugin declares the same four link procedures over its own
+    junction table (shared schemas in `@checkstack/telemetry-common`):
+    list/replace a stream's linked systems - the write verifies the caller
+    can READ every NEWLY ADDED system (one user-scoped catalog `getSystems`
+    membership pass before anything persists; retained or removed links need
+    no readability, so a manager is never dead-locked by a link a
+    broader-privileged user authorized) - plus two read-filtered reverse
+    lookups powering the catalog system page and the dashboard (chunked
+    client-side, so deployments beyond the 500-system lookup cap keep their
+    signals).
+  - catalog-frontend ships the shared `StreamSystemLinksEditor`: a
+    controlled system picker with "suggested from observed service names"
+    chips that a human explicitly applies - suggestions are never
+    auto-linked. Suggestion sources: tracestream's service catalog,
+    metricstream label values, and logstream's new bounded
+    `listServiceNames` scan.
+  - The catalog system page gains self-hiding Logs/Metrics/Traces cards
+    (SystemDetailsSlot) and the dashboard gains conservative per-stream
+    signals (SystemSignalsSlot, one bulk query per plugin).
+  - AI tool projections: logstream (`searchLogs` slimmed, `severityStats`,
+    `listStreams`), metricstream (`listStreams`, `listMetricNames`,
+    `metricBuckets` - the unbounded raw-series read is deliberately not
+    projected), tracestream (`searchTraces`, `getTraceSummary` with spans
+    reduced to seven scalar fields, `serviceStats`, `listServices`). All
+    read-only, RLAC-enforced by routed re-entry as the caller.
+
+- 6c8b36b: Add the multi-signal binding editor and a global Sources management page.
+
+  - The telemetry sink contract gains an optional `listBindableStreams({ user })`
+    method: the owning plugin lists its streams and FILTERS them to the ones the
+    caller may manage, so the binding editor only offers streams a bind will
+    accept. logstream and metricstream implement it through the shared
+    `createStreamBindAuthorizer` factory (service bypass, global rule, then a
+    per-resource team-grant filter via `auth.listAccessibleObjectIds`), keeping
+    the authorization rule in one place. A sink without the method yields an empty
+    picker, so adoption is incremental.
+  - The frontend add/edit dialogs route each emitted signal through a per-signal
+    stream picker: at most one stream per signal, at least one binding overall, a
+    signal may be left unrouted, and a bound-but-no-longer-listable stream stays
+    visible as a synthetic option. The single-signal fast path (opened from a
+    stream section) collapses to the embedding-stream preset with no extra
+    interaction.
+  - A new global Sources page (Reliability nav group) lists every source instance
+    the caller may read with per-row enable/edit/rotate/delete gating, and "Add
+    source" opens the full catalog with no preset binding.
+
+- 6c8b36b: Integrate the log and metric streams with the new telemetry platform.
+
+  - The backends contribute telemetry SINKS: normalized platform records enter
+    the exact same ingest pipelines (severity rules, banding, clamping, caps) as
+    the plugins' own push endpoints, and bind-time authorization is answered by
+    each plugin's own stream access rules.
+  - The frontends embed the platform's `StreamSourcesSection` (metricstream on
+    the Sources tab, logstream on the Settings tab), so configured telemetry
+    sources bound to a stream are managed next to the stream's other ingestion
+    settings. The section self-hides while no source types are installed.
+
+### Patch Changes
+
+- 6c8b36b: Promote the SSRF-guarded, redirect-revalidating fetch into backend-api as
+  `createGuardedFetch` / `GuardedFetchError`: scheme allow-list, host validation
+  on EVERY redirect hop, spec-correct redirect semantics (301/302/303 downgrade
+  to GET and drop the body; 307/308 preserve the method and refuse
+  non-replayable stream bodies), and `maxRedirects: 0` returning the 3xx as-is
+  for callers that must not follow.
+
+  The Prometheus scrape executor now uses it: previously the scraper validated
+  only the ORIGINAL host and then followed redirects blindly, so a compliant
+  target could redirect a scrape to an internal address; every hop is now
+  re-validated. (The AI probe-url tool and the notification egress validator
+  deliberately keep their own guards - both are STRICTER than the shared
+  default: probe-url blocks all private ranges and metadata hostnames by name,
+  notification egress fails closed on any redirect.)
+
+  Credential headers (`authorization`, `proxy-authorization`, `cookie`) are now
+  stripped from the forwarded request when a redirect crosses to a different
+  origin (scheme, host, or port), matching browser / undici behavior. Previously
+  the manual follower re-sent every request header verbatim, so a redirecting
+  target (e.g. a Prometheus scrape endpoint) could replay the configured bearer
+  to another host. Same-origin redirects keep the credentials.
+
+- 6c8b36b: Promote the health-check run-queue contract and the observability window
+  math into `@checkstack/healthcheck-common`: `HEALTH_CHECK_QUEUE`,
+  `HealthCheckJobPayload`, `fastPathJobId` (per-plugin prefix) and
+  `computeWindowBounds`/`computeSecondsSinceLast` now have ONE definition
+  that the queue owner (healthcheck-backend) and every observability
+  strategy plugin import, replacing the per-plugin mirror copies that had
+  to be kept in lock-step by convention. Enqueued job ids and window
+  semantics are byte-identical; this is a drift-proofing refactor, not a
+  behavior change.
+- 6c8b36b: Fix important-events pagination losing same-millisecond events at page
+  boundaries. The timeline paged on `ts` alone (`before`/`nextBefore`), so when a
+  page boundary fell inside a cluster of events sharing a millisecond (cap / rate
+  / throttle / pattern events fire in bursts at the same `ts`), rows were skipped
+  or served twice. Both plugins now use a tuple keyset cursor `{ ts, id }` with
+  `(ts DESC, id DESC)` ordering and a strict tuple comparison, matching
+  tracestream.
+
+  BREAKING CHANGE: the `listImportantEvents` contract shape changes -
+  `before` -> `cursor: { ts, id }` on input and `nextBefore` -> `nextCursor:
+{ ts, id }` on output (no back-compat alias). Timeline UIs that only read the
+  first page are unaffected; any paginating caller must pass and read the new
+  cursor.
+
+- 6c8b36b: Add `reconcileRecurringJobs`, a shared convergence helper for recurring queue
+  jobs. It (re-)schedules a desired set of jobs by stable jobId and cancels every
+  existing recurring job the caller owns (`ownsJobId`) that is no longer desired,
+  running schedules and cancels concurrently. The metricstream Prometheus scrape
+  scheduler and the telemetry pull reconciler now both use it instead of
+  hand-rolling the same list/schedule/cancel dance, with identical behaviour.
+- 6c8b36b: Satellite forwarding hardening:
+
+  - tracestream now persists per-stream satellite in-transit drop counts at
+    parity with logstream/metricstream: a `dropped_in_transit_count` column
+    on the activity table (additive migration) incremented durably by the
+    capability handler (best-effort; an accounting failure can never change
+    a batch's ack).
+  - The satellite receivers' batch chunking and byte-budget estimation now
+    live once in `@checkstack/ingest-utils` (`chunkTelemetryBatchItems`,
+    `estimateTelemetryItemBytes`); the log/metric/trace receivers keep only
+    their per-signal item shapes and caps. Behavior is pinned unchanged by
+    the receivers' existing tests.
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/auth-common@0.15.0
+  - @checkstack/telemetry-common@0.1.0
+  - @checkstack/telemetry-backend@0.1.0
+  - @checkstack/ai-backend@0.11.3
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/healthcheck-common@1.18.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/metricstream-common@0.2.0
+  - @checkstack/queue-api@0.4.0
+  - @checkstack/ingest-utils@0.2.0
+  - @checkstack/common@0.23.0
+  - @checkstack/satellite-backend@0.9.3
+  - @checkstack/secrets-backend@0.3.8
+  - @checkstack/cache-api@0.3.20
+  - @checkstack/secrets-common@0.3.3
+  - @checkstack/signal-common@0.3.1
+  - @checkstack/cache-utils@0.3.1
+
 ## 0.1.2
 
 ### Patch Changes

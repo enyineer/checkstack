@@ -1,5 +1,151 @@
 # @checkstack/satellite
 
+## 0.8.0
+
+### Minor Changes
+
+- 6c8b36b: New Kubernetes events source (`k8s-events.k8s-events`): an interval-pull
+  source that lists cluster events from the modern `events.k8s.io/v1` API
+  (request shapes verified against the official Kubernetes API reference)
+  and ingests them as log records - Warning events as warnings, with the
+  event's reason/note as the body and the regarding-object identity,
+  reporting controller, and a stable `k8s.event.uid` in the attributes.
+  Auth is a service-account bearer token (encrypted at rest, resolved
+  just-in-time on satellites); namespace, fieldSelector and labelSelector
+  scope the pull. Time-window pulls overlap slightly by design
+  (`lookbackSeconds`), so rare duplicates are possible and documented -
+  the stable event identity enables future dedupe. Supports satellite
+  execution via a statically-linked pull executor.
+
+  `maxEventsPerPull` caps EMITTED in-window records (the list API returns
+  events roughly oldest-first, so the scan pages past out-of-window
+  backlog to reach recent events); the scan itself is bounded by a
+  40-page budget, and a busy cluster that exhausts it yields a partial
+  window with an operator warning (core and satellite) recommending a
+  namespace or fieldSelector, while a server that pages forever without
+  items fails as a transport error.
+
+- 6c8b36b: Prometheus scraping now runs on the telemetry platform as the pull source
+  type `metricstream.prometheus-scrape` - the canonical reference for
+  external source types. Existing scrape targets are migrated in place: a
+  guarded cross-schema data migration copies every target into
+  `telemetry_sources` (bindings, interval, satellite assignment, state), and
+  a one-shot re-keys encrypted bearer tokens under the platform's secret
+  store; `${{ secrets.NAME }}` references pass through unchanged. The
+  per-stream Sources tab keeps one UX: the platform's sources section.
+
+  Parity and correctness details: the telemetry pull seam gains optional
+  `onRunFailure`/`onRunRecovery` health hooks (invoked with the stored
+  consecutive-failure count on both core-scheduled and satellite-reported
+  runs), which the scrape source type uses to keep emitting the
+  `scrape_failing` important event exactly when three consecutive
+  failures are crossed - once per outage episode, as before the
+  migration. Satellite execution honors the instance's own `timeoutMs`
+  (previously hard-capped at the platform's 30s default), resolves
+  just-in-time secrets fresh per run so a rotated `${{ secrets.NAME }}`
+  reference takes effect on the next scrape, and shares one
+  size/series-capped response reader with the core path. The bearer
+  re-key pass isolates per-source failures so one broken source cannot
+  stall the rest, and a satellite still configured with the removed
+  `CHECKSTACK_SATELLITE_SCRAPE` env var logs an explicit startup warning.
+  Telemetry listener sources additionally only bind on the DEFAULT
+  instance, so a namespaced secondary instance (PR preview) can never
+  race the primary for listener ports.
+
+  BREAKING CHANGES (platform is BETA): metricstream's private source
+  extension point (`metricSourceExtensionPoint`) and the scrape-target CRUD
+  procedures, schemas, and UI are REMOVED outright - manage scrape targets
+  as telemetry sources instead. The satellite `scrape` capability
+  (`CHECKSTACK_SATELLITE_SCRAPE`) is removed; satellites execute Prometheus
+  scrapes through the `telemetry-pull` capability
+  (`CHECKSTACK_SATELLITE_TELEMETRY_PULL`) via the statically-linked pull
+  executor - update satellite deployment env accordingly. The legacy
+  `metric_scrape_targets` table is DROPPED in the same release: plugin
+  migrations run in dependency order, so the platform's promotion migration
+  is guaranteed to precede metricstream's drop, and the bearer re-key
+  one-shot now also deletes each migrated internal secret after re-keying
+  it, leaving no orphans.
+
+- 6c8b36b: Add the `telemetry-pull` capability to the satellite agent: satellite-bound
+  telemetry pull-source instances execute at the edge. The agent receives a
+  per-satellite instance config (secrets excluded - fetched just-in-time per
+  field over the authenticated socket and cached only between config pushes),
+  schedules one timer per instance with a concurrency cap, runs the source
+  type's statically-linked `SatellitePullExecutor`, drops records for unbound
+  signals, forwards batches for binding-authorized re-ingestion on core, and
+  mirrors per-instance run status. A source type with no executor registered in
+  this satellite build reports a per-instance status error instead of failing.
+  Advertised via `CHECKSTACK_SATELLITE_TELEMETRY_PULL`.
+- 6c8b36b: Tracestream health checks and satellite forwarding:
+
+  - New reader-only OBSERVABILITY health strategy (`tracestream`) with two
+    collectors: `trace-window` (windowed span/trace totals, error counts,
+    error rate per minute, seconds since last span) and the repeatable
+    `operation-latency` (per service/operation `p95Ms`/`avgMs`/`maxMs` and
+    error rate; the window p95 merges the minute buckets' t-digest states
+    before computing the percentile). The check editor gets
+    stream/service/operation dropdowns via shared resolver constants.
+  - Fast-path re-evaluation: a flush that persists error spans enqueues the
+    affected checks ahead of schedule (pod-local debounce + deterministic
+    cluster-wide job id), and a new `error_spike` important event records
+    trailing-average error spikes at most once per stream per 10 minutes.
+  - Satellite trace forwarding: satellites with
+    `CHECKSTACK_SATELLITE_TRACE_RECEIVERS=1` expose local `/v1/traces`
+    (OTLP protobuf + JSON) and `/ingest/traces` (native) receivers; spans
+    ride the new `tracestream` telemetry-channel wire schema (ISO dates,
+    decimal-string nanosecond timestamps) and re-enter the core through a
+    satellite capability handler that verifies the forwarded `cktr_` token
+    with the same authenticator as direct pushes and re-clamps span times
+    against the core clock before feeding the identical ingest pipeline.
+
+### Patch Changes
+
+- 6c8b36b: Satellite forwarding hardening:
+
+  - tracestream now persists per-stream satellite in-transit drop counts at
+    parity with logstream/metricstream: a `dropped_in_transit_count` column
+    on the activity table (additive migration) incremented durably by the
+    capability handler (best-effort; an accounting failure can never change
+    a batch's ack).
+  - The satellite receivers' batch chunking and byte-budget estimation now
+    live once in `@checkstack/ingest-utils` (`chunkTelemetryBatchItems`,
+    `estimateTelemetryItemBytes`); the log/metric/trace receivers keep only
+    their per-signal item shapes and caps. Behavior is pinned unchanged by
+    the receivers' existing tests.
+
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/telemetry-common@0.1.0
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/healthcheck-common@1.18.0
+  - @checkstack/k8s-events-common@0.1.0
+  - @checkstack/logstream-common@0.4.0
+  - @checkstack/metricstream-common@0.2.0
+  - @checkstack/tracestream-common@0.1.0
+  - @checkstack/otlp-wire@0.1.1
+  - @checkstack/ingest-utils@0.2.0
+  - @checkstack/common@0.23.0
+  - @checkstack/script-packages-backend@0.4.5
+  - @checkstack/satellite-common@0.10.1
+  - @checkstack/secrets-common@0.3.3
+
 ## 0.7.2
 
 ### Patch Changes

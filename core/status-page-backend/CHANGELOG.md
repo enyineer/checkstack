@@ -1,5 +1,30 @@
 # @checkstack/status-page-backend
 
+## 0.6.5
+
+### Patch Changes
+
+- 6c8b36b: Promote the user-scoped cross-plugin RPC client into
+  `@checkstack/backend-api` (`createUserScopedRpcClient` +
+  `forwardableAuthHeadersFrom`): the caller-identity re-entry used by
+  "cannot expose what you cannot see" gates (catalog readability on stream
+  links, satellite binding auth, AI deferred tool routing, status-page
+  publish) now has ONE implementation instead of six near-verbatim copies.
+  Only the session cookie and bearer Authorization are ever forwarded, and a
+  request without them re-enters anonymous (fail closed). ai-backend,
+  status-page-backend and telemetry-backend migrate to the shared export;
+  behavior is unchanged.
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/common@0.23.0
+  - @checkstack/notification-backend@1.8.5
+  - @checkstack/command-backend@0.2.26
+  - @checkstack/status-page-common@0.6.4
+  - @checkstack/notification-common@1.7.2
+
 ## 0.6.4
 
 ### Patch Changes

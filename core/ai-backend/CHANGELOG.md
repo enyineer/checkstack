@@ -1,5 +1,60 @@
 # @checkstack/ai-backend
 
+## 0.11.3
+
+### Patch Changes
+
+- 6c8b36b: Regenerate the AI docs search index to reflect the team-scoping of catalog
+  Groups and Environments and the new `create.alsoAcceptCreatorOf` sibling
+  create-capability seam (Teams and access, Systems and groups, and Environments
+  concept pages, plus the backend Teams reference).
+- 6c8b36b: Regenerate the docs index for the Phase 5 source-ecosystem documentation:
+  the rewritten satellite-telemetry pull model, the telemetry-sources
+  listener/derive/reference-type sections, the migrated Prometheus and
+  syslog flows in the metric/log guides and concepts, and the satellite
+  capability updates.
+- 6c8b36b: Regenerate the docs index for the new stream-to-system links developer
+  guide page and the tool-registry output-slimming (`projectResult`)
+  convention section.
+- 6c8b36b: Regenerate the docs index to include the new "Telemetry sources and sinks"
+  developer-guide page (the platform-level source/sink abstraction, source
+  types, sinks, RLAC and satellite execution), including the webhook
+  signature-verification section's note that adding a signature descriptor to an
+  already-shipped source type requires rotating each existing instance's webhook
+  secret.
+- 6c8b36b: Regenerate the docs index for the new trace-correlation developer guide
+  page and the correlation sections added to the logstream and tracestream
+  pages.
+- 6c8b36b: Regenerate the docs index to include the new "Trace streams" developer-guide
+  page (OTLP ingestion, tail-based sampling, storage tiers, query API and the
+  traces telemetry sink).
+- 6c8b36b: Regenerate the docs index for the tracestream health-integration and
+  satellite-forwarding sections and the satellite-telemetry trace-receiver
+  documentation.
+- 6c8b36b: Promote the user-scoped cross-plugin RPC client into
+  `@checkstack/backend-api` (`createUserScopedRpcClient` +
+  `forwardableAuthHeadersFrom`): the caller-identity re-entry used by
+  "cannot expose what you cannot see" gates (catalog readability on stream
+  links, satellite binding auth, AI deferred tool routing, status-page
+  publish) now has ONE implementation instead of six near-verbatim copies.
+  Only the session cookie and bearer Authorization are ever forwarded, and a
+  request without them re-enters anonymous (fail closed). ai-backend,
+  status-page-backend and telemetry-backend migrate to the shared export;
+  behavior is unchanged.
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+- Updated dependencies [6c8b36b]
+  - @checkstack/auth-common@0.15.0
+  - @checkstack/backend-api@0.34.0
+  - @checkstack/catalog-common@2.8.0
+  - @checkstack/common@0.23.0
+  - @checkstack/sdk@0.133.1
+  - @checkstack/integration-backend@0.7.8
+  - @checkstack/ai-common@0.6.7
+
 ## 0.11.2
 
 ### Patch Changes
