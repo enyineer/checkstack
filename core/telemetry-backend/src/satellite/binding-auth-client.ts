@@ -7,38 +7,14 @@
  * read-invoker.
  */
 
-import { createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
-import type { RpcClient } from "@checkstack/backend-api";
+import {
+  createUserScopedRpcClient,
+  forwardableAuthHeadersFrom,
+} from "@checkstack/backend-api";
 import {
   assertSatellitePullBindable,
-  forwardableAuthHeadersFrom,
   type SatelliteBindingAuthorizer,
 } from "./binding-auth";
-
-/**
- * Build a USER-SCOPED RpcClient that re-enters the live router AS the calling
- * user (forwarding their cookie / bearer), never as a trusted service - so a
- * cross-plugin read is subject to the caller's own access.
- */
-function createUserScopedRpcClient({
-  internalUrl,
-  forwardHeaders,
-}: {
-  internalUrl: string;
-  forwardHeaders: Record<string, string>;
-}): RpcClient {
-  const link = new RPCLink({
-    url: `${internalUrl}/api`,
-    headers: forwardHeaders,
-  });
-  const client = createORPCClient(link);
-  return {
-    forPlugin(def) {
-      return (client as Record<string, unknown>)[def.pluginId] as never;
-    },
-  };
-}
 
 /**
  * Production authorizer: for each request, builds a caller-scoped client and runs

@@ -44,4 +44,5 @@ export * from "./public-host";
 export * from "./public-path";
 export * from "./ssrf-guard";
 export * from "./guarded-fetch";
+export * from "./user-rpc-client";
 export * from "./instance-runtime";

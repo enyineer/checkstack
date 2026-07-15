@@ -76,16 +76,3 @@ export type SatelliteBindingAuthorizer = (args: {
   satelliteId: string;
   requestHeaders: Headers | undefined;
 }) => Promise<void>;
-
-/** Extract ONLY the forwardable auth headers (cookie + bearer) from a request. */
-export function forwardableAuthHeadersFrom(
-  headers: Headers | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!headers) return out;
-  const cookie = headers.get("cookie");
-  if (cookie) out.cookie = cookie;
-  const authorization = headers.get("authorization");
-  if (authorization) out.authorization = authorization;
-  return out;
-}

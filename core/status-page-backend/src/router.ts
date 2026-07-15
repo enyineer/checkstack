@@ -9,7 +9,7 @@ import { statusPageHooks } from "./hooks";
 import {
   createUserScopedRpcClient,
   forwardableAuthHeadersFrom,
-} from "./user-client";
+} from "@checkstack/backend-api";
 import type { StatusPageService } from "./service";
 import type { SubscriberService } from "./subscriber-service";
 

@@ -15,7 +15,7 @@ import {
 import {
   createUserScopedRpcClient,
   forwardableAuthHeadersFrom,
-} from "./user-rpc-client";
+} from "@checkstack/backend-api";
 
 import type { AiConversationStore } from "./chat/conversation-store";
 import type { AiMemoryStore } from "./memory-store";
