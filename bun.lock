@@ -2057,7 +2057,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.133.1",
+      "version": "0.134.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
