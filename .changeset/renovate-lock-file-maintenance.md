@@ -26,4 +26,5 @@ Updated dependencies:
 - `@orpc/tanstack-query` 1.14.7 -> 1.14.8
 - `@orpc/zod` 1.14.7 -> 1.14.8
 - `hono` 4.12.28 -> 4.12.30
+- `postcss` 8.5.18 -> 8.5.19
 - `tsx` 4.23.0 -> 4.23.1
