@@ -29,9 +29,9 @@
   ],
 
   "lockFileMaintenance": {
-    "description": "Runs 'at any time'. A narrow window couples PR creation to Mend running inside it, and Mend's hosted cadence is unpredictable - an idle repo can miss a 4h band for a day. lockFileMaintenance only creates/refreshes the single PR when the regenerated lockfile actually changes, and the bunfig.toml minimumReleaseAge cooldown gates eligibility, so 'any time' is not noisy. NOTE: omitting the schedule key reverts to lockFileMaintenance's built-in weekly default ('before 4am on monday'), so it is set explicitly.",
+    "description": "Runs once a day inside a nightly UTC window ('after 2am and before 3am'). The previous 'at any time' let every hosted Mend run act on the PR, so on an active main the single lock-file PR was rebased (behind-base-branch) and re-CI'd 5-6 times a day - pure notification/CI spam. Constraining to a one-hour daily band caps that to (at most) one refresh/rebase per day. Trade-off: if Mend's unpredictable cadence skips the band on some day, lock-file maintenance simply runs the next day - it is not time-critical, and the bunfig.toml minimumReleaseAge cooldown still gates eligibility. NOTE: omitting the schedule key reverts to lockFileMaintenance's built-in weekly default ('before 4am on monday'), so it is set explicitly.",
     "enabled": true,
-    "schedule": ["at any time"],
+    "schedule": ["after 2am and before 3am"],
     "commitMessageAction": "Refresh",
     "commitMessageTopic": "bun.lock (lock-file maintenance)",
     "labels": ["dependencies", "security-maintenance"],
