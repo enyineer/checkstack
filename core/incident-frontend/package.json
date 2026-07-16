@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/incident-frontend",
-  "version": "0.16.3",
+  "version": "0.16.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

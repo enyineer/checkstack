@@ -1,5 +1,13 @@
 # @checkstack/tracestream-frontend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [53081bd]
+  - @checkstack/catalog-frontend@0.21.1
+  - @checkstack/healthcheck-frontend@0.37.1
+
 ## 0.1.0
 
 ### Minor Changes

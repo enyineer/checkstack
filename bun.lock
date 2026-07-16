@@ -245,7 +245,7 @@
     },
     "core/anomaly-frontend": {
       "name": "@checkstack/anomaly-frontend",
-      "version": "0.6.14",
+      "version": "0.6.15",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -466,7 +466,7 @@
     },
     "core/backend": {
       "name": "@checkstack/backend",
-      "version": "0.25.5",
+      "version": "0.25.6",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -678,7 +678,7 @@
     },
     "core/catalog-frontend": {
       "name": "@checkstack/catalog-frontend",
-      "version": "0.21.0",
+      "version": "0.21.1",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -789,7 +789,7 @@
     },
     "core/dashboard-frontend": {
       "name": "@checkstack/dashboard-frontend",
-      "version": "0.11.0",
+      "version": "0.11.1",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/catalog-frontend": "workspace:*",
@@ -872,7 +872,7 @@
     },
     "core/dependency-frontend": {
       "name": "@checkstack/dependency-frontend",
-      "version": "0.8.8",
+      "version": "0.8.9",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -954,7 +954,7 @@
     },
     "core/frontend": {
       "name": "@checkstack/frontend",
-      "version": "0.15.3",
+      "version": "0.15.4",
       "dependencies": {
         "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
@@ -1155,7 +1155,7 @@
     },
     "core/healthcheck-frontend": {
       "name": "@checkstack/healthcheck-frontend",
-      "version": "0.37.0",
+      "version": "0.37.1",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -1248,7 +1248,7 @@
     },
     "core/incident-frontend": {
       "name": "@checkstack/incident-frontend",
-      "version": "0.16.3",
+      "version": "0.16.4",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1437,7 +1437,7 @@
     },
     "core/logstream-frontend": {
       "name": "@checkstack/logstream-frontend",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1521,7 +1521,7 @@
     },
     "core/maintenance-frontend": {
       "name": "@checkstack/maintenance-frontend",
-      "version": "0.16.3",
+      "version": "0.16.4",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1601,7 +1601,7 @@
     },
     "core/metricstream-frontend": {
       "name": "@checkstack/metricstream-frontend",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1809,7 +1809,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.134.0",
+      "version": "0.135.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -2302,7 +2302,7 @@
     },
     "core/slo-frontend": {
       "name": "@checkstack/slo-frontend",
-      "version": "0.11.6",
+      "version": "0.11.7",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -2684,7 +2684,7 @@
     },
     "core/tracestream-frontend": {
       "name": "@checkstack/tracestream-frontend",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
