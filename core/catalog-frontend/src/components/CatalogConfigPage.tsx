@@ -697,7 +697,9 @@ export const CatalogConfigPage = () => {
         }}
         onSave={handleSaveGroup}
         initialData={
-          editingGroup ? { name: editingGroup.name } : undefined
+          editingGroup
+            ? { id: editingGroup.id, name: editingGroup.name }
+            : undefined
         }
       />
 
@@ -711,6 +713,7 @@ export const CatalogConfigPage = () => {
         initialData={
           editingEnvironment
             ? {
+                id: editingEnvironment.id,
                 name: editingEnvironment.name,
                 description: editingEnvironment.description ?? undefined,
                 metadata: editingEnvironment.metadata,

@@ -15,16 +15,17 @@ import {
 } from "@checkstack/ui";
 import {
   TeamOwnershipPicker,
+  TeamAccessEditor,
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { catalogAccess } from "@checkstack/catalog-common";
+import { catalogAccess, catalogResourceTypes } from "@checkstack/catalog-common";
 
 interface GroupEditorProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: { name: string; teamId?: string }) => Promise<void>;
-  initialData?: { name: string };
+  initialData?: { id: string; name: string };
 }
 
 export const GroupEditor: React.FC<GroupEditorProps> = ({
@@ -119,6 +120,20 @@ export const GroupEditor: React.FC<GroupEditorProps> = ({
                   error={ownerTeamError}
                 />
               </div>
+            )}
+
+            {/* Full team-access management - only when editing an existing
+                group (needs its id). Groups have no detail page, so this is the
+                home for adding/removing multiple teams and toggling privacy,
+                mirroring how systems manage it on their detail page. It writes
+                immediately, independent of this form's deferred Save. */}
+            {initialData?.id && (
+              <TeamAccessEditor
+                resourceType={catalogResourceTypes.group}
+                resourceId={initialData.id}
+                compact
+                expanded
+              />
             )}
           </div>
 

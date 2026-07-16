@@ -15,10 +15,11 @@ import {
 } from "@checkstack/ui";
 import {
   TeamOwnershipPicker,
+  TeamAccessEditor,
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { catalogAccess } from "@checkstack/catalog-common";
+import { catalogAccess, catalogResourceTypes } from "@checkstack/catalog-common";
 import {
   metadataToRows,
   rowsToMetadata,
@@ -28,6 +29,7 @@ import {
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 
 export interface EnvironmentEditorInitialData {
+  id: string;
   name: string;
   description?: string;
   metadata?: Record<string, unknown> | null;
@@ -176,6 +178,20 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
                   error={ownerTeamError}
                 />
               </div>
+            )}
+
+            {/* Full team-access management - only when editing an existing
+                environment (needs its id). Environments have no detail page, so
+                this is the home for adding/removing multiple teams and toggling
+                privacy, mirroring how systems manage it on their detail page. It
+                writes immediately, independent of this form's deferred Save. */}
+            {initialData?.id && (
+              <TeamAccessEditor
+                resourceType={catalogResourceTypes.environment}
+                resourceId={initialData.id}
+                compact
+                expanded
+              />
             )}
           </div>
 
