@@ -600,8 +600,10 @@ const IncidentConfigPageContent: React.FC = () => {
             onFiltersChange={filters.setState}
             onClearFilters={filters.clear}
             // "Show resolved" is not a facet: a facet NARROWS, and this WIDENS
-            // the list to include rows the endpoint excludes by default.
-            toolbar={
+            // the list to include rows the endpoint excludes by default. It
+            // still belongs BESIDE the status control, not pushed to the far
+            // side of the row where `toolbar` puts its actions.
+            filterExtras={
               <label className="flex items-center gap-2 whitespace-nowrap text-sm">
                 <Checkbox
                   checked={showResolved}

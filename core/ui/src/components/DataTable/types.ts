@@ -118,8 +118,18 @@ export interface DataTableProps<TData> {
    * scroll) at every width.
    */
   renderMobileCard?: (row: TData) => React.ReactNode;
-  /** Extra content shown in the toolbar, right of the search box. */
+  /**
+   * Extra content shown in the toolbar, RIGHT-ALIGNED away from the filters.
+   * For actions - an "Add" button, an export - not for filtering: a filter
+   * pushed over here reads as unrelated to the controls it belongs with.
+   */
   toolbar?: React.ReactNode;
+  /**
+   * Extra controls appended INSIDE the filter row, beside the facets - a date
+   * range, a density toggle, or a boolean that widens the list ("Show
+   * resolved") and so cannot be a facet.
+   */
+  filterExtras?: React.ReactNode;
   /** Shown when `data` is empty (before any search). */
   emptyState?: React.ReactNode;
   /** Shown when a search/filter leaves no rows. */

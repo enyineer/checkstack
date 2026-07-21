@@ -164,6 +164,8 @@ Filtering joins sorting and searching on the column contract: providing `filterV
 
 Declare it here rather than in a standalone facet whenever a single column owns the dimension. The column already reads the row for `sortValue` and renders it in `cell`, so the value is stated ONCE and the badge, the sort and the filter cannot drift apart.
 
+This colocates the DECLARATION, not the rendering. Every filter - column-derived or standalone - renders in one shared bar above the table, in column order; a column's control does not appear at its header. That is deliberate: a single row is one place to scan, it is the only thing that works for filters no column owns, and it collapses onto a narrow viewport without crowding the sort affordances.
+
 `filterOptions` is optional. Omit it and the options are **derived from the distinct values present in `data`**, sorted and labelled by the raw value. Declare it when:
 
 - the raw values are not what a person should read (`authenticated` -> "Authenticated only"),
@@ -271,7 +273,9 @@ For a list surface that is not a table at all, render `DataTableFilterBar` direc
 
 The table is wrapped in an opaque, bordered `bg-card` panel by default, so it stays readable over any page background. Pass `surface={false}` when it is nested inside a page's own opaque Card - that both drops the panel-in-panel and insets the filter bar with a separating rule, so a full-bleed table's controls are not flush against the card's edges.
 
-Use `toolbar` for actions that sit beside the filters - an "Add" button, or a control the facet model cannot express (a date range, a density toggle).
+Use `toolbar` for ACTIONS beside the filters - an "Add" button, an export. It is right-aligned, away from the controls.
+
+Use `filterExtras` for a CONTROL that belongs with the filters but is not a facet: a date range, a density toggle, or a boolean that WIDENS the list ("Show resolved") and so cannot be a facet, since a facet narrows. It renders inside the filter row, next to the facets. Putting such a control in `toolbar` strands it at the far edge of the page, reading as unrelated to the filters it belongs with.
 
 > [!NOTE]
 > Reach for `facets` before `toolbar` for any "narrow the rows" control. Hand-rolled filter bars are what this API replaced: they had drifted into six different renderings of the same select and three different "show everything" sentinels. For empty and no-results states, reuse `ListEmptyState` / `EmptyState` - see [List states](/checkstack/developer-guide/frontend/list-states/).

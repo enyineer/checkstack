@@ -64,6 +64,7 @@ export function DataTable<TData>({
   getRowProps,
   renderMobileCard,
   toolbar,
+  filterExtras,
   emptyState,
   noResultsState,
   surface = true,
@@ -227,7 +228,8 @@ export function DataTable<TData>({
 
   const showEmpty = data.length === 0 && emptyState;
   const showNoResults = !showEmpty && rows.length === 0 && noResultsState;
-  const showFilterBar = showSearch || allFacets.length > 0;
+  const showFilterBar =
+    showSearch || allFacets.length > 0 || filterExtras !== undefined;
 
   // `surface={false}` means the table is nested in someone else's opaque panel
   // (a Card with `p-0` content), so it is full-bleed to that panel's edges.
@@ -256,7 +258,9 @@ export function DataTable<TData>({
               // an empty search box is self-evidently already cleared.
               onClear={allFacets.length > 0 ? clearFilters : undefined}
               className="min-w-0 flex-1"
-            />
+            >
+              {filterExtras}
+            </DataTableFilterBar>
           ) : (
             <div />
           )}
