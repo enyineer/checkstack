@@ -10,13 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../Select";
+import { pillToneStyles } from "../status-tone";
 import {
   ANY_FACET_VALUE,
   hasActiveTableFilters,
   selectedFacetValue,
   withFacetValue,
   withQuery,
-  type DataTableFacet,
+  type DataTableFacetControl,
   type DataTableFilterState,
 } from "./facets.logic";
 
@@ -32,8 +33,13 @@ import {
  *
  * Exported in its own right for the list surfaces that are NOT tables (the
  * catalog browse grid, a card list) so they filter identically to one.
+ *
+ * Takes {@link DataTableFacetControl}s rather than full facets: rendering a
+ * control needs no row accessor, so a surface whose matching the facet model
+ * cannot express (multi-valued, or across two row types - see the catalog) is
+ * not shut out of the shared bar. A `DataTable`'s facets satisfy this too.
  */
-export function DataTableFilterBar<TData>({
+export function DataTableFilterBar({
   filters,
   onFiltersChange,
   facets,
@@ -45,7 +51,7 @@ export function DataTableFilterBar<TData>({
 }: {
   filters: DataTableFilterState;
   onFiltersChange: (next: DataTableFilterState) => void;
-  facets: ReadonlyArray<DataTableFacet<TData>>;
+  facets: ReadonlyArray<DataTableFacetControl>;
   /** Hide the search box for a facet-only bar. */
   searchable?: boolean;
   searchPlaceholder?: string;
@@ -104,10 +110,12 @@ export function DataTableFilterBar<TData>({
             onValueChange={(value) =>
               onFiltersChange(withFacetValue(filters, facet.id, value))
             }
+            disabled={facet.disabled}
           >
             <SelectTrigger
               className={cn("w-full md:w-44", facet.triggerClassName)}
               aria-label={`Filter by ${facet.label.toLowerCase()}`}
+              title={facet.disabled ? facet.disabledReason : undefined}
             >
               <SelectValue />
             </SelectTrigger>
@@ -147,12 +155,12 @@ export function DataTableFilterBar<TData>({
  * pill groups this replaces were split on whether to set it, and two shipped
  * without it, leaving screen-reader users no way to tell which filter was live.
  */
-function FacetPills<TData>({
+function FacetPills({
   facet,
   selected,
   onSelect,
 }: {
-  facet: DataTableFacet<TData>;
+  facet: DataTableFacetControl;
   selected: string;
   onSelect: (value: string) => void;
 }): React.ReactElement {
@@ -172,15 +180,21 @@ function FacetPills<TData>({
     >
       {options.map((option) => {
         const active = option.value === selected;
+        // A selected option that names a status wears that status's hue; every
+        // other selection is neutral. Applied only when SELECTED, so an idle
+        // group stays a quiet row of buttons rather than a traffic light.
+        const toned = active && option.tone ? pillToneStyles[option.tone] : undefined;
         return (
           <Button
             key={option.value}
             type="button"
             size="sm"
-            variant={active ? "secondary" : "ghost"}
+            variant={active && !toned ? "secondary" : "ghost"}
             aria-pressed={active}
+            disabled={facet.disabled}
+            title={facet.disabled ? facet.disabledReason : undefined}
             onClick={() => onSelect(option.value)}
-            className="h-7 px-2 text-xs"
+            className={cn("h-7 px-2 text-xs", toned?.pill)}
           >
             {option.label}
           </Button>

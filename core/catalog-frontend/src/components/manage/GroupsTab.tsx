@@ -46,6 +46,13 @@ export interface GroupsTabProps {
   groups: Group[];
   /** The FULL group list in persisted browse order, used to compute reorders. */
   orderedGroups: Group[];
+  /**
+   * Whether anything currently narrows the list. Comes from the shared filter
+   * state rather than being inferred from row counts, so a search that happens
+   * to match every group still counts as filtered - the arrows would otherwise
+   * be live while the reader has no reason to believe the list is complete.
+   */
+  isFiltered: boolean;
   totalCount: number;
   allSystems: System[];
   onAddGroup: () => void;
@@ -60,12 +67,18 @@ export interface GroupsTabProps {
 }
 
 export function GroupsTab(props: GroupsTabProps): React.ReactElement {
-  const { groups, orderedGroups, totalCount, allSystems, onAddGroup } = props;
+  const {
+    groups,
+    orderedGroups,
+    isFiltered,
+    totalCount,
+    allSystems,
+    onAddGroup,
+  } = props;
 
-  // Reorder acts on the FULL persisted order. A search/filter that hides some
-  // groups makes "move up/down" ambiguous, so reorder controls are disabled
-  // until filters are cleared.
-  const isFiltered = groups.length !== orderedGroups.length;
+  // Reorder acts on the FULL persisted order, so `isFiltered` gates the arrows:
+  // with rows hidden, "move up/down" would swap with a neighbour the operator
+  // cannot see and the row would appear not to move at all.
   const orderIndexById = useMemo(() => {
     const map = new Map<string, number>();
     for (const [index, group] of orderedGroups.entries()) {

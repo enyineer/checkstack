@@ -91,11 +91,9 @@ describe("matchesHealth", () => {
     u: "unhealthy",
   };
 
-  test("'all' matches everything", () => {
+  test("an unconstrained filter matches everything", () => {
     for (const id of ["h", "d", "u", "missing"]) {
-      expect(matchesHealth({ systemId: id, health: "all", statuses })).toBe(
-        true,
-      );
+      expect(matchesHealth({ systemId: id, health: null, statuses })).toBe(true);
     }
   });
 
@@ -117,7 +115,7 @@ describe("matchesHealth", () => {
     );
   });
 
-  test("non-'all' filter with undefined statuses → everything unknown", () => {
+  test("a constrained filter with undefined statuses → everything unknown", () => {
     expect(
       matchesHealth({ systemId: "h", health: "healthy", statuses: undefined }),
     ).toBe(false);

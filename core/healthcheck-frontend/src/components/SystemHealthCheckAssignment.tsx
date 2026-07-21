@@ -20,7 +20,7 @@ import {
   healthCheckResourceTypes,
 } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
-import { HEALTHCHECK_LIST_PARAM } from "./healthCheckListState.logic";
+import { HEALTHCHECK_FACET_ID } from "./healthCheckFacets";
 import { useCatalogSystemHealthCheckDataOptional } from "./CatalogSystemHealthCheckDataProvider";
 
 type Props = SlotContext<typeof CatalogSystemActionsSlot>;
@@ -44,7 +44,7 @@ const HealthCheckActionView: React.FC<{
 
   const filteredListUrl = `${resolveRoute(
     healthcheckRoutes.routes.config,
-  )}?${HEALTHCHECK_LIST_PARAM.system}=${encodeURIComponent(systemId)}`;
+  )}?${HEALTHCHECK_FACET_ID.system}=${encodeURIComponent(systemId)}`;
   const label =
     count > 0
       ? `${count} health check${count === 1 ? "" : "s"} assigned - view`

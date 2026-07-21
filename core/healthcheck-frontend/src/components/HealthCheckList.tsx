@@ -33,6 +33,12 @@ interface HealthCheckListProps {
   onDelete: (id: string) => void;
   onPause?: (id: string) => void;
   onResume?: (id: string) => void;
+  /**
+   * Shown when the caller's filters leave no rows. The page filters (the system
+   * dimension is server-side, so the bar lives there), which is why the message
+   * is passed in rather than declared here.
+   */
+  noResultsState?: React.ReactNode;
 }
 
 export const HealthCheckList: React.FC<HealthCheckListProps> = ({
@@ -42,6 +48,7 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
   onDelete,
   onPause,
   onResume,
+  noResultsState,
 }) => {
   const accessApi = useApi(accessApiRef);
   // Per-resource action gate: ORs the global manage rule with a team grant on
@@ -117,7 +124,13 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
       data={configurations}
       columns={columns}
       getRowId={(config) => config.id}
+      // Search and facets live in the page's filter bar (the system dimension
+      // is applied server-side), so the table renders no controls of its own.
       searchable={false}
+      // Alphabetical by name: the list used to be sorted before it reached the
+      // table, and a stable reading order beats insertion order here.
+      defaultSort={{ columnId: "name", direction: "asc" }}
+      noResultsState={noResultsState}
       getRowProps={(config) => ({
         className: config.paused ? "opacity-60" : undefined,
       })}

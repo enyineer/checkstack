@@ -27,8 +27,10 @@ import {
   chartCardChromeClass,
   BackLink,
   Button,
+  DataTableFilterBar,
   DateRangeFilter,
   getDefaultDateRange,
+  useDataTableFilters,
   EmptyState,
   Sheet,
   SheetBody,
@@ -48,11 +50,12 @@ import { RunHistoryList } from "../components/RunHistoryList";
 import { useEnvironmentLabels } from "../hooks/useEnvironmentLabels";
 import { RunDetailPanel } from "../components/RunDetailPanel";
 import {
-  StatusFilterPills,
-  STATUS_FILTER_TO_STATUSES,
-  type StatusFilter,
-} from "../components/StatusFilterPills";
-import { SourceFilterPills } from "../components/SourceFilterPills";
+  runFacetIds,
+  runSourceControl,
+  runSourceFilterInput,
+  runStatusControl,
+  runStatusFilterInput,
+} from "../components/runFilters.logic";
 import {
   buildRunHistoryRows,
   isLastRawPage,
@@ -86,8 +89,13 @@ const HealthCheckHistoryDetailPageContent = () => {
     });
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  // Status + source are applied by `getDetailedHistory`, so the bar drives the
+  // query rather than the list. URL-backed: a link to "this check's failing
+  // runs from the EU satellite" reopens filtered.
+  const filters = useDataTableFilters({ facetIds: runFacetIds });
+  const sourceFilter = runSourceFilterInput({ filters: filters.state });
+  const statusFilter = runStatusFilterInput({ filters: filters.state });
 
   // Pagination state
   const pagination = usePagination({ defaultLimit: 25 });
@@ -122,7 +130,7 @@ const HealthCheckHistoryDetailPageContent = () => {
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
     sourceFilter,
-    statusFilter: STATUS_FILTER_TO_STATUSES[statusFilter],
+    statusFilter,
     limit: pagination.limit,
     offset: pagination.offset,
     sortOrder: "desc",
@@ -246,15 +254,23 @@ const HealthCheckHistoryDetailPageContent = () => {
   const canNext = adjacentFor("next").kind !== "none";
 
   const defaultRange = getDefaultDateRange();
+  // The date range is a filter too, but it is not part of the facet state, so
+  // the page keeps its own Clear button (and the bar renders none) - otherwise
+  // a widened range alone would leave nothing to reset it with.
   const hasActiveFilters =
-    statusFilter !== "all" ||
-    sourceFilter !== undefined ||
+    filters.active ||
     dateRange.startDate.getTime() !== defaultRange.startDate.getTime();
 
   const clearFilters = () => {
     setDateRange(getDefaultDateRange());
-    setSourceFilter(undefined);
-    setStatusFilter("all");
+    filters.clear();
+    pagination.setPage(1);
+  };
+
+  // Any filter change lands the operator on page 1: the run they are looking
+  // for is unlikely to be on page 7 of a differently-filtered list.
+  const applyFilters = (next: typeof filters.state) => {
+    filters.setState(next);
     pagination.setPage(1);
   };
 
@@ -270,10 +286,9 @@ const HealthCheckHistoryDetailPageContent = () => {
     />
   ) : undefined;
 
-  const emptyMessage =
-    statusFilter !== "all" || sourceFilter !== undefined
-      ? "No runs match the current filters."
-      : "No health check runs found for this configuration.";
+  const emptyMessage = filters.active
+    ? "No runs match the current filters."
+    : "No health check runs found for this configuration.";
 
   return (
     <PageLayout
@@ -311,20 +326,13 @@ const HealthCheckHistoryDetailPageContent = () => {
             pagination.setPage(1);
           }}
         />
-        <StatusFilterPills
-          value={statusFilter}
-          onChange={(next) => {
-            setStatusFilter(next);
-            pagination.setPage(1);
-          }}
-        />
-        <SourceFilterPills
-          value={sourceFilter}
-          onChange={(next) => {
-            setSourceFilter(next);
-            pagination.setPage(1);
-          }}
-          satellites={satellites}
+        <DataTableFilterBar
+          filters={filters.state}
+          onFiltersChange={applyFilters}
+          facets={[runStatusControl, runSourceControl({ satellites })]}
+          // Runs are identified by time and outcome, not by a name worth
+          // typing, so the two facets are the whole control.
+          searchable={false}
         />
         {hasActiveFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>

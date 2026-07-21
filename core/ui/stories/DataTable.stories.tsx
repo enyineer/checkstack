@@ -2,14 +2,21 @@ import { useState, type ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import {
   DataTable,
+  DataTableFilterBar,
+  EMPTY_TABLE_FILTERS,
+  isFacetConstrained,
+  selectedFacetValue,
   type DataTableColumn,
   type DataTableFacet,
+  type DataTableFacetControl,
+  type DataTableFilterState,
 } from "../src/components/DataTable";
 import { Badge } from "../src/components/Badge";
 import { Button } from "../src/components/Button";
 import { Card } from "../src/components/Card";
 import { Checkbox } from "../src/components/Checkbox";
 import { ListEmptyState } from "../src/components/ListEmptyState";
+import { Tabs } from "../src/components/Tabs";
 
 const meta: Meta = {
   title: "Components/Data/DataTable",
@@ -276,4 +283,82 @@ export const FacetsInsideACard: Story = {
       </Card>
     </div>
   ),
+};
+
+/**
+ * The bar on its own, for a list surface that is not a table - a card grid, a
+ * grouped browse view - so it filters identically to one.
+ *
+ * These facets are `DataTableFacetControl`s: controls with no row accessor,
+ * because this surface's matching is multi-valued (a service carries several
+ * tags) and spans two row types. The surface reads the selections back and
+ * applies them itself. `Health` is disabled to show a dimension whose data
+ * source is not installed - present, with a reason, rather than absent.
+ * `children` carries the density toggle, which is a view control, not a filter.
+ */
+const browseControls: DataTableFacetControl[] = [
+  {
+    id: "team",
+    label: "Team",
+    anyLabel: "All teams",
+    options: [
+      { value: "Platform", label: "Platform" },
+      { value: "Payments", label: "Payments" },
+    ],
+  },
+  {
+    id: "health",
+    label: "Health",
+    anyLabel: "All health",
+    disabled: true,
+    disabledReason:
+      "Health filtering becomes available once a health source is installed",
+    options: [
+      { value: "healthy", label: "Healthy" },
+      { value: "degraded", label: "Degraded" },
+    ],
+  },
+];
+
+export const StandaloneFilterBar: Story = {
+  render: function StandaloneFilterBarStory(): ReactElement {
+    const [filters, setFilters] = useState<DataTableFilterState>(
+      EMPTY_TABLE_FILTERS,
+    );
+    const team = selectedFacetValue(filters, "team");
+    const visible = services.filter(
+      (service) =>
+        (!isFacetConstrained(team) || service.team === team) &&
+        service.name.toLowerCase().includes(filters.query.toLowerCase()),
+    );
+    return (
+      <div className="max-w-4xl space-y-3">
+        <DataTableFilterBar
+          filters={filters}
+          onFiltersChange={setFilters}
+          facets={browseControls}
+          searchPlaceholder="Search services"
+          onClear={() => setFilters(EMPTY_TABLE_FILTERS)}
+        >
+          <Tabs
+            items={[
+              { id: "comfortable", label: "Comfortable" },
+              { id: "compact", label: "Compact" },
+            ]}
+            activeTab="comfortable"
+            onTabChange={() => {}}
+            className="md:w-auto"
+          />
+        </DataTableFilterBar>
+        <div className="flex flex-col gap-2">
+          {visible.map((service) => (
+            <Card key={service.id} className="p-3">
+              <p className="font-medium">{service.name}</p>
+              <p className="text-sm text-muted-foreground">{service.team}</p>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  },
 };

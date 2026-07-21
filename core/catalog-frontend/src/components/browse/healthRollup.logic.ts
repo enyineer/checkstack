@@ -123,14 +123,14 @@ export function resolveSectionTone(rollup: GroupHealthRollup): SectionTone {
 /**
  * Does a system pass the health filter? Derived from the reported status map.
  *
- * - `"all"` matches everything.
+ * - `null` (unconstrained) matches everything.
  * - `"healthy" | "degraded" | "unhealthy"` match the system's reported status.
  * - `"unknown"` matches systems with no reported status (no health source / no
  *   checks wired) — so an absent entry is `"unknown"`, never silently healthy.
  *
  * When `statuses` is undefined entirely (slot unfilled), every system resolves to
- * `"unknown"`; the page disables the filter in that case, but the predicate still
- * behaves correctly if a non-`all` value lingers in the URL.
+ * `"unknown"`; the page disables the control in that case, but the predicate
+ * still behaves correctly if a selection lingers in the URL.
  */
 export function matchesHealth({
   systemId,
@@ -138,9 +138,9 @@ export function matchesHealth({
   statuses,
 }: {
   systemId: string;
-  health: HealthFilter;
+  health: HealthFilter | null;
   statuses: CatalogHealthStatuses | undefined;
 }): boolean {
-  if (health === "all") return true;
+  if (health === null) return true;
   return resolveSystemHealth({ systemId, statuses }) === health;
 }

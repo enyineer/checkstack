@@ -13,6 +13,7 @@
  */
 
 import { rowMatchesSearch } from "./helpers";
+import type { StatusPillTone } from "../status-tone";
 
 /**
  * The "no constraint" selection for a facet.
@@ -31,13 +32,38 @@ export const ANY_FACET_VALUE = "any";
 export interface DataTableFacetOption {
   value: string;
   label: string;
+  /**
+   * Semantic hue for this option when the facet renders as `pills`, drawn from
+   * the shared status tones.
+   *
+   * Reserved for a dimension that genuinely IS a status: on a health surface,
+   * green "Healthy" and red "Failing" are the product's vocabulary, and a
+   * selected "Failing" that looks identical to a selected "Healthy" throws that
+   * away. The hand-rolled pill group this replaced carried exactly this colour,
+   * and a shared control that cannot express it is one a team forks again.
+   *
+   * Leave it unset everywhere else - a neutral selected state is correct for a
+   * dimension like "enabled/disabled" or a run's trigger, and colouring those
+   * would dilute the tones that mean something.
+   */
+  tone?: StatusPillTone;
 }
 
 /**
- * A "narrow the rows by one dimension" control: a labelled select whose options
- * are domain values, plus the accessor that reads a row's value for comparison.
+ * The PRESENTATIONAL half of a facet: everything {@link DataTableFilterBar}
+ * needs to render the control, and nothing about how a row is matched.
+ *
+ * Split out from {@link DataTableFacet} because a surface can legitimately own
+ * the control while the facet model cannot apply it. The catalog browse filters
+ * are the case that forced the split: a system belongs to SEVERAL groups and
+ * carries SEVERAL metadata tags, and its health lives in a separate status map
+ * keyed by id - none of which a single `value(row): string` can express, and the
+ * same three controls also filter GROUPS, a different row type entirely. Such a
+ * surface still wants the one shared bar, so it passes controls and keeps its
+ * own matching; a `DataTable` that filters its own rows passes the full
+ * {@link DataTableFacet}, which is a control too.
  */
-export interface DataTableFacet<TData> {
+export interface DataTableFacetControl {
   /**
    * Stable id. Doubles as the URL parameter name, so keep it short and
    * URL-safe (`status`, `severity`, `visibility`).
@@ -48,11 +74,20 @@ export interface DataTableFacet<TData> {
   /** Selectable values, in display order. */
   options: readonly DataTableFacetOption[];
   /**
-   * The row's value for this facet, compared against the selection. Return a
-   * value that appears in `options`; a row whose value matches nothing on offer
-   * is simply never shown while that facet is constrained.
+   * Render the control but refuse input - for a dimension that exists but whose
+   * data source is not installed yet (the catalog's health filter before a
+   * health source fills its slot).
+   *
+   * Preferred over dropping the facet from the array: a control that is visibly
+   * present-but-unavailable, with a reason, tells the operator the capability
+   * exists and what would unlock it, which an absent control cannot. Disabling
+   * also keeps the facet's URL parameter declared, so a selection that arrives
+   * on a shared link is preserved and still constrains rather than silently
+   * widening the list.
    */
-  value: (row: TData) => string;
+  disabled?: boolean;
+  /** Tooltip explaining WHY the control is disabled. */
+  disabledReason?: string;
   /**
    * Label for the unconstrained option. Defaults to `Any <label lowercased>`,
    * e.g. `"Any severity"`.
@@ -74,6 +109,20 @@ export interface DataTableFacet<TData> {
   kind?: "select" | "pills";
   /** Extra classes for the select trigger (typically a width). */
   triggerClassName?: string;
+}
+
+/**
+ * A "narrow the rows by one dimension" control, plus the accessor that reads a
+ * row's value for comparison - the form {@link applyTableFilters} (and so
+ * `DataTable`) can apply on its own.
+ */
+export interface DataTableFacet<TData> extends DataTableFacetControl {
+  /**
+   * The row's value for this facet, compared against the selection. Return a
+   * value that appears in `options`; a row whose value matches nothing on offer
+   * is simply never shown while that facet is constrained.
+   */
+  value: (row: TData) => string;
 }
 
 /** The complete filter state of a table: free text plus a value per facet. */
@@ -178,6 +227,9 @@ export function parsedFacetValue<TValue>({
 /**
  * Apply the search and every constrained facet. Facets are ANDed with each
  * other and with the search.
+ *
+ * A `disabled` facet still applies: disabling stops the operator CHANGING the
+ * selection, it does not silently widen one that arrived on a shared link.
  *
  * Returns the SAME array reference when nothing is constrained, so a table with
  * idle filters does not invalidate downstream memoisation on every render.

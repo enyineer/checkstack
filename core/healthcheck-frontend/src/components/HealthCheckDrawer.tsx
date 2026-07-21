@@ -31,6 +31,9 @@ import {
   PRESETS,
   ChartCard,
   chartCardChromeClass,
+  DataTableFilterBar,
+  EMPTY_TABLE_FILTERS,
+  type DataTableFilterState,
   StackedTimeline,
   usePerformance,
   Sheet,
@@ -64,11 +67,12 @@ import { useEnvironmentLabels } from "../hooks/useEnvironmentLabels";
 import { AggregatedDataBanner } from "./AggregatedDataBanner";
 import { HealthCheckDiagramSlot } from "../slots";
 import {
-  StatusFilterPills,
-  STATUS_FILTER_TO_STATUSES,
-  type StatusFilter,
-} from "./StatusFilterPills";
-import { SourceFilterPills } from "./SourceFilterPills";
+  runSourceControl,
+  runSourceFilterInput,
+  runStatusControl,
+  runStatusFilterInput,
+  selectedRunStatus,
+} from "./runFilters.logic";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
   bucketAvgLatencyMs,
@@ -183,9 +187,16 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     getPresetRange(DateRangePreset.Last24Hours),
   );
   const [isRollingPreset, setIsRollingPreset] = useState(true);
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
-  const [runsStatusFilter, setRunsStatusFilter] =
-    useState<StatusFilter>("all");
+  // Source (charts + runs) and run status, both applied server-side. Held in
+  // COMPONENT state rather than the URL: the drawer is a transient sheet over a
+  // system's detail page, its open state is not addressable, and writing its
+  // filters into that page's query string would leave parameters behind with no
+  // visible control once the sheet closes.
+  const [runFilters, setRunFilters] =
+    useState<DataTableFilterState>(EMPTY_TABLE_FILTERS);
+  const sourceFilter = runSourceFilterInput({ filters: runFilters });
+  const runsStatusFilter = selectedRunStatus({ filters: runFilters });
+  const runsStatusInput = runStatusFilterInput({ filters: runFilters });
 
   const activePreset = detectPreset(dateRange);
   const activePresetLabel = PRESETS.find((p) => p.id === activePreset)?.shortLabel ?? "Custom";
@@ -266,7 +277,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     offset: pagination.offset,
     startDate: dateRange.startDate,
     sourceFilter,
-    statusFilter: STATUS_FILTER_TO_STATUSES[runsStatusFilter],
+    statusFilter: runsStatusInput,
     // Server-side env filter: when the clicked overview row was env-scoped,
     // the run-history table shows only that env's runs; `null` selects the
     // env-less slice; `undefined` (single-env rollup row) queries all runs.
@@ -432,10 +443,11 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 
                     {/* Source filter */}
                     {canReadSatellites && satellites.length > 0 && (
-                      <SourceFilterPills
-                        value={sourceFilter}
-                        onChange={setSourceFilter}
-                        satellites={satellites}
+                      <DataTableFilterBar
+                        filters={runFilters}
+                        onFiltersChange={setRunFilters}
+                        facets={[runSourceControl({ satellites })]}
+                        searchable={false}
                       />
                     )}
                   </div>
@@ -493,7 +505,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
           </div>
 
           {/* Zone 3 — Recent Runs */}
-          {(runs.length > 0 || runsStatusFilter !== "all") && (
+          {(runs.length > 0 || runsStatusFilter !== undefined) && (
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <div className="flex-1 h-px bg-border" />
@@ -507,19 +519,27 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
               </div>
 
               <div className="flex justify-end">
-                <StatusFilterPills
-                  value={runsStatusFilter}
-                  onChange={(next) => {
-                    setRunsStatusFilter(next);
+                <DataTableFilterBar
+                  filters={runFilters}
+                  onFiltersChange={(next) => {
+                    setRunFilters(next);
+                    // A different filter means a different list; page 7 of the
+                    // old one is not where the operator wants to land.
                     pagination.setPage(1);
                   }}
+                  facets={[runStatusControl]}
+                  searchable={false}
                 />
               </div>
 
               <HealthCheckRunsTable
                 runs={runs}
                 loading={historyLoading || environmentLabelsLoading}
-                emptyMessage={`No runs match the ${runsStatusFilter} filter.`}
+                emptyMessage={
+                  runsStatusFilter === undefined
+                    ? "No runs found."
+                    : `No runs match the ${runsStatusFilter} filter.`
+                }
                 environmentLabels={environmentLabels}
                 pagination={pagination}
                 selectedRunId={detailRunId}

@@ -84,11 +84,11 @@ const CatalogPageContent: React.FC = () => {
       buildBrowseModel({
         systems,
         groups,
-        // Filter on the debounced query so typing stays smooth on large lists.
-        state: { ...browse.state, query: browse.debouncedQuery },
+        // `applied` carries the debounced query, so typing stays smooth.
+        state: { ...browse.applied, ...browse.view },
         statuses: healthStatuses ?? undefined,
       }),
-    [systems, groups, browse.state, browse.debouncedQuery, healthStatuses],
+    [systems, groups, browse.applied, browse.view, healthStatuses],
   );
 
   const manageLink = (
@@ -161,18 +161,13 @@ const CatalogPageContent: React.FC = () => {
           />
 
           <CatalogBrowseToolbar
-            query={browse.state.query}
-            onQueryChange={browse.setQuery}
-            group={browse.state.group}
-            onGroupChange={browse.setGroup}
+            filters={browse.filters.state}
+            onFiltersChange={browse.filters.setState}
+            onClear={browse.filters.clear}
             groups={groups}
-            health={browse.state.health}
-            onHealthChange={browse.setHealth}
-            healthEnabled={healthEnabled}
-            tag={browse.state.tag}
-            onTagChange={browse.setTag}
             tagOptions={tagOptions}
-            density={browse.state.density}
+            healthEnabled={healthEnabled}
+            density={browse.view.density}
             onDensityChange={browse.setDensity}
           />
 
@@ -181,7 +176,7 @@ const CatalogPageContent: React.FC = () => {
               resource="systems"
               description="No systems match the current search and filters."
               actions={
-                <Button variant="outline" onClick={browse.clearFilters}>
+                <Button variant="outline" onClick={browse.filters.clear}>
                   Clear filters
                 </Button>
               }

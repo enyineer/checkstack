@@ -167,6 +167,61 @@ Facets are ANDed with each other and with the free-text search. The `id` doubles
 
 Do NOT pre-filter `data` yourself and hand the table the survivors. `emptyState` fires when `data` is empty and `noResultsState` when the filters empty it, and upstream filtering collapses that distinction: "nothing here yet" starts rendering as "nothing matches".
 
+### Pills, and when to tone them
+
+`kind: "pills"` renders a segmented row instead of a dropdown - right for two or three short options worth seeing at a glance, wrong for a dozen. An option may carry a `tone` from the shared status set, applied only while that option is selected:
+
+```ts
+{
+  id: "status",
+  label: "Status",
+  kind: "pills",
+  options: [
+    { value: "healthy", label: "Healthy", tone: "ok" },
+    { value: "failing", label: "Failing", tone: "down" },
+  ],
+}
+```
+
+Reserve `tone` for a dimension that genuinely IS a status. On a health surface green and red are the product's vocabulary, and a selected "Failing" that looks identical to a selected "Healthy" throws that away. Leave it unset for everything else - a neutral selected state is right for "enabled/disabled", and colouring those dilutes the tones that mean something. Tone is presentation only; it never affects matching.
+
+### Disabling a facet
+
+A dimension whose data source is not installed yet keeps its control, disabled, with a reason:
+
+```ts
+{
+  id: "health",
+  label: "Health",
+  options: HEALTH_OPTIONS,
+  disabled: !healthEnabled,
+  disabledReason: "Health filtering becomes available once a health source is installed",
+  value: (system) => resolveHealth(system),
+}
+```
+
+Prefer this to dropping the facet from the array. A present-but-unavailable control says the capability exists and what would unlock it; an absent one says nothing. Disabling also keeps the parameter declared, so a selection arriving on a shared link is preserved - and it still constrains, because disabling stops the operator *changing* the selection, not the selection itself.
+
+### Facets the table cannot apply
+
+A surface sometimes owns a control the facet model cannot apply: a row that belongs to several groups or carries several tags has no single `value`, and one bar may filter two different row types at once (the catalog's toolbar narrows both systems and groups). Such a surface passes `DataTableFacetControl`s - a facet without the row accessor - and keeps its own matching:
+
+```tsx
+const controls: DataTableFacetControl[] = [
+  { id: "group", label: "Group", anyLabel: "All groups", options: groupOptions },
+  { id: "tag", label: "Tag", anyLabel: "All tags", options: tagOptions },
+];
+
+<DataTableFilterBar
+  filters={filters.state}
+  onFiltersChange={filters.setState}
+  onClear={filters.clear}
+  facets={controls}
+/>;
+```
+
+Read the selections back with `parsedFacetValue` (or `filters.debounced.facets`) and apply them in your own `.logic.ts` matcher. A `DataTableFacet<TData>` *is* a control, so a table's facets keep working with the bar unchanged. Reach for this only when the accessor genuinely cannot be written - a single-valued dimension belongs in `facets`, applied by the table.
+
 ### Where the filter state lives
 
 By default the table owns the state internally, which is right for a simple list. Reach for `useDataTableFilters` when the state has to be **observable**:
@@ -189,7 +244,7 @@ The hook persists to the URL, so a filtered view is shareable, survives a reload
 
 Pass `paramPrefix` when a page has two filtered tables, so they do not fight over `q`. Use `filters.debounced` when *you* run the filtering (a server-side query input, or a list that is not a `DataTable`); a plain table wants `filters.state`, since it debounces internally.
 
-For a list surface that is not a table at all, render `DataTableFilterBar` directly with the same state, so a card grid filters identically to a table.
+For a list surface that is not a table at all, render `DataTableFilterBar` directly with the same state, so a card grid filters identically to a table. Its `children` slot takes controls that belong in that row but are not row filters - a density toggle, a date range - so they stay beside the filters instead of forming a second bar.
 
 ## Surface and toolbar
 

@@ -23,6 +23,7 @@ export {
   withFacetValue,
   withQuery,
   type DataTableFacet,
+  type DataTableFacetControl,
   type DataTableFacetOption,
   type DataTableFilterState,
 } from "./facets.logic";

@@ -15,6 +15,7 @@ import {
   withFacetValue,
   withQuery,
   type DataTableFacet,
+  type DataTableFacetControl,
   type DataTableFilterState,
 } from "./facets.logic";
 
@@ -259,6 +260,46 @@ describe("applyTableFilters", () => {
       }).map((r) => r.name),
     ).toEqual(["beta", "gamma"]);
   });
+
+  test("a disabled facet still constrains", () => {
+    // Disabling stops the operator CHANGING the selection; it must not widen a
+    // selection that arrived on a shared link, or a link to "the degraded
+    // systems" would quietly reopen as "every system".
+    const disabled: DataTableFacet<Row>[] = [
+      { ...facets[0], disabled: true, disabledReason: "No data source" },
+    ];
+    expect(
+      applyTableFilters({
+        rows,
+        state: state({ facets: { status: "expired" } }),
+        facets: disabled,
+        searchAccessors,
+      }).map((r) => r.name),
+    ).toEqual(["beta"]);
+  });
+});
+
+describe("facet controls", () => {
+  test("a full facet is usable wherever a control is expected", () => {
+    // The split exists so a surface whose matching the facet model cannot
+    // express (multi-valued, or across two row types) can still drive the
+    // shared bar. A `DataTable`'s facets must keep working there unchanged.
+    const asControls: DataTableFacetControl[] = facets;
+    expect(asControls.map((facet) => facet.id)).toEqual(["status", "severity"]);
+  });
+
+  test("a control-only facet needs no row accessor", () => {
+    const control: DataTableFacetControl = {
+      id: "tag",
+      label: "Tag",
+      options: [{ value: "team=payments", label: "team=payments" }],
+    };
+    // Its selection still round-trips and still reads as constrained, which is
+    // what the owning surface applies with its own matcher.
+    expect(
+      selectedFacetValue(state({ facets: { tag: "team=payments" } }), control.id),
+    ).toBe("team=payments");
+  });
 });
 
 describe("URL round-trip", () => {
@@ -340,5 +381,31 @@ describe("URL round-trip", () => {
         prefix: "runs",
       }).query,
     ).toBe("x");
+  });
+});
+
+describe("option tones", () => {
+  test("a tone is optional metadata, never a matching input", () => {
+    // Tone drives only how a selected pill looks. Two options that differ only
+    // by tone must filter identically, or presentation would be silently
+    // changing behaviour.
+    const toned: DataTableFacet<Row> = {
+      id: "status",
+      label: "Status",
+      kind: "pills",
+      options: [
+        { value: "active", label: "Active", tone: "ok" },
+        { value: "expired", label: "Expired", tone: "down" },
+      ],
+      value: (row) => row.status,
+    };
+    expect(
+      applyTableFilters({
+        rows,
+        state: state({ facets: { status: "active" } }),
+        facets: [toned],
+        searchAccessors,
+      }).map((r) => r.name),
+    ).toEqual(["alpha", "gamma"]);
   });
 });

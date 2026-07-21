@@ -51,6 +51,7 @@ import { CatalogBrowseToolbar } from "./browse/CatalogBrowseToolbar";
 import { CatalogBrowseHealth } from "./browse/CatalogBrowseHealth";
 import {
   collectTagOptions,
+  filterEnvironments,
   filterManagementLists,
 } from "./browse/filterEntities.logic";
 import { SystemsTab } from "./manage/SystemsTab";
@@ -155,22 +156,21 @@ export const CatalogConfigPage = () => {
       filterManagementLists({
         systems,
         groups,
-        // Filter on the debounced query so typing stays smooth on large lists.
-        state: { ...browse.state, query: browse.debouncedQuery },
+        // `applied` carries the debounced query, so typing stays smooth.
+        state: { ...browse.applied, ...browse.view },
         statuses: healthStatuses ?? undefined,
       }),
-    [systems, groups, browse.state, browse.debouncedQuery, healthStatuses],
+    [systems, groups, browse.applied, browse.view, healthStatuses],
   );
   const visibleSystems = filtered.systems;
   const visibleGroups = filtered.groups;
 
-  // Environments aren't part of filterManagementLists; filter by name on the
-  // shared query so the search box works on the Environments tab too.
-  const visibleEnvironments = useMemo(() => {
-    const q = browse.debouncedQuery.trim().toLowerCase();
-    if (!q) return environments;
-    return environments.filter((e) => e.name.toLowerCase().includes(q));
-  }, [environments, browse.debouncedQuery]);
+  // Environments have no group/health/tag dimension, so they take only the
+  // shared search - through the same matcher the systems list uses.
+  const visibleEnvironments = useMemo(
+    () => filterEnvironments({ environments, filters: browse.applied }),
+    [environments, browse.applied],
+  );
 
   // systemId -> the group ids it belongs to (built from the full group set so a
   // filtered-out group still shows membership).
@@ -564,18 +564,15 @@ export const CatalogConfigPage = () => {
             onStatuses={setHealthStatuses}
             onLoading={setHealthLoading}
           />
+          {/* ONE toolbar for all three tabs: the state is lifted to the page,
+              so switching tabs keeps the same search and filters. */}
           <CatalogBrowseToolbar
-            query={browse.state.query}
-            onQueryChange={browse.setQuery}
-            group={browse.state.group}
-            onGroupChange={browse.setGroup}
+            filters={browse.filters.state}
+            onFiltersChange={browse.filters.setState}
+            onClear={browse.filters.clear}
             groups={groups}
-            health={browse.state.health}
-            onHealthChange={browse.setHealth}
-            healthEnabled={healthEnabled}
-            tag={browse.state.tag}
-            onTagChange={browse.setTag}
             tagOptions={tagOptions}
+            healthEnabled={healthEnabled}
           />
         </div>
       )}
@@ -618,7 +615,7 @@ export const CatalogConfigPage = () => {
           onBulkDeleteSystems={handleBulkDeleteSystems}
           onAddToGroup={handleAddSystemToGroup}
           onRemoveFromGroup={handleRemoveSystemFromGroup}
-          onClearFilters={browse.clearFilters}
+          onClearFilters={browse.filters.clear}
         />
       )}
 
@@ -626,6 +623,7 @@ export const CatalogConfigPage = () => {
         <GroupsTab
           groups={visibleGroups}
           orderedGroups={groups}
+          isFiltered={browse.filters.active}
           totalCount={groups.length}
           allSystems={systems}
           onAddGroup={() => {
@@ -643,7 +641,7 @@ export const CatalogConfigPage = () => {
           }
           onAddToGroup={handleAddSystemToGroup}
           onRemoveFromGroup={handleRemoveSystemFromGroup}
-          onClearFilters={browse.clearFilters}
+          onClearFilters={browse.filters.clear}
         />
       )}
 
@@ -665,7 +663,7 @@ export const CatalogConfigPage = () => {
           }}
           onDeleteEnvironment={handleDeleteEnvironment}
           onBulkDeleteEnvironments={handleBulkDeleteEnvironments}
-          onClearFilters={browse.clearFilters}
+          onClearFilters={browse.filters.clear}
         />
       )}
 
