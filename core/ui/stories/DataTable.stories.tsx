@@ -1,6 +1,10 @@
 import { useState, type ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { DataTable, type DataTableColumn } from "../src/components/DataTable";
+import {
+  DataTable,
+  type DataTableColumn,
+  type DataTableFacet,
+} from "../src/components/DataTable";
 import { Badge } from "../src/components/Badge";
 import { Button } from "../src/components/Button";
 import { Card } from "../src/components/Card";
@@ -194,6 +198,82 @@ export const NoResults: Story = {
           />
         }
       />
+    </div>
+  ),
+};
+
+/**
+ * Facets are declarative: give each one an id, a label, its options and the
+ * accessor that reads a row's value. The table renders the selects beside the
+ * search box, applies them, and offers Clear once anything is constrained.
+ *
+ * This state is table-owned. Pair with `useDataTableFilters` (URL-backed) when a
+ * filtered view should be shareable, or when the page needs to know what is
+ * hidden - to gate a reorder control, say.
+ */
+const serviceFacets: DataTableFacet<Service>[] = [
+  {
+    id: "status",
+    label: "Status",
+    options: [
+      { value: "healthy", label: "Healthy" },
+      { value: "degraded", label: "Degraded" },
+      { value: "down", label: "Down" },
+    ],
+    value: (s) => s.status,
+  },
+  {
+    id: "team",
+    label: "Team",
+    options: [
+      { value: "Platform", label: "Platform" },
+      { value: "Payments", label: "Payments" },
+      { value: "Discovery", label: "Discovery" },
+      { value: "Growth", label: "Growth" },
+    ],
+    value: (s) => s.team,
+  },
+];
+
+export const WithFacets: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <DataTable
+        data={services}
+        columns={baseColumns}
+        getRowId={(s) => s.id}
+        facets={serviceFacets}
+        searchPlaceholder="Search services..."
+        noResultsState={
+          <ListEmptyState
+            resource="services"
+            description="No services match your filters."
+          />
+        }
+      />
+    </div>
+  ),
+};
+
+/**
+ * Nested inside a page's own opaque Card. `surface={false}` drops the table's
+ * panel (no panel-in-panel) AND insets the filter bar with a separating rule, so
+ * a full-bleed table's controls are not flush against the card's edges.
+ */
+export const FacetsInsideACard: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <Card className="p-0">
+        <div className="border-b border-border p-4 font-semibold">Services</div>
+        <DataTable
+          data={services}
+          columns={baseColumns}
+          getRowId={(s) => s.id}
+          facets={serviceFacets}
+          surface={false}
+          searchPlaceholder="Search services..."
+        />
+      </Card>
     </div>
   ),
 };

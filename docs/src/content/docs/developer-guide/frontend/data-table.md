@@ -142,9 +142,60 @@ accessible name and default tooltip; `title` overrides the tooltip (e.g. a lock
 reason). Never drop a `variant="destructive"` filled button into an actions
 column - that is exactly the inconsistency `RowAction` exists to prevent.
 
+## Filtering by facet
+
+A facet is a "narrow by one dimension" select - status, severity, type, team. Declare them and the table renders the controls beside the search box, applies them, and offers a Clear affordance once anything is constrained.
+
+```tsx
+const facets: DataTableFacet<Service>[] = [
+  {
+    id: "status",
+    label: "Status",
+    options: [
+      { value: "healthy", label: "Healthy" },
+      { value: "down", label: "Down" },
+    ],
+    // The row's value for this facet, compared with the selection.
+    value: (service) => service.status,
+  },
+];
+
+<DataTable data={services} columns={columns} getRowId={(s) => s.id} facets={facets} />;
+```
+
+Facets are ANDed with each other and with the free-text search. The `id` doubles as the URL parameter name, so keep it short and URL-safe. A row whose value matches no offered option is simply never shown while that facet is constrained, and a facet the table does not declare is ignored - so a stale link degrades to "less filtered" rather than to an empty table nobody can explain.
+
+Do NOT pre-filter `data` yourself and hand the table the survivors. `emptyState` fires when `data` is empty and `noResultsState` when the filters empty it, and upstream filtering collapses that distinction: "nothing here yet" starts rendering as "nothing matches".
+
+### Where the filter state lives
+
+By default the table owns the state internally, which is right for a simple list. Reach for `useDataTableFilters` when the state has to be **observable**:
+
+```tsx
+const filters = useDataTableFilters({ facetIds: ["status", "severity"] });
+
+<DataTable
+  data={rows}
+  columns={columns}
+  getRowId={(r) => r.id}
+  facets={facets}
+  filters={filters.state}
+  onFiltersChange={filters.setState}
+  onClearFilters={filters.clear}
+/>;
+```
+
+The hook persists to the URL, so a filtered view is shareable, survives a reload, and comes back intact after following a row into its detail page. It also hands the page `filters.active`, which is what you need to gate a control that a filtered view makes ambiguous - reorder arrows, for instance, whose neighbour may be hidden.
+
+Pass `paramPrefix` when a page has two filtered tables, so they do not fight over `q`. Use `filters.debounced` when *you* run the filtering (a server-side query input, or a list that is not a `DataTable`); a plain table wants `filters.state`, since it debounces internally.
+
+For a list surface that is not a table at all, render `DataTableFilterBar` directly with the same state, so a card grid filters identically to a table.
+
 ## Surface and toolbar
 
-The table is wrapped in an opaque, bordered `bg-card` panel by default, so it stays readable over any page background. Pass `surface={false}` to opt out. Use `toolbar` for actions that sit beside the search box (an "Add" button, domain filters such as status tabs or an environment picker that the free-text search cannot express).
+The table is wrapped in an opaque, bordered `bg-card` panel by default, so it stays readable over any page background. Pass `surface={false}` when it is nested inside a page's own opaque Card - that both drops the panel-in-panel and insets the filter bar with a separating rule, so a full-bleed table's controls are not flush against the card's edges.
+
+Use `toolbar` for actions that sit beside the filters - an "Add" button, or a control the facet model cannot express (a date range, a density toggle).
 
 > [!NOTE]
-> Keep domain filters (status tabs, environment pickers) as `toolbar` content and let `DataTable` own only the free-text search. For empty and no-results states, reuse `ListEmptyState` / `EmptyState` - see [List states](/checkstack/developer-guide/frontend/list-states/).
+> Reach for `facets` before `toolbar` for any "narrow the rows" control. Hand-rolled filter bars are what this API replaced: they had drifted into six different renderings of the same select and three different "show everything" sentinels. For empty and no-results states, reuse `ListEmptyState` / `EmptyState` - see [List states](/checkstack/developer-guide/frontend/list-states/).

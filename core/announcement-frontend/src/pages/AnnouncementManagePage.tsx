@@ -22,20 +22,14 @@ import {
   severityToTone,
   announcementSeverityRank,
   announcementStatusRank,
-  STATUS_BUCKETS,
 } from "../components/announcementStatus.logic";
 import {
-  ANY_FILTER,
-  ANNOUNCEMENT_SEVERITIES,
-  ANNOUNCEMENT_VISIBILITIES,
-  NO_ANNOUNCEMENT_FILTERS,
-  filterAnnouncements,
-  hasActiveAnnouncementFilters,
-  parseSeverityFilter,
-  parseStatusFilter,
-  parseVisibilityFilter,
-  type AnnouncementFilters,
-} from "../components/announcementFilters.logic";
+  announcementFacetIds,
+  announcementFacets,
+  DISPLAY_MODE_LABELS,
+  SEVERITY_LABELS,
+  VISIBILITY_LABELS,
+} from "../components/announcementFacets";
 import {
   PageLayout,
   Card,
@@ -56,6 +50,7 @@ import {
   SelectContent,
   SelectItem,
   useToast,
+  useDataTableFilters,
   ConfirmationModal,
   Dialog,
   DialogContent,
@@ -83,8 +78,6 @@ import {
   Columns,
   ArrowUp,
   ArrowDown,
-  Search,
-  X,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -386,29 +379,6 @@ function StatusBadge({ announcement }: { announcement: Announcement }) {
   return <StatusPill tone="neutral">{STATUS_LABELS[status]}</StatusPill>;
 }
 
-const SEVERITY_LABELS: Record<AnnouncementSeverity, string> = {
-  critical: "Critical",
-  warning: "Warning",
-  info: "Info",
-};
-
-/**
- * Single-sourced labels for the two icon-only columns. They caption the icon's
- * tooltip, key its column's sort (so the order matches what the tooltip says),
- * and name the option in the filter dropdown - three places that would
- * otherwise drift apart.
- */
-const DISPLAY_MODE_LABELS: Record<AnnouncementDisplayMode, string> = {
-  banner: "Banner",
-  both: "Both",
-  dashboard: "Dashboard",
-};
-
-const VISIBILITY_LABELS: Record<AnnouncementVisibility, string> = {
-  all: "Everyone",
-  authenticated: "Authenticated only",
-};
-
 function SeverityBadge({ severity }: { severity: AnnouncementSeverity }) {
   return (
     <StatusPill tone={severityToTone(severity)}>
@@ -464,112 +434,6 @@ function VisibilityIcon({
       );
     }
   }
-}
-
-/**
- * Search + facet controls for the announcement table, rendered in the
- * DataTable's toolbar. Every facet carries an "Any ..." option rather than a
- * blank one, so the unconstrained state is nameable; `ANY_FILTER` is used as
- * that option's value because `all` is a real visibility.
- *
- * Each `onValueChange` PARSES the incoming string through the filter's own
- * schema instead of casting it, so an unexpected value falls back to
- * unconstrained rather than being trusted into the state.
- */
-function AnnouncementFilterBar({
-  filters,
-  onChange,
-  onClear,
-  active,
-}: {
-  filters: AnnouncementFilters;
-  onChange: (filters: AnnouncementFilters) => void;
-  onClear: () => void;
-  active: boolean;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* Same search affordance DataTable renders for its own box, so the
-          page-owned one is indistinguishable from the built-in. */}
-      <div className="relative w-full sm:w-56">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          value={filters.query}
-          onChange={(event) =>
-            onChange({ ...filters, query: event.target.value })
-          }
-          placeholder="Search titles..."
-          aria-label="Search announcements by title"
-          className="pl-8"
-        />
-      </div>
-
-      <Select
-        value={filters.severity}
-        onValueChange={(value) =>
-          onChange({ ...filters, severity: parseSeverityFilter(value) })
-        }
-      >
-        <SelectTrigger className="w-36" aria-label="Filter by severity">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY_FILTER}>Any severity</SelectItem>
-          {ANNOUNCEMENT_SEVERITIES.map((severity) => (
-            <SelectItem key={severity} value={severity}>
-              {SEVERITY_LABELS[severity]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={filters.status}
-        onValueChange={(value) =>
-          onChange({ ...filters, status: parseStatusFilter(value) })
-        }
-      >
-        <SelectTrigger className="w-36" aria-label="Filter by status">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY_FILTER}>Any status</SelectItem>
-          {STATUS_BUCKETS.map(({ status, label }) => (
-            <SelectItem key={status} value={status}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={filters.visibility}
-        onValueChange={(value) =>
-          onChange({ ...filters, visibility: parseVisibilityFilter(value) })
-        }
-      >
-        <SelectTrigger className="w-44" aria-label="Filter by visibility">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY_FILTER}>Any visibility</SelectItem>
-          {ANNOUNCEMENT_VISIBILITIES.map((visibility) => (
-            <SelectItem key={visibility} value={visibility}>
-              {VISIBILITY_LABELS[visibility]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {active && (
-        <Button variant="ghost" size="sm" onClick={onClear}>
-          <X className="mr-1 h-4 w-4" />
-          Clear
-        </Button>
-      )}
-    </div>
-  );
 }
 
 /**
@@ -696,29 +560,15 @@ const AnnouncementManageContent: React.FC = () => {
   const listedAnnouncements =
     orderedAnnouncements.length > 0 ? orderedAnnouncements : announcements;
 
-  const [filters, setFilters] = useState<AnnouncementFilters>(
-    NO_ANNOUNCEMENT_FILTERS,
-  );
-  const filtersActive = hasActiveAnnouncementFilters(filters);
-  // Filtering narrows the ROWS but never the persisted order the reorder
-  // controls act on, so `listedAnnouncements` stays the source for positions.
-  const visibleAnnouncements = React.useMemo(
-    () =>
-      filterAnnouncements({ announcements: listedAnnouncements, filters }),
-    [listedAnnouncements, filters],
-  );
-  const clearFilters = () => setFilters(NO_ANNOUNCEMENT_FILTERS);
-  // The filter bar is only meaningful once the table itself renders - there is
-  // nothing to narrow while loading, on an error, or before the first
-  // announcement exists (each of those replaces the table with its own state).
-  const showTable =
-    !isLoading && !announcementsQuery.isError && announcements.length > 0;
+  // Filter state lives in the URL, so a filtered view is shareable and survives
+  // opening an announcement and coming back. The table applies the facets
+  // itself; the page only needs to READ the state, to gate reordering.
+  const filters = useDataTableFilters({ facetIds: announcementFacetIds });
 
-  // A filter that actually hides a row makes "move up/down" ambiguous (the
-  // neighbour being swapped with is off-screen), so reordering is held until the
-  // filters are cleared. A filter matching everything is harmless and stays live.
-  const rowsHidden = visibleAnnouncements.length !== listedAnnouncements.length;
-  const reorderDisabled = reorderMutation.isPending || rowsHidden;
+  // A filter makes "move up/down" ambiguous - the neighbour being swapped with
+  // may be off-screen - so reordering is held until the filters are cleared.
+  // Same rule as the catalog's Groups tab.
+  const reorderDisabled = reorderMutation.isPending || filters.active;
 
   const handleCreate = () => {
     setEditingAnnouncement(undefined);
@@ -762,7 +612,7 @@ const AnnouncementManageContent: React.FC = () => {
             index={index}
             count={listedAnnouncements.length}
             disabled={reorderDisabled}
-            filtered={rowsHidden}
+            filtered={filters.active}
             onMove={(direction) => handleMove(index, direction)}
           />
         );
@@ -772,6 +622,7 @@ const AnnouncementManageContent: React.FC = () => {
       id: "title",
       header: "Title",
       sortValue: (a) => a.title,
+      searchValue: (a) => a.title,
       cell: (a) => (
         <div className="flex items-center gap-2">
           {/* Severity, not lifecycle: the row's hue answers "how loud is this
@@ -885,23 +736,9 @@ const AnnouncementManageContent: React.FC = () => {
 
       <Card>
         <CardHeader className="border-b border-border">
-          {/* Filters live in the card header, beside the title - the same shape
-              the automation list and runs pages use. A table that is full-bleed
-              in a `p-0` CardContent has nowhere above it to sit that is not
-              flush against the card's edges. */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <Megaphone className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Announcements</CardTitle>
-            </div>
-            {showTable && (
-              <AnnouncementFilterBar
-                filters={filters}
-                onChange={setFilters}
-                onClear={clearFilters}
-                active={filtersActive}
-              />
-            )}
+          <div className="flex items-center gap-2">
+            <Megaphone className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Announcements</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -936,13 +773,16 @@ const AnnouncementManageContent: React.FC = () => {
             />
           ) : (
             <DataTable
-              data={visibleAnnouncements}
+              data={listedAnnouncements}
               columns={columns}
               getRowId={(a) => a.id}
-              // The search box is owned by the page, not the table: the page has
-              // to know whether rows are hidden in order to hold the reorder
-              // controls, which DataTable's internal query state cannot tell it.
-              searchable={false}
+              // The table owns search + facets; the page only reads the state
+              // (from the URL) to gate reordering.
+              facets={announcementFacets}
+              filters={filters.state}
+              onFiltersChange={filters.setState}
+              onClearFilters={filters.clear}
+              searchPlaceholder="Search titles..."
               // Nested inside the page's opaque Card, so the default bg-card
               // surface would create a panel-in-panel; the enclosing Card
               // already provides the opaque background.
@@ -957,7 +797,7 @@ const AnnouncementManageContent: React.FC = () => {
                   title="No announcements match your filters"
                   description="Nothing in this list matches the current search and filter combination."
                   actions={
-                    <Button variant="outline" onClick={clearFilters}>
+                    <Button variant="outline" onClick={filters.clear}>
                       Clear filters
                     </Button>
                   }
@@ -1000,7 +840,7 @@ const AnnouncementManageContent: React.FC = () => {
                         index={index}
                         count={listedAnnouncements.length}
                         disabled={reorderDisabled}
-                        filtered={rowsHidden}
+                        filtered={filters.active}
                         onMove={(direction) => handleMove(index, direction)}
                       />
                       <RowActions>

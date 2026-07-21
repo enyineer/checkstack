@@ -1,0 +1,129 @@
+import * as React from "react";
+import { Search, X } from "lucide-react";
+import { cn } from "../../utils";
+import { Button } from "../Button";
+import { Input } from "../Input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../Select";
+import {
+  ANY_FACET_VALUE,
+  hasActiveTableFilters,
+  selectedFacetValue,
+  withFacetValue,
+  withQuery,
+  type DataTableFacet,
+  type DataTableFilterState,
+} from "./facets.logic";
+
+/**
+ * The search box + facet selects + Clear affordance shown above a
+ * {@link DataTable}.
+ *
+ * This is the extraction of `CatalogBrowseToolbar` and `HealthCheckListToolbar`,
+ * which were the same component written twice - the second one's comments even
+ * said so ("Mirrors the catalog browse toolbar layout", "Same convention as
+ * `CatalogBrowseToolbar`"). Their shared layout is preserved verbatim so the
+ * migrated pages look unchanged: stacked on mobile, a wrapping row from `md`.
+ *
+ * Exported in its own right for the list surfaces that are NOT tables (the
+ * catalog browse grid, a card list) so they filter identically to one.
+ */
+export function DataTableFilterBar<TData>({
+  filters,
+  onFiltersChange,
+  facets,
+  searchable = true,
+  searchPlaceholder,
+  onClear,
+  className,
+  children,
+}: {
+  filters: DataTableFilterState;
+  onFiltersChange: (next: DataTableFilterState) => void;
+  facets: ReadonlyArray<DataTableFacet<TData>>;
+  /** Hide the search box for a facet-only bar. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  /**
+   * Reset handler for the Clear button, which appears only while something is
+   * actually filtered. Omit to suppress the button entirely (a surface that
+   * offers its own reset).
+   */
+  onClear?: () => void;
+  className?: string;
+  /** Extra controls (a date range, a density toggle) appended to the row. */
+  children?: React.ReactNode;
+}): React.ReactElement {
+  const active = hasActiveTableFilters(filters);
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center",
+        className,
+      )}
+    >
+      {searchable && (
+        <div className="relative w-full md:w-56">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={filters.query}
+            onChange={(event) =>
+              onFiltersChange(withQuery(filters, event.target.value))
+            }
+            placeholder={searchPlaceholder ?? "Search..."}
+            aria-label={searchPlaceholder ?? "Search"}
+            className="pl-8"
+          />
+        </div>
+      )}
+
+      {facets.map((facet) => (
+        <Select
+          key={facet.id}
+          value={selectedFacetValue(filters, facet.id)}
+          onValueChange={(value) =>
+            onFiltersChange(withFacetValue(filters, facet.id, value))
+          }
+        >
+          <SelectTrigger
+            className={cn("w-full md:w-44", facet.triggerClassName)}
+            aria-label={`Filter by ${facet.label.toLowerCase()}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {/* Named rather than blank, so the unconstrained state is something
+                you can read and deliberately return to. */}
+            <SelectItem value={ANY_FACET_VALUE}>
+              {facet.anyLabel ?? `Any ${facet.label.toLowerCase()}`}
+            </SelectItem>
+            {facet.options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ))}
+
+      {children}
+
+      {onClear && active && (
+        <Button variant="ghost" size="sm" onClick={onClear}>
+          <X className="mr-1 h-4 w-4" />
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 import type * as React from "react";
 import type { SortValue } from "./helpers";
+import type { DataTableFacet, DataTableFilterState } from "./facets.logic";
 
 /**
  * A single column of a {@link DataTable}. Rendering stays fully caller-owned
@@ -56,6 +57,29 @@ export interface DataTableProps<TData> {
   searchable?: boolean;
   /** Placeholder for the search box. */
   searchPlaceholder?: string;
+  /**
+   * "Narrow by one dimension" selects rendered beside the search box (status,
+   * severity, type, ...). The table applies them itself and shows a Clear
+   * affordance, so a page no longer hand-rolls a filter bar and pre-filters its
+   * own rows.
+   */
+  facets?: ReadonlyArray<DataTableFacet<TData>>;
+  /**
+   * Controlled filter state. Pair with {@link DataTableProps.onFiltersChange}.
+   *
+   * Omit and the table owns the state internally, which is right for a simple
+   * table. Supply it - normally from `useDataTableFilters`, which persists to
+   * the URL - when the state has to be observable: to put a filtered view in a
+   * shareable link, or because the page must know whether rows are hidden (to
+   * gate reorder controls, or to render its own empty state).
+   */
+  filters?: DataTableFilterState;
+  onFiltersChange?: (next: DataTableFilterState) => void;
+  /**
+   * Reset handler behind the Clear button. Defaults to clearing the table's own
+   * state; supply it when the state is controlled.
+   */
+  onClearFilters?: () => void;
   /** Initial sort. */
   defaultSort?: { columnId: string; direction: "asc" | "desc" };
   /** Called when a row is clicked (e.g. to open a detail drawer). */

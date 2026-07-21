@@ -6,9 +6,8 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ChevronDown, ChevronUp, ChevronsUpDown, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { cn } from "../../utils";
-import { Input } from "../Input";
 import {
   Table,
   TableBody,
@@ -17,11 +16,20 @@ import {
   TableHeader,
   TableRow,
 } from "../Table";
-import { compareSortValues, filterRows, toSortValue } from "./helpers";
+import { compareSortValues, toSortValue } from "./helpers";
+import { DataTableFilterBar } from "./DataTableFilterBar";
+import {
+  EMPTY_TABLE_FILTERS,
+  applyTableFilters,
+  type DataTableFilterState,
+} from "./facets.logic";
 import type { DataTableProps } from "./types";
 
 export type { DataTableColumn, DataTableProps } from "./types";
 export type { SortValue } from "./helpers";
+
+/** Empty, frozen default so an unfiltered table allocates no facet array. */
+const NO_FACETS: readonly [] = [];
 
 /**
  * DataTable - the shared, sortable + globally-searchable table for every list
@@ -46,6 +54,10 @@ export function DataTable<TData>({
   getRowId,
   searchable,
   searchPlaceholder,
+  facets = NO_FACETS,
+  filters,
+  onFiltersChange,
+  onClearFilters,
   defaultSort,
   onRowClick,
   getRowProps,
@@ -61,7 +73,24 @@ export function DataTable<TData>({
       ? [{ id: defaultSort.columnId, desc: defaultSort.direction === "desc" }]
       : [],
   );
-  const [query, setQuery] = React.useState("");
+
+  // Controlled/uncontrolled: the internal state is always declared (stable hook
+  // order) and simply goes unread when the caller supplies `filters`.
+  const [ownFilters, setOwnFilters] = React.useState<DataTableFilterState>(
+    EMPTY_TABLE_FILTERS,
+  );
+  const activeFilters = filters ?? ownFilters;
+  const setFilters = React.useCallback(
+    (next: DataTableFilterState) => {
+      if (onFiltersChange) onFiltersChange(next);
+      else setOwnFilters(next);
+    },
+    [onFiltersChange],
+  );
+  const clearFilters = React.useCallback(() => {
+    if (onClearFilters) onClearFilters();
+    else setFilters(EMPTY_TABLE_FILTERS);
+  }, [onClearFilters, setFilters]);
 
   const searchAccessors = React.useMemo(
     () => columns.flatMap((c) => (c.searchValue ? [c.searchValue] : [])),
@@ -70,8 +99,14 @@ export function DataTable<TData>({
   const showSearch = searchable ?? searchAccessors.length > 0;
 
   const filteredData = React.useMemo(
-    () => filterRows({ rows: data, searchAccessors, query }),
-    [data, searchAccessors, query],
+    () =>
+      applyTableFilters({
+        rows: data,
+        state: activeFilters,
+        facets,
+        searchAccessors,
+      }),
+    [data, activeFilters, facets, searchAccessors],
   );
 
   const tableColumns = React.useMemo<ColumnDef<TData>[]>(
@@ -183,28 +218,41 @@ export function DataTable<TData>({
 
   const showEmpty = data.length === 0 && emptyState;
   const showNoResults = !showEmpty && rows.length === 0 && noResultsState;
+  const showFilterBar = showSearch || facets.length > 0;
+
+  // `surface={false}` means the table is nested in someone else's opaque panel
+  // (a Card with `p-0` content), so it is full-bleed to that panel's edges.
+  // Its toolbar then has to carry its own inset and a separating rule, or the
+  // search box sits flush against the card's border. With its own surface the
+  // toolbar is a free-standing row and the wrapper's gap is the right spacing.
+  const inset = !surface;
 
   return (
     <div className={cn("space-y-3", className)}>
-      {(showSearch || toolbar) && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          {showSearch ? (
-            <div className="relative w-full sm:max-w-xs">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={searchPlaceholder ?? "Search..."}
-                aria-label={searchPlaceholder ?? "Search"}
-                className="pl-8"
-              />
-            </div>
+      {(showFilterBar || toolbar) && (
+        <div
+          className={cn(
+            "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+            inset && "border-b border-border px-4 py-3",
+          )}
+        >
+          {showFilterBar ? (
+            <DataTableFilterBar
+              filters={activeFilters}
+              onFiltersChange={setFilters}
+              facets={facets}
+              searchable={showSearch}
+              searchPlaceholder={searchPlaceholder}
+              // Only offer Clear once there is more than a search box to clear:
+              // an empty search box is self-evidently already cleared.
+              onClear={facets.length > 0 ? clearFilters : undefined}
+              className="min-w-0 flex-1"
+            />
           ) : (
             <div />
           )}
           {toolbar && (
-            <div className="flex items-center gap-2">{toolbar}</div>
+            <div className="flex shrink-0 items-center gap-2">{toolbar}</div>
           )}
         </div>
       )}
