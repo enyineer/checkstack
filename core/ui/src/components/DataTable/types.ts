@@ -1,13 +1,18 @@
 import type * as React from "react";
 import type { SortValue } from "./helpers";
-import type { DataTableFacet, DataTableFilterState } from "./facets.logic";
+import type {
+  DataTableColumnFilter,
+  DataTableFacet,
+  DataTableFilterState,
+} from "./facets.logic";
 
 /**
  * A single column of a {@link DataTable}. Rendering stays fully caller-owned
  * via {@link DataTableColumn.cell}; the table only adds sort + search on top.
  */
-export interface DataTableColumn<TData> {
-  /** Stable, unique column id. */
+export interface DataTableColumn<TData>
+  extends DataTableColumnFilter<TData> {
+  /** Stable, unique column id. Doubles as the facet's URL parameter name. */
   id: string;
   /** Header content. Rendered inside the clickable sort button when sortable. */
   header: React.ReactNode;
@@ -58,10 +63,13 @@ export interface DataTableProps<TData> {
   /** Placeholder for the search box. */
   searchPlaceholder?: string;
   /**
-   * "Narrow by one dimension" selects rendered beside the search box (status,
-   * severity, type, ...). The table applies them itself and shows a Clear
-   * affordance, so a page no longer hand-rolls a filter bar and pre-filters its
-   * own rows.
+   * "Narrow by one dimension" selects for a dimension NO SINGLE COLUMN owns -
+   * one matching several values per row, or shared across two row types.
+   *
+   * Prefer declaring `filterValue` on the column instead: the column already
+   * reads the row for `sortValue` and renders it in `cell`, so filtering there
+   * too states the value once and keeps the three from drifting. Column-derived
+   * facets render first, in column order, followed by these.
    */
   facets?: ReadonlyArray<DataTableFacet<TData>>;
   /**

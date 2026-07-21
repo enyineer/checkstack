@@ -5,6 +5,8 @@ import {
   EMPTY_TABLE_FILTERS,
   TABLE_QUERY_PARAM,
   applyTableFilters,
+  columnDerivedFacets,
+  deriveFacetOptions,
   filterParamKey,
   hasActiveTableFilters,
   isFacetConstrained,
@@ -407,5 +409,120 @@ describe("option tones", () => {
         searchAccessors,
       }).map((r) => r.name),
     ).toEqual(["alpha", "gamma"]);
+  });
+});
+
+describe("deriveFacetOptions", () => {
+  test("collects the distinct values present, sorted", () => {
+    expect(
+      deriveFacetOptions({ rows, value: (row: Row) => row.status }),
+    ).toEqual([
+      { value: "active", label: "active" },
+      { value: "expired", label: "expired" },
+    ]);
+  });
+
+  test("skips empty values", () => {
+    // "not set" is what the unconstrained option already means; offering it as
+    // a choice would read as a filter to blankness.
+    expect(
+      deriveFacetOptions({
+        rows: [{ name: "a", status: "", severity: "info" }],
+        value: (row: Row) => row.status,
+      }),
+    ).toEqual([]);
+  });
+
+  test("sorts numerically-aware, like the table's own comparator", () => {
+    expect(
+      deriveFacetOptions({
+        rows: [
+          { name: "a", status: "item 10", severity: "" },
+          { name: "b", status: "item 2", severity: "" },
+        ],
+        value: (row: Row) => row.status,
+      }).map((o) => o.value),
+    ).toEqual(["item 2", "item 10"]);
+  });
+});
+
+describe("columnDerivedFacets", () => {
+  const columns = [
+    { id: "name", header: "Name" },
+    {
+      id: "status",
+      header: "Status",
+      filterValue: (row: Row) => row.status,
+    },
+    {
+      id: "severity",
+      header: "Severity",
+      filterValue: (row: Row) => row.severity,
+      filterOptions: [
+        { value: "critical", label: "Critical" },
+        { value: "info", label: "Info" },
+      ],
+      filterKind: "pills" as const,
+    },
+  ];
+
+  test("only columns declaring filterValue become facets, in column order", () => {
+    expect(
+      columnDerivedFacets({ columns, rows }).map((f) => f.id),
+    ).toEqual(["status", "severity"]);
+  });
+
+  test("derives options from the data when the column declares none", () => {
+    const status = columnDerivedFacets({ columns, rows }).find(
+      (f) => f.id === "status",
+    );
+    expect(status?.options.map((o) => o.value)).toEqual(["active", "expired"]);
+  });
+
+  test("declared options win, preserving their labels and order", () => {
+    // Severity must read critical-then-info (by impact), which deriving would
+    // have sorted alphabetically into critical, info.
+    const severity = columnDerivedFacets({ columns, rows }).find(
+      (f) => f.id === "severity",
+    );
+    expect(severity?.options).toEqual([
+      { value: "critical", label: "Critical" },
+      { value: "info", label: "Info" },
+    ]);
+    expect(severity?.kind).toBe("pills");
+  });
+
+  test("derived options come from ALL rows, not the filtered subset", () => {
+    // The decisive property: if options were read off the visible rows,
+    // selecting "active" would delete "expired" from the list and strand the
+    // user with no way back.
+    const visible = applyTableFilters({
+      rows,
+      state: state({ facets: { status: "active" } }),
+      facets: columnDerivedFacets({ columns, rows }),
+      searchAccessors,
+    });
+    expect(visible).toHaveLength(2);
+    expect(
+      columnDerivedFacets({ columns, rows }).find((f) => f.id === "status")
+        ?.options,
+    ).toHaveLength(2);
+  });
+
+  test("labels from the header, falling back to the id for a non-string header", () => {
+    const facets = columnDerivedFacets({
+      columns: [
+        { id: "a", header: "Plain", filterValue: (row: Row) => row.status },
+        { id: "b", header: { nodeish: true }, filterValue: (row: Row) => row.status },
+        {
+          id: "c",
+          header: "Ignored",
+          filterLabel: "Explicit",
+          filterValue: (row: Row) => row.status,
+        },
+      ],
+      rows,
+    });
+    expect(facets.map((f) => f.label)).toEqual(["Plain", "b", "Explicit"]);
   });
 });

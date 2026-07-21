@@ -21,6 +21,7 @@ import { DataTableFilterBar } from "./DataTableFilterBar";
 import {
   EMPTY_TABLE_FILTERS,
   applyTableFilters,
+  columnDerivedFacets,
   type DataTableFilterState,
 } from "./facets.logic";
 import type { DataTableProps } from "./types";
@@ -98,15 +99,23 @@ export function DataTable<TData>({
   );
   const showSearch = searchable ?? searchAccessors.length > 0;
 
+  // Columns that declare `filterValue` become facets, in column order, ahead of
+  // any the caller passed explicitly. Derived from the FULL `data` so an option
+  // list stays stable no matter what is currently filtered out.
+  const allFacets = React.useMemo(() => {
+    const derived = columnDerivedFacets({ columns, rows: data });
+    return derived.length > 0 ? [...derived, ...facets] : facets;
+  }, [columns, data, facets]);
+
   const filteredData = React.useMemo(
     () =>
       applyTableFilters({
         rows: data,
         state: activeFilters,
-        facets,
+        facets: allFacets,
         searchAccessors,
       }),
-    [data, activeFilters, facets, searchAccessors],
+    [data, activeFilters, allFacets, searchAccessors],
   );
 
   const tableColumns = React.useMemo<ColumnDef<TData>[]>(
@@ -218,7 +227,7 @@ export function DataTable<TData>({
 
   const showEmpty = data.length === 0 && emptyState;
   const showNoResults = !showEmpty && rows.length === 0 && noResultsState;
-  const showFilterBar = showSearch || facets.length > 0;
+  const showFilterBar = showSearch || allFacets.length > 0;
 
   // `surface={false}` means the table is nested in someone else's opaque panel
   // (a Card with `p-0` content), so it is full-bleed to that panel's edges.
@@ -240,12 +249,12 @@ export function DataTable<TData>({
             <DataTableFilterBar
               filters={activeFilters}
               onFiltersChange={setFilters}
-              facets={facets}
+              facets={allFacets}
               searchable={showSearch}
               searchPlaceholder={searchPlaceholder}
               // Only offer Clear once there is more than a search box to clear:
               // an empty search box is self-evidently already cleared.
-              onClear={facets.length > 0 ? clearFilters : undefined}
+              onClear={allFacets.length > 0 ? clearFilters : undefined}
               className="min-w-0 flex-1"
             />
           ) : (

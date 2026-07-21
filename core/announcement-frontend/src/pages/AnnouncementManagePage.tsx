@@ -25,9 +25,11 @@ import {
 } from "../components/announcementStatus.logic";
 import {
   announcementFacetIds,
-  announcementFacets,
   DISPLAY_MODE_LABELS,
+  SEVERITY_FILTER_OPTIONS,
   SEVERITY_LABELS,
+  STATUS_FILTER_OPTIONS,
+  VISIBILITY_FILTER_OPTIONS,
   VISIBILITY_LABELS,
 } from "../components/announcementFacets";
 import {
@@ -645,6 +647,8 @@ const AnnouncementManageContent: React.FC = () => {
       header: "Severity",
       // By impact (critical -> info), not alphabetically.
       sortValue: (a) => announcementSeverityRank[a.severity],
+      filterValue: (a) => a.severity,
+      filterOptions: SEVERITY_FILTER_OPTIONS,
       cell: (a) => <SeverityBadge severity={a.severity} />,
     },
     {
@@ -652,6 +656,10 @@ const AnnouncementManageContent: React.FC = () => {
       header: "Status",
       // By lifecycle (active -> inactive), matching the stat strip's order.
       sortValue: (a) => announcementStatusRank[getAnnouncementStatus(a)],
+      // The DERIVED lifecycle state, so the filter stays correct as an
+      // announcement's window opens and closes.
+      filterValue: (a) => getAnnouncementStatus(a),
+      filterOptions: STATUS_FILTER_OPTIONS,
       cell: (a) => <StatusBadge announcement={a} />,
     },
     {
@@ -665,6 +673,8 @@ const AnnouncementManageContent: React.FC = () => {
       id: "visibility",
       header: "Visibility",
       sortValue: (a) => VISIBILITY_LABELS[a.visibility],
+      filterValue: (a) => a.visibility,
+      filterOptions: VISIBILITY_FILTER_OPTIONS,
       cell: (a) => <VisibilityIcon visibility={a.visibility} />,
     },
     {
@@ -776,9 +786,8 @@ const AnnouncementManageContent: React.FC = () => {
               data={listedAnnouncements}
               columns={columns}
               getRowId={(a) => a.id}
-              // The table owns search + facets; the page only reads the state
-              // (from the URL) to gate reordering.
-              facets={announcementFacets}
+              // Search and the three filterable columns are the table's own;
+              // the page only reads the state (from the URL) to gate reordering.
               filters={filters.state}
               onFiltersChange={filters.setState}
               onClearFilters={filters.clear}

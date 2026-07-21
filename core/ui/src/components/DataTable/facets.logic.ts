@@ -12,7 +12,7 @@
  * the matching rules are unit-testable without rendering a table.
  */
 
-import { rowMatchesSearch } from "./helpers";
+import { compareSortValues, rowMatchesSearch } from "./helpers";
 import type { StatusPillTone } from "../status-tone";
 
 /**
@@ -123,6 +123,103 @@ export interface DataTableFacet<TData> extends DataTableFacetControl {
    * is simply never shown while that facet is constrained.
    */
   value: (row: TData) => string;
+}
+
+/**
+ * The filter half of a column's contract, mirroring `sortValue`/`searchValue`:
+ * providing `filterValue` is what makes a column filterable, with no separate
+ * boolean flag. Declared on {@link DataTableColumn}; collected here because the
+ * derivation is pure.
+ */
+export interface DataTableColumnFilter<TData> {
+  /**
+   * The row's value for this column's facet. Providing it is what makes the
+   * column filterable.
+   */
+  filterValue?: (row: TData) => string;
+  /**
+   * The options to offer. Omit and they are DERIVED from the distinct values
+   * present in the data, labelled by the raw value and sorted.
+   *
+   * Declare them when the raw values are not what a person should read
+   * (`authenticated` -> "Authenticated only"), when the order carries meaning
+   * (severity by impact, not alphabetically as critical/info/warning), or when
+   * an option must stay on offer even though no row currently has it.
+   */
+  filterOptions?: readonly DataTableFacetOption[];
+  /** Control shape; see {@link DataTableFacetControl.kind}. */
+  filterKind?: "select" | "pills";
+  /**
+   * Label for the control. Defaults to the column's `header` when that is a
+   * plain string, and to its `id` otherwise - so a column whose header is an
+   * icon or an element needs this.
+   */
+  filterLabel?: string;
+  /** Label for the unconstrained option; see {@link DataTableFacetControl.anyLabel}. */
+  filterAnyLabel?: string;
+}
+
+/**
+ * The distinct values a column's accessor yields over the given rows, sorted
+ * and labelled by the raw value.
+ *
+ * Derived from the FULL row set the table was handed, never from what is
+ * currently visible: reading them off the filtered rows would let selecting one
+ * option delete every other option, leaving no way back.
+ */
+export function deriveFacetOptions<TData>({
+  rows,
+  value,
+}: {
+  rows: readonly TData[];
+  value: (row: TData) => string;
+}): DataTableFacetOption[] {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const raw = value(row);
+    // An empty value is "not set", which the unconstrained option already
+    // covers; offering it as a choice would read as a filter to blankness.
+    if (raw.length > 0) seen.add(raw);
+  }
+  return [...seen]
+    .toSorted((a, b) => compareSortValues(a, b))
+    .map((raw) => ({ value: raw, label: raw }));
+}
+
+/**
+ * Build facets from the columns that declare `filterValue`, in column order.
+ *
+ * This is the preferred way to filter a `DataTable`: the column already knows
+ * how to read the row for `sortValue` and how to render it in `cell`, so
+ * declaring the filter there too means the value is stated ONCE and the pill,
+ * the sort and the filter cannot drift apart. The standalone `facets` prop
+ * remains for a dimension no single column owns.
+ */
+export function columnDerivedFacets<TData>({
+  columns,
+  rows,
+}: {
+  columns: ReadonlyArray<
+    DataTableColumnFilter<TData> & { id: string; header?: unknown }
+  >;
+  rows: readonly TData[];
+}): DataTableFacet<TData>[] {
+  const facets: DataTableFacet<TData>[] = [];
+  for (const column of columns) {
+    const value = column.filterValue;
+    if (!value) continue;
+    facets.push({
+      id: column.id,
+      label:
+        column.filterLabel ??
+        (typeof column.header === "string" ? column.header : column.id),
+      options: column.filterOptions ?? deriveFacetOptions({ rows, value }),
+      kind: column.filterKind,
+      anyLabel: column.filterAnyLabel,
+      value,
+    });
+  }
+  return facets;
 }
 
 /** The complete filter state of a table: free text plus a value per facet. */

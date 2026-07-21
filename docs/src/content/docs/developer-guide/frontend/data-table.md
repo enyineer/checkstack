@@ -142,28 +142,49 @@ accessible name and default tooltip; `title` overrides the tooltip (e.g. a lock
 reason). Never drop a `variant="destructive"` filled button into an actions
 column - that is exactly the inconsistency `RowAction` exists to prevent.
 
-## Filtering by facet
+## Filtering
 
-A facet is a "narrow by one dimension" select - status, severity, type, team. Declare them and the table renders the controls beside the search box, applies them, and offers a Clear affordance once anything is constrained.
+A facet is a "narrow by one dimension" control - status, severity, type, team. The table renders them beside the search box, applies them, and offers a Clear affordance once anything is constrained.
+
+### Filterable columns (the default)
+
+Filtering joins sorting and searching on the column contract: providing `filterValue` is what makes a column filterable, with no separate boolean flag.
 
 ```tsx
-const facets: DataTableFacet<Service>[] = [
-  {
-    id: "status",
-    label: "Status",
-    options: [
-      { value: "healthy", label: "Healthy" },
-      { value: "down", label: "Down" },
-    ],
-    // The row's value for this facet, compared with the selection.
-    value: (service) => service.status,
-  },
-];
-
-<DataTable data={services} columns={columns} getRowId={(s) => s.id} facets={facets} />;
+{
+  id: "severity",
+  header: "Severity",
+  cell: (a) => <SeverityBadge severity={a.severity} />,
+  sortValue: (a) => severityRank[a.severity],
+  filterValue: (a) => a.severity,          // <- the column is now filterable
+  filterOptions: SEVERITY_OPTIONS,         // omit to derive from the data
+  filterKind: "pills",                     // optional; defaults to a select
+}
 ```
 
-Facets are ANDed with each other and with the free-text search. The `id` doubles as the URL parameter name, so keep it short and URL-safe. A row whose value matches no offered option is simply never shown while that facet is constrained, and a facet the table does not declare is ignored - so a stale link degrades to "less filtered" rather than to an empty table nobody can explain.
+Declare it here rather than in a standalone facet whenever a single column owns the dimension. The column already reads the row for `sortValue` and renders it in `cell`, so the value is stated ONCE and the badge, the sort and the filter cannot drift apart.
+
+`filterOptions` is optional. Omit it and the options are **derived from the distinct values present in `data`**, sorted and labelled by the raw value. Declare it when:
+
+- the raw values are not what a person should read (`authenticated` -> "Authenticated only"),
+- the order carries meaning (severity by impact - deriving sorts alphabetically into critical / info / warning), or
+- an option must stay on offer even when no row currently has it.
+
+Options are always derived from the **full** `data`, never from what is currently visible. Reading them off the filtered rows would let selecting one option delete every other option, stranding you with no way back.
+
+Use `filterLabel` when the column's `header` is an icon or an element rather than a string, since the header is otherwise the control's label.
+
+### Facets no column owns
+
+The standalone `facets` prop stays for a dimension no single column can express - one matching several values per row, or shared across two row types:
+
+```tsx
+<DataTable data={systems} columns={columns} getRowId={(s) => s.id} facets={[groupFacet]} />
+```
+
+Column-derived facets render first, in column order, followed by these. Everything is ANDed with the free-text search.
+
+An `id` doubles as the URL parameter name, so keep it short and URL-safe. A row whose value matches no offered option is simply never shown while that facet is constrained, and a facet the table does not declare is ignored - so a stale link degrades to "less filtered" rather than to an empty table nobody can explain.
 
 Do NOT pre-filter `data` yourself and hand the table the survivors. `emptyState` fires when `data` is empty and `noResultsState` when the filters empty it, and upstream filtering collapses that distinction: "nothing here yet" starts rendering as "nothing matches".
 

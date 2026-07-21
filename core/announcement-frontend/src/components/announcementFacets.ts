@@ -3,17 +3,16 @@ import {
   AnnouncementVisibilityEnum,
   type Announcement,
 } from "@checkstack/announcement-common";
-import type { DataTableFacet } from "@checkstack/ui";
-import {
-  STATUS_BUCKETS,
-  getAnnouncementStatus,
-} from "./announcementStatus.logic";
+import type { DataTableFacetOption } from "@checkstack/ui";
+import { STATUS_BUCKETS } from "./announcementStatus.logic";
 
 /**
- * The facet definitions for the announcement manage table, handed to
- * `DataTable` so it owns the filtering, the URL round-trip and the Clear
- * affordance. Pure data + accessors, so the option lists and the matching rules
- * are testable without rendering.
+ * Labels and option lists for the announcement table's filterable columns.
+ *
+ * The MATCHING lives on the columns themselves (`filterValue`), so each value is
+ * read from a row in exactly one place - the same place that renders it and
+ * sorts it. This module only supplies what cannot be derived: labels a person
+ * should read instead of the raw enum value, and an order that carries meaning.
  */
 
 /** Labels shown in the Severity facet and the severity pill. */
@@ -37,46 +36,33 @@ export const DISPLAY_MODE_LABELS: Record<Announcement["displayMode"], string> = 
 };
 
 /**
- * Narrow the table by severity, lifecycle status, or visibility.
- *
- * Option lists are derived from the schemas that define the values, so a new
- * severity or visibility appears in the dropdown without a second list to keep
- * in step. Status is the DERIVED lifecycle state rather than a stored column, so
- * the facet stays correct as an announcement's window opens and closes.
+ * Severity options, ordered by IMPACT. Declared rather than derived on both
+ * counts: the raw values are lowercase enum members, and deriving would sort
+ * them alphabetically into critical / info / warning, which reads as noise
+ * against a scale that runs info -> warning -> critical.
  */
-export const announcementFacets: DataTableFacet<Announcement>[] = [
-  {
-    id: "severity",
-    label: "Severity",
-    options: AnnouncementSeverityEnum.options.map((value) => ({
-      value,
-      label: SEVERITY_LABELS[value],
-    })),
-    value: (announcement) => announcement.severity,
-    triggerClassName: "md:w-36",
-  },
-  {
-    id: "status",
-    label: "Status",
-    options: STATUS_BUCKETS.map(({ status, label }) => ({
-      value: status,
-      label,
-    })),
-    value: (announcement) => getAnnouncementStatus(announcement),
-    triggerClassName: "md:w-36",
-  },
-  {
-    id: "visibility",
-    label: "Visibility",
-    options: AnnouncementVisibilityEnum.options.map((value) => ({
-      value,
-      label: VISIBILITY_LABELS[value],
-    })),
-    value: (announcement) => announcement.visibility,
-  },
-];
+export const SEVERITY_FILTER_OPTIONS: readonly DataTableFacetOption[] =
+  AnnouncementSeverityEnum.options.map((value) => ({
+    value,
+    label: SEVERITY_LABELS[value],
+  }));
 
-/** The facet ids, for the URL-state hook. */
-export const announcementFacetIds = announcementFacets.map(
-  (facet) => facet.id,
-);
+/**
+ * Lifecycle options in the same order the stat strip lists its buckets, so the
+ * dropdown and the cards above the table agree.
+ */
+export const STATUS_FILTER_OPTIONS: readonly DataTableFacetOption[] =
+  STATUS_BUCKETS.map(({ status, label }) => ({ value: status, label }));
+
+/**
+ * Visibility options. Declared for the labels: `all` would otherwise offer
+ * itself as "all", which reads as "no filter" next to the unconstrained option.
+ */
+export const VISIBILITY_FILTER_OPTIONS: readonly DataTableFacetOption[] =
+  AnnouncementVisibilityEnum.options.map((value) => ({
+    value,
+    label: VISIBILITY_LABELS[value],
+  }));
+
+/** The filterable column ids, for the URL-state hook. */
+export const announcementFacetIds = ["severity", "status", "visibility"];

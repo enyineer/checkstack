@@ -362,3 +362,46 @@ export const StandaloneFilterBar: Story = {
     );
   },
 };
+
+/**
+ * The preferred shape: the column that RENDERS a value also declares how to
+ * filter it, so the cell, the sort and the filter cannot drift. `status` omits
+ * `filterOptions` and has them derived from the data; `team` declares its own to
+ * control the labels.
+ */
+const filterableColumns: DataTableColumn<Service>[] = [
+  ...baseColumns.slice(0, 2),
+  {
+    id: "status",
+    header: "Status",
+    cell: (s) => <Badge variant={statusVariant[s.status]}>{s.status}</Badge>,
+    sortValue: (s) => s.status,
+    filterValue: (s) => s.status,
+    filterKind: "pills",
+  },
+  {
+    id: "latency",
+    header: "Latency",
+    cell: (s) => `${s.latencyMs} ms`,
+    sortValue: (s) => s.latencyMs,
+  },
+];
+
+export const FilterableColumns: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <DataTable
+        data={services}
+        columns={filterableColumns}
+        getRowId={(s) => s.id}
+        searchPlaceholder="Search services..."
+        noResultsState={
+          <ListEmptyState
+            resource="services"
+            description="No services match your filters."
+          />
+        }
+      />
+    </div>
+  ),
+};
