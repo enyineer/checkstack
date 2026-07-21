@@ -12,7 +12,28 @@
  * - `ok` / `warn` / `down` - the luminance-separated triad.
  * - `unknown` - a neutral grey for genuinely unknown / inert states.
  * - `info` - a fifth blue hue OUTSIDE the ok/warn/down ladder, for states that
- *   are neither good, bad, nor unknown (e.g. an incident being "monitored").
+ *   are neither good, bad, nor unknown (e.g. a scheduled maintenance window).
+ *
+ * ## At most ONE coloured dimension per row
+ *
+ * A record often carries two: an URGENCY (severity, impact - "how bad is
+ * this") and a LIFECYCLE (status, state - "where is it in its process").
+ * Colouring both puts two competing scales on one line, where a red
+ * "Investigating" beside an amber "Major" reads as a contradiction rather than
+ * as two independent facts. So:
+ *
+ * - A domain with BOTH gives hue to the urgency - the pill, the row's leading
+ *   dot, the card's accent stripe - and states the lifecycle in words on a
+ *   NEUTRAL pill (`bg-muted text-muted-foreground`, no dot: with no hue to
+ *   encode, a grey dot adds nothing). Incidents and announcements are both this
+ *   shape, and the public status page has always rendered incidents this way.
+ * - A domain with only ONE dimension gives it the hue. Maintenance has no
+ *   severity, so its lifecycle is coloured and drives the row accent - nothing
+ *   competes with it. The same goes for health checks, SLOs and gitops syncs.
+ *
+ * The AGGREGATE view is the exception: a stat card that IS a lifecycle bucket
+ * (the announcements strip) is coloured by lifecycle, because there is no
+ * urgency on a count to compete with.
  */
 export type StatusPillTone = "ok" | "warn" | "down" | "unknown" | "info";
 
