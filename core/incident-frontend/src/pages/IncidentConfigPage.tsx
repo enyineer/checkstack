@@ -12,6 +12,7 @@ import type { IncidentWithSystems } from "@checkstack/incident-common";
 import {
   incidentAccess,
   incidentResourceTypes,
+  IncidentSeverityEnum,
   IncidentStatusEnum,
   pluginMetadata as incidentPluginMetadata,
 } from "@checkstack/incident-common";
@@ -53,6 +54,7 @@ import {
   getIncidentSeverityBadge,
   getIncidentSeverityAccentClass,
   incidentSeverityRank,
+  presentIncidentSeverity,
   incidentStatusRank,
   presentIncidentStatus,
 } from "../utils/badges";
@@ -97,6 +99,20 @@ const IncidentLearnMore = () => (
  * expects it - attached to the column it filters.
  */
 const INCIDENT_STATUS_FACET_ID = "status";
+const INCIDENT_SEVERITY_FACET_ID = "severity";
+
+/**
+ * Severity options in IMPACT order (critical first), which is how the column
+ * sorts and how an operator triages. Deriving them from the data would sort
+ * alphabetically - critical, major, minor - which only looks right by accident.
+ */
+const INCIDENT_SEVERITY_OPTIONS: readonly DataTableFacetOption[] =
+  IncidentSeverityEnum.options
+    .toSorted((a, b) => incidentSeverityRank[a] - incidentSeverityRank[b])
+    .map((severity) => ({
+      value: severity,
+      label: presentIncidentSeverity(severity).label,
+    }));
 const INCIDENT_STATUS_OPTIONS: readonly DataTableFacetOption[] =
   IncidentStatusEnum.options.map((status) => ({
     value: status,
@@ -137,7 +153,7 @@ const IncidentConfigPageContent: React.FC = () => {
   // declares no facets - the shared bar drives the query. The status facet is
   // URL-backed, so a link to "the incidents being investigated" reopens filtered.
   const filters = useDataTableFilters({
-    facetIds: [INCIDENT_STATUS_FACET_ID],
+    facetIds: [INCIDENT_STATUS_FACET_ID, INCIDENT_SEVERITY_FACET_ID],
   });
   const statusFilter = parsedFacetValue({
     filters: filters.state,
@@ -402,6 +418,10 @@ const IncidentConfigPageContent: React.FC = () => {
       id: "title",
       header: "Title",
       sortValue: (incident) => incident.title,
+      // Both lines the cell renders: searching for words you can SEE on the row
+      // is the behaviour people expect.
+      searchValue: (incident) =>
+        `${incident.title} ${incident.description ?? ""}`,
       cell: (incident) => (
         <div>
           <p className="text-sm font-semibold text-foreground">
@@ -419,6 +439,9 @@ const IncidentConfigPageContent: React.FC = () => {
       id: "severity",
       header: "Severity",
       sortValue: (incident) => incidentSeverityRank[incident.severity],
+      filterValue: (incident) => incident.severity,
+      filterOptions: INCIDENT_SEVERITY_OPTIONS,
+      filterAnyLabel: "All severities",
       cell: (incident) => getIncidentSeverityBadge(incident.severity),
     },
     {
@@ -612,8 +635,7 @@ const IncidentConfigPageContent: React.FC = () => {
                 Show resolved
               </label>
             }
-            // Incidents are found by status and recency, not by typing a title.
-            searchable={false}
+            searchPlaceholder="Search incidents..."
             getRowProps={(incident) => ({
               selected: selectedIds.has(incident.id),
               className: "hover:bg-surface-inset",

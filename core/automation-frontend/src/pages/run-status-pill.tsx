@@ -1,5 +1,5 @@
 import React from "react";
-import { cn } from "@checkstack/ui";
+import { cn, pillToneStyles, StatusPill } from "@checkstack/ui";
 import type { RunStatus } from "@checkstack/automation-common";
 
 /**
@@ -21,36 +21,16 @@ export const RUN_STATUS_TONE: Record<RunStatus, RunStatusTone> = {
 };
 
 /**
- * Per-tone pill + dot + left-accent classes. Spelled out as full literal
- * strings (not interpolated) so Tailwind's JIT keeps them, driven by the
- * colorblind-safe status triad. Status reads as hue + dot + text label, never
- * color alone. The `accent` class drives the left status stripe on cards and
- * timeline rows so the stripe always matches this pill.
+ * Per-tone pill + dot + left-accent classes, taken from the shared
+ * `pillToneStyles` table rather than a private copy. The `accent` class drives
+ * the left status stripe on cards and timeline rows so the stripe always
+ * matches the pill.
  */
-export const RUN_TONE_STYLES: Record<
-  RunStatusTone,
-  { pill: string; dot: string; accent: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
+export const RUN_TONE_STYLES: Pick<typeof pillToneStyles, RunStatusTone> = {
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  unknown: pillToneStyles.unknown,
 };
 
 /**
@@ -61,18 +41,11 @@ export const RUN_TONE_STYLES: Record<
 export const RunStatusPill: React.FC<{
   status: RunStatus;
   className?: string;
-}> = ({ status, className }) => {
-  const styles = RUN_TONE_STYLES[RUN_STATUS_TONE[status]];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium capitalize",
-        styles.pill,
-        className,
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-      {status}
-    </span>
-  );
-};
+}> = ({ status, className }) => (
+  <StatusPill
+    tone={RUN_STATUS_TONE[status]}
+    className={cn("capitalize", className)}
+  >
+    {status}
+  </StatusPill>
+);

@@ -47,7 +47,10 @@ import {
 } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
-import { groupAutomations } from "./automation-grouping";
+import {
+  filterAutomationsByQuery,
+  groupAutomations,
+} from "./automation-grouping";
 
 /**
  * Left status-accent class for an automation's enabled/disabled state. Reuses
@@ -218,9 +221,21 @@ const AutomationListContent: React.FC = () => {
   });
 
   // Collapsible sections, sorted alphabetically with "Ungrouped" last.
+  // Search narrows BEFORE grouping, so a match inside a collapsed group still
+  // surfaces and groups left with nothing simply disappear. Debounced: a fast
+  // typist should not re-group a long list on every keystroke.
+  const matchedAutomations = React.useMemo(
+    () =>
+      filterAutomationsByQuery({
+        automations,
+        query: filters.debounced.query,
+      }),
+    [automations, filters.debounced.query],
+  );
+
   const groups = React.useMemo(
-    () => groupAutomations({ automations }),
-    [automations],
+    () => groupAutomations({ automations: matchedAutomations }),
+    [matchedAutomations],
   );
   // All sections expanded by default so nothing is hidden on first load.
   const allGroupKeys = React.useMemo(() => groups.map((g) => g.key), [groups]);

@@ -341,6 +341,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
       id: "title",
       header: "Title",
       sortValue: (maintenance) => maintenance.title,
+      // Both lines the cell renders, so a search matches what you can see.
+      searchValue: (maintenance) =>
+        `${maintenance.title} ${maintenance.description ?? ""}`,
       cell: (maintenance) => (
         <div className="relative pl-3">
           <span
@@ -544,8 +547,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                 Show completed
               </label>
             }
-            // Maintenances are found by status and window, not by typing a title.
-            searchable={false}
+            searchPlaceholder="Search maintenances..."
             getRowProps={(maintenance) => ({
               selected: selectedIds.has(maintenance.id),
               className: "hover:bg-surface-inset",
