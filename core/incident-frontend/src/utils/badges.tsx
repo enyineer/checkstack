@@ -1,5 +1,5 @@
 import React from "react";
-import { cn } from "@checkstack/ui";
+import { StatusPill } from "@checkstack/ui";
 import type {
   IncidentStatus,
   IncidentSeverity,
@@ -9,8 +9,6 @@ import {
   presentIncidentStatus,
   presentIncidentSeverity,
   presentIncidentHealthOverride,
-  toneStyles,
-  type StatusTone,
 } from "./badges.logic";
 
 export {
@@ -21,34 +19,6 @@ export {
   incidentStatusRank,
   type StatusTone,
 } from "./badges.logic";
-
-/**
- * A compact, multi-encoded status pill: a tinted chip carrying a small status
- * dot and a text label, so the signal reads by hue, position, and words - never
- * color alone.
- *
- * `tone="neutral"` renders it hueless, read from its label alone, and drops the
- * dot - with no hue to encode, a grey dot adds nothing.
- */
-const StatusPill: React.FC<{ tone: StatusTone | "neutral"; label: string }> = ({
-  tone,
-  label,
-}) => {
-  const base =
-    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium";
-  if (tone === "neutral") {
-    return (
-      <span className={cn(base, "bg-muted text-muted-foreground")}>{label}</span>
-    );
-  }
-  const styles = toneStyles[tone];
-  return (
-    <span className={cn(base, styles.pill)}>
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-      {label}
-    </span>
-  );
-};
 
 /**
  * The incident's lifecycle status, stated in words on a deliberately NEUTRAL
@@ -68,7 +38,7 @@ const StatusPill: React.FC<{ tone: StatusTone | "neutral"; label: string }> = ({
 export function getIncidentStatusBadge(
   status: IncidentStatus,
 ): React.ReactNode {
-  return <StatusPill tone="neutral" label={presentIncidentStatus(status).label} />;
+  return <StatusPill tone="neutral">{presentIncidentStatus(status).label}</StatusPill>;
 }
 
 /**
@@ -79,7 +49,7 @@ export function getIncidentSeverityBadge(
   severity: IncidentSeverity,
 ): React.ReactNode {
   const { tone, label } = presentIncidentSeverity(severity);
-  return <StatusPill tone={tone} label={label} />;
+  return <StatusPill tone={tone}>{label}</StatusPill>;
 }
 
 /**
@@ -91,5 +61,5 @@ export function getIncidentHealthOverrideBadge(
   healthOverride: IncidentHealthOverride,
 ): React.ReactNode {
   const { tone, label } = presentIncidentHealthOverride(healthOverride);
-  return <StatusPill tone={tone} label={label} />;
+  return <StatusPill tone={tone}>{label}</StatusPill>;
 }

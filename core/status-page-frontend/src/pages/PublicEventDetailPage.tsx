@@ -1,6 +1,8 @@
 import React, { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { EmptyState, LoadingSpinner } from "@checkstack/ui";
+import { EmptyState, LoadingSpinner,
+  StatusPill,
+} from "@checkstack/ui";
 import { ArrowLeft, FileQuestion, Wrench } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
@@ -8,7 +10,7 @@ import {
   statusPublicRoutes,
 } from "@checkstack/status-page-common";
 import { resolveRoute } from "@checkstack/common";
-import { severityPillClass } from "../utils/severityTone";
+import { severityTone } from "../utils/severityTone";
 
 /**
  * Public incident / maintenance DETAIL pages. Each renders ENTIRELY from a
@@ -112,14 +114,16 @@ export const PublicIncidentDetailView: React.FC<{
       <BackLink href={backHref} />
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-2xl font-bold tracking-tight">{data.title}</h1>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${severityPillClass(data.severity)}`}
+        <StatusPill
+          tone={severityTone(data.severity)}
+          size="sm"
+          className="capitalize"
         >
           {data.severity}
-        </span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
+        </StatusPill>
+        <StatusPill tone="neutral" size="sm" className="capitalize">
           {data.status}
-        </span>
+        </StatusPill>
       </div>
       <p className="mt-2 text-sm tabular-nums text-muted-foreground">
         Started {formatAt(data.startedAt)}

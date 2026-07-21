@@ -23,6 +23,7 @@ import {
   LoadingSpinner,
 } from "@checkstack/ui";
 import { impactTypeTone, toneStyles } from "./statusPill.logic";
+import { ImpactBadge } from "./ImpactBadge";
 import {
   ArrowUpRight,
   ArrowDownRight,
@@ -48,29 +49,6 @@ type Props = SlotContext<typeof SystemEditorSlot>;
  * colorblind-safe status triad. `informational` is a neutral, non-degrading
  * signal, so it keeps the neutral secondary badge.
  */
-function getImpactBadge(impactType: ImpactType): React.ReactNode {
-  switch (impactType) {
-    case "critical": {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-down/10 px-2.5 py-1 text-xs font-medium text-status-down">
-          <span className="size-1.5 rounded-full bg-status-down" />
-          Critical
-        </span>
-      );
-    }
-    case "degraded": {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-warn/10 px-2.5 py-1 text-xs font-medium text-status-warn">
-          <span className="size-1.5 rounded-full bg-status-warn" />
-          Degraded
-        </span>
-      );
-    }
-    case "informational": {
-      return <Badge variant="secondary">Info</Badge>;
-    }
-  }
-}
 
 /**
  * Dependency editor section injected into the SystemEditorSlot.
@@ -540,7 +518,7 @@ function DependencyRow({
             Multi-hop
           </Badge>
         )}
-        {getImpactBadge(dependency.impactType)}
+        <ImpactBadge impactType={dependency.impactType} />
         {dependency.healthCheckRules &&
           dependency.healthCheckRules.length > 0 && (
             <Badge variant="outline" className="text-xs">

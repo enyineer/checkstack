@@ -20,6 +20,7 @@ export * from "./components/EditableText";
 export * from "./components/ConfirmationModal";
 export * from "./components/HealthBadge";
 export * from "./components/StatusBadge";
+export * from "./components/StatusPill";
 export * from "./components/Table";
 export * from "./components/DataTable";
 export * from "./components/RowActions";

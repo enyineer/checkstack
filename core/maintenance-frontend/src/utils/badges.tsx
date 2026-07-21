@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  cn,
+  StatusPill,
   pillToneStyles as toneStyles,
   type StatusPillTone as StatusTone,
 } from "@checkstack/ui";
@@ -10,29 +10,6 @@ import type { MaintenanceStatus } from "@checkstack/maintenance-common";
 // maintenance share ONE colorblind-safe tone set (including the new blue `info`
 // hue). Re-exported for existing local consumers.
 export type { StatusPillTone as StatusTone } from "@checkstack/ui";
-
-/**
- * A compact, multi-encoded status pill: a tinted chip carrying a small status
- * dot and a text label, so the signal reads by hue, position, and words - never
- * color alone. Used for maintenance status throughout the plugin.
- */
-const StatusPill: React.FC<{ tone: StatusTone; label: string }> = ({
-  tone,
-  label,
-}) => {
-  const styles = toneStyles[tone];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        styles.pill
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-      {label}
-    </span>
-  );
-};
 
 /**
  * Impact rank for maintenance status: active windows sort first, then upcoming,
@@ -82,7 +59,7 @@ export function getMaintenanceStatusBadge(
   status: MaintenanceStatus
 ): React.ReactNode {
   const { tone, label } = presentMaintenanceStatus(status);
-  return <StatusPill tone={tone} label={label} />;
+  return <StatusPill tone={tone}>{label}</StatusPill>;
 }
 
 /**

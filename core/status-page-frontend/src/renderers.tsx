@@ -7,7 +7,9 @@ import {
   HelpCircle,
   CalendarCheck,
 } from "lucide-react";
-import { Markdown, MarkdownBlock, formatPercent } from "@checkstack/ui";
+import { Markdown, MarkdownBlock, formatPercent,
+  StatusPill,
+} from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
@@ -31,7 +33,7 @@ import {
   type WidgetRenderer,
   type WidgetRendererMap,
 } from "./renderer-map";
-import { severityPillClass, severityStripeClass } from "./utils/severityTone";
+import { severityStripeClass, severityTone } from "./utils/severityTone";
 
 export {
   mergeWidgetRenderers,
@@ -107,7 +109,12 @@ export const STATUS: Record<PublicStatus, StatusMeta> = {
   },
 };
 
-const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
+/**
+ * The PUBLIC overall-status pill (operational / degraded / outage). Distinct
+ * from the shared `StatusPill`: it is keyed by the public status enum and draws
+ * from that enum's own visual tokens, not from the internal tone table.
+ */
+const PublicStatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
   const meta = STATUS[status];
   return (
     <span
@@ -233,7 +240,7 @@ const StatusRow: React.FC<{
             <div className="text-[11px] text-muted-foreground">uptime</div>
           </div>
         )}
-        <StatusPill status={status} />
+        <PublicStatusPill status={status} />
       </div>
     </div>
   );
@@ -288,7 +295,7 @@ const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
               {expanded ? "Hide" : "Show"} systems
             </button>
           )}
-          <StatusPill status={parsed.data.status} />
+          <PublicStatusPill status={parsed.data.status} />
         </div>
       }
     >
@@ -476,14 +483,18 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                 >
                   <h4 className="font-semibold">{inc.title}</h4>
                 </MaybeLink>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${severityPillClass(inc.severity)}`}
+                {/* Severity carries the hue; the lifecycle is neutral - one
+                    coloured dimension per row (see `status-tone.ts`). */}
+                <StatusPill
+                  tone={severityTone(inc.severity)}
+                  size="sm"
+                  className="capitalize"
                 >
                   {inc.severity}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
+                </StatusPill>
+                <StatusPill tone="neutral" size="sm" className="capitalize">
                   {inc.status}
-                </span>
+                </StatusPill>
               </div>
               {inc.systems.length > 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">

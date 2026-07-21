@@ -3,7 +3,7 @@ import {
   AnnouncementsWidgetDtoSchema,
   type AnnouncementSeverity,
 } from "@checkstack/announcement-common";
-import { MarkdownBlock, cn } from "@checkstack/ui";
+import { MarkdownBlock, StatusPill, cn } from "@checkstack/ui";
 import type { StatusWidgetRendererProps } from "@checkstack/status-page-common";
 import { Info, AlertTriangle, AlertOctagon, Megaphone } from "lucide-react";
 import { severityToTone } from "./announcementStatus.logic";
@@ -75,18 +75,9 @@ export const StatusAnnouncementsWidget: React.FC<StatusWidgetRendererProps> = ({
                     className={cn("h-4 w-4 shrink-0", styles.text)}
                   />
                   <h4 className="font-semibold">{a.title}</h4>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      styles.pill,
-                    )}
-                  >
-                    <span
-                      aria-hidden
-                      className={cn("size-1.5 rounded-full", styles.dot)}
-                    />
+                  <StatusPill tone={severityToTone(a.severity)} size="sm">
                     {SEVERITY_LABELS[a.severity]}
-                  </span>
+                  </StatusPill>
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
                   <MarkdownBlock size="sm">{a.message}</MarkdownBlock>
