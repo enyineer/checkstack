@@ -7,13 +7,11 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
-import type {
-  MaintenanceWithSystems,
-  MaintenanceStatus,
-} from "@checkstack/maintenance-common";
+import type { MaintenanceWithSystems } from "@checkstack/maintenance-common";
 import {
   maintenanceAccess,
   maintenanceResourceTypes,
+  MaintenanceStatusEnum,
   pluginMetadata as maintenancePluginMetadata,
 } from "@checkstack/maintenance-common";
 import { Tip } from "@checkstack/tips-frontend";
@@ -24,14 +22,13 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
+  DataTableFilterBar,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacet,
   RowActions,
   RowAction,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
   Checkbox,
   useToast,
   ConfirmationModal,
@@ -56,6 +53,7 @@ import {
   getMaintenanceStatusTone,
   getMaintenanceToneAccentClass,
   maintenanceStatusRank,
+  presentMaintenanceStatus,
 } from "../utils/badges";
 import {
   canComplete,
@@ -65,6 +63,24 @@ import {
   pruneSelection,
   summarizeBulkOutcome,
 } from "./maintenanceConfig.logic";
+
+/**
+ * Maintenance lifecycle status. Labels come from the same presenter the status
+ * badges use, so the dropdown and the rows can never disagree about what a
+ * status is called. Options mirror `MaintenanceStatusEnum`, which is what the
+ * list query filters on.
+ */
+const MAINTENANCE_STATUS_FACET: DataTableFacet<MaintenanceWithSystems> = {
+  id: "status",
+  label: "Status",
+  anyLabel: "All statuses",
+  options: MaintenanceStatusEnum.options.map((status) => ({
+    value: status,
+    label: presentMaintenanceStatus(status).label,
+  })),
+  value: (maintenance) => maintenance.status,
+  triggerClassName: "md:w-40",
+};
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -87,12 +103,20 @@ const MaintenanceConfigPageContent: React.FC = () => {
       parentType: catalogResourceTypes.system,
     });
 
-  const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">(
-    "all",
-  );
+  // Server-side filtering (both feed the list query's input), so the table
+  // declares no facets - the shared bar drives the query. The status facet is
+  // URL-backed, so a link to "the in-progress maintenances" reopens filtered.
+  const filters = useDataTableFilters({ facetIds: [MAINTENANCE_STATUS_FACET.id] });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: MAINTENANCE_STATUS_FACET.id,
+    schema: MaintenanceStatusEnum,
+  });
 
   // Completed maintenances are hidden by default (the list endpoint excludes
   // them unless `includeCompleted` is set); this toggle opts them back in.
+  // NOT a facet: a facet NARROWS, and this WIDENS the list, so modelling it as
+  // one would invert its meaning. It rides in the bar's `children` slot.
   const [showCompleted, setShowCompleted] = useState(false);
 
   // Editor state
@@ -115,7 +139,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
   // Fetch maintenances with useQuery
   const maintenancesQuery = maintenanceClient.listMaintenances.useQuery(
-    statusFilter === "all"
+    statusFilter === undefined
       ? { includeCompleted: showCompleted }
       : { status: statusFilter, includeCompleted: showCompleted },
   );
@@ -439,32 +463,22 @@ const MaintenanceConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
-        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-          <input
-            type="checkbox"
+      <DataTableFilterBar
+        filters={filters.state}
+        onFiltersChange={filters.setState}
+        facets={[MAINTENANCE_STATUS_FACET]}
+        // Maintenances are found by status and window, not by typing a title.
+        searchable={false}
+        className="mb-4 md:justify-end"
+      >
+        <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+          <Checkbox
             checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-            className="rounded border-border"
+            onCheckedChange={(checked) => setShowCompleted(checked === true)}
           />
           Show completed
         </label>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as MaintenanceStatus | "all")}
-        >
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      </DataTableFilterBar>
 
       {loading ? (
         <div className="flex justify-center p-12">

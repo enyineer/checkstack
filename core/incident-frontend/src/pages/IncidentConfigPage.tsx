@@ -8,13 +8,11 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
-import type {
-  IncidentWithSystems,
-  IncidentStatus,
-} from "@checkstack/incident-common";
+import type { IncidentWithSystems } from "@checkstack/incident-common";
 import {
   incidentAccess,
   incidentResourceTypes,
+  IncidentStatusEnum,
   pluginMetadata as incidentPluginMetadata,
 } from "@checkstack/incident-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
@@ -26,14 +24,13 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
+  DataTableFilterBar,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacet,
   RowActions,
   RowAction,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
   Checkbox,
   useToast,
   ConfirmationModal,
@@ -58,6 +55,7 @@ import {
   getIncidentSeverityAccentClass,
   incidentSeverityRank,
   incidentStatusRank,
+  presentIncidentStatus,
 } from "../utils/badges";
 import {
   canResolveIncident,
@@ -86,6 +84,24 @@ const IncidentLearnMore = () => (
     <ExternalLink className="h-3 w-3" />
   </a>
 );
+
+/**
+ * Incident lifecycle status. Labels come from the same presenter the status
+ * badges use, so the dropdown and the rows can never disagree about what a
+ * status is called. Options mirror `IncidentStatusEnum`, which is what the list
+ * query filters on.
+ */
+const INCIDENT_STATUS_FACET: DataTableFacet<IncidentWithSystems> = {
+  id: "status",
+  label: "Status",
+  anyLabel: "All statuses",
+  options: IncidentStatusEnum.options.map((status) => ({
+    value: status,
+    label: presentIncidentStatus(status).label,
+  })),
+  value: (incident) => incident.status,
+  triggerClassName: "md:w-40",
+};
 
 const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
@@ -117,9 +133,18 @@ const IncidentConfigPageContent: React.FC = () => {
       parentType: catalogResourceTypes.system,
     });
 
-  const [statusFilter, setStatusFilter] = useState<IncidentStatus | "all">(
-    "all",
-  );
+  // Server-side filtering (both feed the list query's input), so the table
+  // declares no facets - the shared bar drives the query. The status facet is
+  // URL-backed, so a link to "the incidents being investigated" reopens filtered.
+  const filters = useDataTableFilters({ facetIds: [INCIDENT_STATUS_FACET.id] });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: INCIDENT_STATUS_FACET.id,
+    schema: IncidentStatusEnum,
+  });
+  // NOT a facet: a facet NARROWS, and this WIDENS the list to include resolved
+  // incidents. Modelling it as one would invert its meaning, so it rides in the
+  // bar's `children` slot and keeps its own state.
   const [showResolved, setShowResolved] = useState(false);
 
   // Editor state
@@ -142,7 +167,7 @@ const IncidentConfigPageContent: React.FC = () => {
 
   // Fetch incidents with useQuery
   const incidentsQuery = incidentClient.listIncidents.useQuery(
-    statusFilter === "all"
+    statusFilter === undefined
       ? { includeResolved: showResolved }
       : { status: statusFilter, includeResolved: showResolved },
   );
@@ -502,33 +527,22 @@ const IncidentConfigPageContent: React.FC = () => {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
-        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-          <input
-            type="checkbox"
+      <DataTableFilterBar
+        filters={filters.state}
+        onFiltersChange={filters.setState}
+        facets={[INCIDENT_STATUS_FACET]}
+        // Incidents are found by status and recency, not by typing a title.
+        searchable={false}
+        className="mb-4 md:justify-end"
+      >
+        <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+          <Checkbox
             checked={showResolved}
-            onChange={(e) => setShowResolved(e.target.checked)}
-            className="rounded border-border"
+            onCheckedChange={(checked) => setShowResolved(checked === true)}
           />
           Show resolved
         </label>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as IncidentStatus | "all")}
-        >
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="investigating">Investigating</SelectItem>
-            <SelectItem value="identified">Identified</SelectItem>
-            <SelectItem value="fixing">Fixing</SelectItem>
-            <SelectItem value="monitoring">Monitoring</SelectItem>
-            <SelectItem value="resolved">Resolved</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      </DataTableFilterBar>
 
       {loading ? (
         <div className="flex justify-center p-12">
