@@ -1,41 +1,14 @@
 import React from "react";
-import { cn } from "@checkstack/ui";
+import { cn, pillToneStyles } from "@checkstack/ui";
 import type { StatusTone } from "./announcementStatus.logic";
 
 /**
- * Per-tone class sets for pills, dots, and the card left accent stripe. Spelled
- * out as full literal strings (never interpolated) so Tailwind's JIT keeps them,
- * and driven by the colorblind-safe status triad.
+ * Per-tone class sets for pills, dots, and the card left accent stripe.
+ * Re-exported from the shared `@checkstack/ui` tone table rather than
+ * re-declared here: the local copy silently omitted the blue `info` tone, so
+ * every info-severity surface fell back to the neutral grey `unknown` classes.
  */
-export const toneStyles: Record<
-  StatusTone,
-  { pill: string; dot: string; accent: string; text: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-    text: "text-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    text: "text-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-    text: "text-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-    text: "text-status-unknown",
-  },
-};
+export const toneStyles = pillToneStyles;
 
 /**
  * A multi-encoded status pill: a colored dot plus a text label, driven by the

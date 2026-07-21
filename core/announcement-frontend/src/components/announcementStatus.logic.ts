@@ -1,4 +1,5 @@
 import type { AnnouncementSeverity } from "@checkstack/announcement-common";
+import type { StatusPillTone } from "@checkstack/ui";
 
 /**
  * The lifecycle status of an announcement, derived purely from its `active`
@@ -17,8 +18,13 @@ export interface AnnouncementLifecycle {
   expiresAt?: Date | null;
 }
 
-/** The colorblind-safe status triad tones used across the design system. */
-export type StatusTone = "ok" | "warn" | "down" | "unknown";
+/**
+ * The colorblind-safe status tones used across the design system. Aliased from
+ * the shared `@checkstack/ui` tone set so announcements can never drift out of
+ * sync with it - notably the fifth blue `info` hue, which sits OUTSIDE the
+ * ok/warn/down ladder.
+ */
+export type StatusTone = StatusPillTone;
 
 /**
  * Classifies an announcement into its lifecycle status. Pure: takes `now` so it
@@ -54,7 +60,7 @@ export function statusToTone(status: AnnouncementStatus): StatusTone {
   }
 }
 
-/** Maps an announcement severity onto its colorblind-safe triad tone. */
+/** Maps an announcement severity onto its colorblind-safe status tone. */
 export function severityToTone(severity: AnnouncementSeverity): StatusTone {
   switch (severity) {
     case "critical": {
@@ -64,7 +70,11 @@ export function severityToTone(severity: AnnouncementSeverity): StatusTone {
       return "warn";
     }
     default: {
-      return "unknown";
+      // Blue "info" tone, matching the incident/status-page severity ramp:
+      // an informational announcement is deliberately published content, not an
+      // inert/indeterminate state, so it must NOT fall through to the neutral
+      // grey `unknown` tone (which read as "disabled" wherever it appeared).
+      return "info";
     }
   }
 }

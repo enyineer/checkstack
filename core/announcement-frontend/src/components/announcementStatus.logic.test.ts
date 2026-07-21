@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { pillToneStyles as toneStyles } from "@checkstack/ui";
 import {
   getAnnouncementStatus,
   severityToTone,
@@ -85,10 +86,26 @@ describe("statusToTone", () => {
 });
 
 describe("severityToTone", () => {
-  test("maps severities onto the triad", () => {
+  test("maps severities onto the status tones", () => {
     expect(severityToTone("critical")).toBe("down");
     expect(severityToTone("warning")).toBe("warn");
-    expect(severityToTone("info")).toBe("unknown");
+  });
+
+  test("info maps to the blue info tone, never the grey unknown tone", () => {
+    // Regression: info severity fell through to `unknown`, so the pill, the
+    // card accent stripe and the banner all rendered grey (`*-status-unknown`)
+    // instead of the informational blue hue.
+    expect(severityToTone("info")).toBe("info");
+  });
+
+  test("every severity resolves to a tone that has classes defined", () => {
+    for (const severity of ["critical", "warning", "info"] as const) {
+      const styles = toneStyles[severityToTone(severity)];
+      expect(styles.pill).toContain(`status-${severityToTone(severity)}`);
+      expect(styles.dot).toContain(`status-${severityToTone(severity)}`);
+      expect(styles.accent).toContain(`status-${severityToTone(severity)}`);
+      expect(styles.text).toContain(`status-${severityToTone(severity)}`);
+    }
   });
 });
 
