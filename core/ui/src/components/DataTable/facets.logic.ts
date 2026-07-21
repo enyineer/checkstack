@@ -339,12 +339,19 @@ export function applyTableFilters<TData>({
 }: {
   rows: TData[];
   state: DataTableFilterState;
-  facets: ReadonlyArray<DataTableFacet<TData>>;
+  /**
+   * Controls WITHOUT a `value` accessor are rendered but never applied here -
+   * they name a dimension the caller narrows elsewhere (a server-side query
+   * input). Applying them would be wrong twice over: there is nothing on the row
+   * to compare, and the rows that arrived are already narrowed.
+   */
+  facets: ReadonlyArray<DataTableFacet<TData> | DataTableFacetControl>;
   searchAccessors: ReadonlyArray<(row: TData) => string>;
 }): TData[] {
   const searchable = state.query.trim().length > 0 && searchAccessors.length > 0;
-  const constrained = facets.filter((facet) =>
-    isFacetConstrained(state.facets[facet.id]),
+  const constrained = facets.filter(
+    (facet): facet is DataTableFacet<TData> =>
+      "value" in facet && isFacetConstrained(state.facets[facet.id]),
   );
   if (!searchable && constrained.length === 0) return rows;
 

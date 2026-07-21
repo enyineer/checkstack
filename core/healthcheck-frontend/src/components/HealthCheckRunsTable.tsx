@@ -5,6 +5,8 @@ import {
   Card,
   DataTable,
   type DataTableColumn,
+  type DataTableFacetControl,
+  type DataTableFilterState,
   useKeptPrevious,
   cn,
 } from "@checkstack/ui";
@@ -142,6 +144,15 @@ export interface HealthCheckRunsTableProps {
     setPage: (page: number) => void;
     setLimit: (limit: number) => void;
   };
+  /**
+   * Controlled filter state for the status/source controls. Both narrow the
+   * HISTORY QUERY rather than these rows, so the caller applies them - the table
+   * only renders the controls, keeping them attached to the list they filter.
+   */
+  filters?: DataTableFilterState;
+  onFiltersChange?: (next: DataTableFilterState) => void;
+  onClearFilters?: () => void;
+  facets?: ReadonlyArray<DataTableFacetControl>;
 }
 
 /** Keyboard activation for row-as-button semantics (Enter / Space). */
@@ -164,6 +175,10 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
   onRowSelect,
   selectedRunId,
   pagination,
+  filters,
+  onFiltersChange,
+  onClearFilters,
+  facets,
 }) => {
   const envNameById = new Map(
     (environmentLabels ?? []).map((e) => [e.id, e.name]),
@@ -279,6 +294,14 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
         data={displayRuns}
         columns={columns}
         getRowId={(run) => run.id}
+        // Status and source are applied SERVER-side (they narrow the history
+        // query, and "failing" collapses degraded+unhealthy, which no single row
+        // value expresses), so they arrive as controls with no row accessor -
+        // rendered in the table's own bar, applied by the caller.
+        facets={facets}
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        onClearFilters={onClearFilters}
         searchable={false}
         getRowProps={(run) => {
           const selected = run.id === selectedRunId;

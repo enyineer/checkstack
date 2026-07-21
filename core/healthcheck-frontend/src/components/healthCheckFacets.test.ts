@@ -1,63 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ANY_FACET_VALUE,
   EMPTY_TABLE_FILTERS,
   parseTableFilters,
   serializeTableFilters,
   type DataTableFilterState,
 } from "@checkstack/ui";
-import {
-  StrategyCategory,
-  type HealthCheckConfiguration,
-  type HealthCheckStrategyDto,
-} from "@checkstack/healthcheck-common";
+import type { HealthCheckStrategyDto } from "@checkstack/healthcheck-common";
 import {
   HEALTHCHECK_FACET_ID,
-  filterHealthChecks,
-  healthCheckClientFacets,
+  HEALTHCHECK_STATUS_OPTIONS,
   healthCheckFacetIds,
-  healthCheckFilterControls,
   healthCheckSystemControl,
   selectedSystemId,
+  strategyFilterOptions,
 } from "./healthCheckFacets";
 
-/** Minimal factory for a HealthCheckConfiguration with sensible defaults. */
-function makeConfig(
-  overrides: Partial<HealthCheckConfiguration> = {},
-): HealthCheckConfiguration {
-  return {
-    id: overrides.id ?? "c1",
-    name: overrides.name ?? "API check",
-    strategyId: overrides.strategyId ?? "http",
-    config: overrides.config ?? {},
-    intervalSeconds: overrides.intervalSeconds ?? 30,
-    collectors: overrides.collectors,
-    paused: overrides.paused ?? false,
-    createdAt: overrides.createdAt ?? new Date("2024-01-01"),
-    updatedAt: overrides.updatedAt ?? new Date("2024-01-02"),
-  };
-}
+/**
+ * The MATCHING for search, strategy and status lives on the list's COLUMNS
+ * (`filterValue`) and is applied by `DataTable`; `columnDerivedFacets` in
+ * `@checkstack/ui` covers that machinery. What this module still owns - and what
+ * these tests guard - is the option lists, the server-applied system control,
+ * and the URL parameter names existing links depend on.
+ */
 
-/** Minimal strategy DTO - only id + displayName reach the facet options. */
-function makeStrategy(id: string, displayName: string): HealthCheckStrategyDto {
-  return {
-    id,
-    displayName,
-    category: StrategyCategory.NETWORKING,
-    configSchema: {},
-  };
-}
-
-const strategies = [makeStrategy("http", "HTTP"), makeStrategy("tcp", "TCP")];
+const strategies = [
+  { id: "http", displayName: "HTTP" },
+  { id: "tcp", displayName: "TCP" },
+] as HealthCheckStrategyDto[];
 
 const systems = [
   { id: "sys-1", name: "Payments" },
   { id: "sys-2", name: "Search" },
-];
-
-const configs = [
-  makeConfig({ id: "c1", name: "Beta check", strategyId: "http" }),
-  makeConfig({ id: "c2", name: "alpha check", strategyId: "tcp", paused: true }),
-  makeConfig({ id: "c3", name: "Gamma probe", strategyId: "http" }),
 ];
 
 const withFacets = (facets: Record<string, string>): DataTableFilterState => ({
@@ -65,82 +39,50 @@ const withFacets = (facets: Record<string, string>): DataTableFilterState => ({
   facets,
 });
 
-const filterBy = (filters: DataTableFilterState) =>
-  filterHealthChecks({ configurations: configs, filters, strategies }).map(
-    (config) => config.id,
-  );
-
 describe("healthCheckFacets", () => {
-  test("declares the strategy/status/system dimensions, in display order", () => {
-    expect(healthCheckFacetIds).toEqual(["strategy", "status", "system"]);
-    expect(
-      healthCheckFilterControls({ strategies, systems }).map((c) => c.id),
-    ).toEqual(["strategy", "status", "system"]);
-  });
-
   test("facet ids are the URL parameter names the old toolbar used", () => {
-    // Guards the shared links (and the catalog's per-system wayfinding link,
-    // which hand-builds `?system=<id>`) against a silent rename.
-    expect(HEALTHCHECK_FACET_ID).toEqual({
-      strategy: "strategy",
-      status: "status",
-      system: "system",
-    });
+    // The catalog links here with `?system=<id>`; renaming any of these would
+    // silently break links shared before the migration.
+    expect(healthCheckFacetIds).toEqual(["strategy", "status", "system"]);
+    expect(HEALTHCHECK_FACET_ID.system).toBe("system");
   });
 
-  test("strategy options are derived from the strategy registry", () => {
-    const strategy = healthCheckClientFacets({ strategies }).find(
-      (facet) => facet.id === HEALTHCHECK_FACET_ID.strategy,
-    );
-    expect(strategy?.options).toEqual([
+  test("strategy options come from the registry, labelled for a reader", () => {
+    // A row carries an opaque strategy id, so deriving the options from the
+    // data would offer "http" / "tcp" rather than their display names.
+    expect(strategyFilterOptions({ strategies })).toEqual([
       { value: "http", label: "HTTP" },
       { value: "tcp", label: "TCP" },
     ]);
   });
 
+  test("a newly installed strategy appears without a second list to update", () => {
+    expect(
+      strategyFilterOptions({
+        strategies: [
+          ...strategies,
+          { id: "grpc", displayName: "gRPC" } as HealthCheckStrategyDto,
+        ],
+      }).map((option) => option.value),
+    ).toContain("grpc");
+  });
+
+  test("status offers active and paused", () => {
+    expect(HEALTHCHECK_STATUS_OPTIONS.map((option) => option.value)).toEqual([
+      "active",
+      "paused",
+    ]);
+  });
+
   test("the system control carries no row accessor (it is applied server-side)", () => {
-    // A configuration has no system field - the selection swaps the data
-    // source instead - so the control must not pretend to match a row.
+    // A configuration has no system field - the selection swaps the data source
+    // instead - so the control must not pretend to match a row. `DataTable`
+    // renders it but never applies it.
     expect(healthCheckSystemControl({ systems })).not.toHaveProperty("value");
     expect(healthCheckSystemControl({ systems }).options).toEqual([
       { value: "sys-1", label: "Payments" },
       { value: "sys-2", label: "Search" },
     ]);
-  });
-
-  test("search matches the configuration name, case-insensitively", () => {
-    expect(
-      filterBy({ ...EMPTY_TABLE_FILTERS, query: "BET" }),
-    ).toEqual(["c1"]);
-  });
-
-  test("strategy narrows to a single strategy", () => {
-    expect(filterBy(withFacets({ strategy: "http" }))).toEqual(["c1", "c3"]);
-  });
-
-  test("status maps to the derived paused flag", () => {
-    expect(filterBy(withFacets({ status: "active" }))).toEqual(["c1", "c3"]);
-    expect(filterBy(withFacets({ status: "paused" }))).toEqual(["c2"]);
-  });
-
-  test("facets and search are ANDed", () => {
-    expect(
-      filterBy({ query: "gam", facets: { strategy: "http", status: "active" } }),
-    ).toEqual(["c3"]);
-  });
-
-  test("the system selection never narrows client-side", () => {
-    // The rows arrive already scoped by `getSystemConfigurations`; applying the
-    // selection again against a field no row has would empty the list.
-    expect(filterBy(withFacets({ system: "sys-1" }))).toEqual([
-      "c1",
-      "c2",
-      "c3",
-    ]);
-  });
-
-  test("an unfiltered state returns the rows untouched", () => {
-    expect(filterBy(EMPTY_TABLE_FILTERS)).toEqual(["c1", "c2", "c3"]);
   });
 });
 
@@ -151,11 +93,16 @@ describe("selectedSystemId", () => {
     );
   });
 
-  test("is undefined when unconstrained", () => {
+  test("unset and the sentinel both mean 'all systems'", () => {
     expect(selectedSystemId({ filters: EMPTY_TABLE_FILTERS })).toBeUndefined();
+    expect(
+      selectedSystemId({ filters: withFacets({ system: ANY_FACET_VALUE }) }),
+    ).toBeUndefined();
   });
 
   test("an empty value from a hand-edited link reads as unconstrained", () => {
+    // `?system=` would otherwise swap the data source to a lookup for the empty
+    // system and return nothing, with no way to tell why.
     expect(selectedSystemId({ filters: withFacets({ system: "" }) })).toBe(
       undefined,
     );

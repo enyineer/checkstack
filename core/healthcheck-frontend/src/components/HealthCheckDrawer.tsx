@@ -441,7 +441,11 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                       )}
                     </div>
 
-                    {/* Source filter */}
+                    {/* Source stays HERE, not in the runs table: it scopes the
+                        CHARTS as well as the runs (both queries take
+                        `sourceFilter`), so it belongs beside the date range,
+                        which scopes the same two. The status control, which
+                        narrows only the runs, lives in that table's own bar. */}
                     {canReadSatellites && satellites.length > 0 && (
                       <DataTableFilterBar
                         filters={runFilters}
@@ -518,22 +522,20 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 <div className="flex-1 h-px bg-border" />
               </div>
 
-              <div className="flex justify-end">
-                <DataTableFilterBar
-                  filters={runFilters}
-                  onFiltersChange={(next) => {
-                    setRunFilters(next);
-                    // A different filter means a different list; page 7 of the
-                    // old one is not where the operator wants to land.
-                    pagination.setPage(1);
-                  }}
-                  facets={[runStatusControl]}
-                  searchable={false}
-                />
-              </div>
-
               <HealthCheckRunsTable
                 runs={runs}
+                filters={runFilters}
+                onFiltersChange={(next) => {
+                  setRunFilters(next);
+                  // A different filter means a different list; page 7 of the
+                  // old one is not where the operator wants to land.
+                  pagination.setPage(1);
+                }}
+                onClearFilters={() => {
+                  setRunFilters(EMPTY_TABLE_FILTERS);
+                  pagination.setPage(1);
+                }}
+                facets={[runStatusControl]}
                 loading={historyLoading || environmentLabelsLoading}
                 emptyMessage={
                   runsStatusFilter === undefined

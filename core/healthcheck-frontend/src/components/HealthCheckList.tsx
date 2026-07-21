@@ -16,6 +16,8 @@ import {
   Skeleton,
   DataTable,
   type DataTableColumn,
+  type DataTableFacetControl,
+  type DataTableFilterState,
   RowActions,
   RowAction,
   Card,
@@ -23,21 +25,32 @@ import {
 } from "@checkstack/ui";
 import { Trash2, Edit, Pause, Play } from "lucide-react";
 import { useProvenanceLocks } from "@checkstack/gitops-frontend";
+import {
+  HEALTHCHECK_SEARCH_PLACEHOLDER,
+  HEALTHCHECK_STATUS_OPTIONS,
+  strategyFilterOptions,
+} from "./healthCheckFacets";
 import { HealthStatusPill } from "./HealthStatusPill";
 import { pausedToTone, toneStyles } from "./healthcheckDisplay.logic";
 
 interface HealthCheckListProps {
+  /** The FULL row set. The table filters; do not pre-filter this. */
   configurations: HealthCheckConfiguration[];
   strategies: HealthCheckStrategyDto[];
   onEdit: (config: HealthCheckConfiguration) => void;
   onDelete: (id: string) => void;
   onPause?: (id: string) => void;
   onResume?: (id: string) => void;
+  /** Controlled filter state (URL-backed), so the page can read it. */
+  filters: DataTableFilterState;
+  onFiltersChange: (next: DataTableFilterState) => void;
+  onClearFilters: () => void;
   /**
-   * Shown when the caller's filters leave no rows. The page filters (the system
-   * dimension is server-side, so the bar lives there), which is why the message
-   * is passed in rather than declared here.
+   * Dimensions no column owns - here the assigned SYSTEM, which is applied
+   * server-side by swapping the data source, so it has no row accessor.
    */
+  facets?: ReadonlyArray<DataTableFacetControl>;
+  /** Shown when the filters leave no rows. */
   noResultsState?: React.ReactNode;
 }
 
@@ -48,6 +61,10 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
   onDelete,
   onPause,
   onResume,
+  filters,
+  onFiltersChange,
+  onClearFilters,
+  facets,
   noResultsState,
 }) => {
   const accessApi = useApi(accessApiRef);
@@ -73,12 +90,18 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
       header: "Name",
       cellClassName: "font-medium",
       sortValue: (config) => config.name,
+      searchValue: (config) => config.name,
       cell: (config) => config.name,
     },
     {
       id: "strategy",
       header: "Strategy",
       sortValue: (config) => getStrategyName(config.strategyId),
+      // Options come from the strategy registry, so a newly installed strategy
+      // appears without a second list to maintain.
+      filterValue: (config) => config.strategyId,
+      filterOptions: strategyFilterOptions({ strategies }),
+      filterAnyLabel: "All strategies",
       cell: (config) => getStrategyName(config.strategyId),
     },
     {
@@ -91,6 +114,11 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
       id: "status",
       header: "Status",
       sortValue: (config) => (config.paused ? "Paused" : "Active"),
+      // Active/paused is DERIVED from `paused`; there is no run-level health
+      // status on this surface.
+      filterValue: (config) => (config.paused ? "paused" : "active"),
+      filterOptions: HEALTHCHECK_STATUS_OPTIONS,
+      filterAnyLabel: "All statuses",
       cell: (config) => (
         <HealthStatusPill
           tone={pausedToTone({ paused: config.paused })}
@@ -124,9 +152,14 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
       data={configurations}
       columns={columns}
       getRowId={(config) => config.id}
-      // Search and facets live in the page's filter bar (the system dimension
-      // is applied server-side), so the table renders no controls of its own.
-      searchable={false}
+      // The Name/Strategy/Status columns declare their own search and filters;
+      // the assigned-system control comes in via `facets` because it has no row
+      // to read (it is applied server-side).
+      facets={facets}
+      filters={filters}
+      onFiltersChange={onFiltersChange}
+      onClearFilters={onClearFilters}
+      searchPlaceholder={HEALTHCHECK_SEARCH_PLACEHOLDER}
       // Alphabetical by name: the list used to be sorted before it reached the
       // table, and a stable reading order beats insertion order here.
       defaultSort={{ columnId: "name", direction: "asc" }}

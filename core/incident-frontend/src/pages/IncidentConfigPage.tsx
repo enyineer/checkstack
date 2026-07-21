@@ -24,11 +24,10 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
-  DataTableFilterBar,
   useDataTableFilters,
   parsedFacetValue,
   type DataTableColumn,
-  type DataTableFacet,
+  type DataTableFacetOption,
   RowActions,
   RowAction,
   Checkbox,
@@ -86,22 +85,23 @@ const IncidentLearnMore = () => (
 );
 
 /**
- * Incident lifecycle status. Labels come from the same presenter the status
- * badges use, so the dropdown and the rows can never disagree about what a
- * status is called. Options mirror `IncidentStatusEnum`, which is what the list
- * query filters on.
+ * Incident lifecycle status options. Labels come from the same presenter the
+ * status badges use, so the dropdown and the rows can never disagree about what
+ * a status is called - and declaring them keeps the lifecycle order, which
+ * deriving from the data would sort alphabetically.
+ *
+ * The MATCHING lives on the Status column (`filterValue`), so the table renders
+ * this control in its own bar. The selection ALSO narrows the list query, which
+ * is what actually reduces the fetch; the column filter re-applying it over
+ * already-scoped rows is a harmless no-op that keeps the control where a reader
+ * expects it - attached to the column it filters.
  */
-const INCIDENT_STATUS_FACET: DataTableFacet<IncidentWithSystems> = {
-  id: "status",
-  label: "Status",
-  anyLabel: "All statuses",
-  options: IncidentStatusEnum.options.map((status) => ({
+const INCIDENT_STATUS_FACET_ID = "status";
+const INCIDENT_STATUS_OPTIONS: readonly DataTableFacetOption[] =
+  IncidentStatusEnum.options.map((status) => ({
     value: status,
     label: presentIncidentStatus(status).label,
-  })),
-  value: (incident) => incident.status,
-  triggerClassName: "md:w-40",
-};
+  }));
 
 const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
@@ -136,10 +136,12 @@ const IncidentConfigPageContent: React.FC = () => {
   // Server-side filtering (both feed the list query's input), so the table
   // declares no facets - the shared bar drives the query. The status facet is
   // URL-backed, so a link to "the incidents being investigated" reopens filtered.
-  const filters = useDataTableFilters({ facetIds: [INCIDENT_STATUS_FACET.id] });
+  const filters = useDataTableFilters({
+    facetIds: [INCIDENT_STATUS_FACET_ID],
+  });
   const statusFilter = parsedFacetValue({
     filters: filters.state,
-    facetId: INCIDENT_STATUS_FACET.id,
+    facetId: INCIDENT_STATUS_FACET_ID,
     schema: IncidentStatusEnum,
   });
   // NOT a facet: a facet NARROWS, and this WIDENS the list to include resolved
@@ -423,6 +425,9 @@ const IncidentConfigPageContent: React.FC = () => {
       id: "status",
       header: "Status",
       sortValue: (incident) => incidentStatusRank[incident.status],
+      filterValue: (incident) => incident.status,
+      filterOptions: INCIDENT_STATUS_OPTIONS,
+      filterAnyLabel: "All statuses",
       cell: (incident) => getIncidentStatusBadge(incident.status),
     },
     {
@@ -527,23 +532,6 @@ const IncidentConfigPageContent: React.FC = () => {
         }
       />
 
-      <DataTableFilterBar
-        filters={filters.state}
-        onFiltersChange={filters.setState}
-        facets={[INCIDENT_STATUS_FACET]}
-        // Incidents are found by status and recency, not by typing a title.
-        searchable={false}
-        className="mb-4 md:justify-end"
-      >
-        <label className="flex items-center gap-2 whitespace-nowrap text-sm">
-          <Checkbox
-            checked={showResolved}
-            onCheckedChange={(checked) => setShowResolved(checked === true)}
-          />
-          Show resolved
-        </label>
-      </DataTableFilterBar>
-
       {loading ? (
         <div className="flex justify-center p-12">
           <LoadingSpinner />
@@ -606,12 +594,33 @@ const IncidentConfigPageContent: React.FC = () => {
             data={incidents}
             columns={columns}
             getRowId={(incident) => incident.id}
+            // The Status column declares its own filter, so the control sits in
+            // the table's bar rather than floating above the card.
+            filters={filters.state}
+            onFiltersChange={filters.setState}
+            onClearFilters={filters.clear}
+            // "Show resolved" is not a facet: a facet NARROWS, and this WIDENS
+            // the list to include rows the endpoint excludes by default.
+            toolbar={
+              <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+                <Checkbox
+                  checked={showResolved}
+                  onCheckedChange={(checked) => setShowResolved(checked === true)}
+                />
+                Show resolved
+              </label>
+            }
+            // Incidents are found by status and recency, not by typing a title.
             searchable={false}
             getRowProps={(incident) => ({
               selected: selectedIds.has(incident.id),
               className: "hover:bg-surface-inset",
             })}
+            // The list arrives already narrowed by the server, so an empty
+            // `data` means either "none exist" or "none match". Suppressing
+            // `emptyState` while a filter is active is what tells them apart.
             emptyState={
+              filters.active ? undefined : (
               <EmptyState
                 icon={<AlertTriangle className="size-10" />}
                 title="No incidents found"
@@ -628,6 +637,19 @@ const IncidentConfigPageContent: React.FC = () => {
                       Report incident manually
                     </Button>
                   ) : undefined
+                }
+              />
+              )
+            }
+            noResultsState={
+              <EmptyState
+                icon={<AlertTriangle className="size-10" />}
+                title="No incidents match your filters"
+                description="Nothing in this list matches the current status filter. Resolved incidents are hidden unless you ask for them."
+                actions={
+                  <Button variant="outline" onClick={filters.clear}>
+                    Clear filters
+                  </Button>
                 }
               />
             }

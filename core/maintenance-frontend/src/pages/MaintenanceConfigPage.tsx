@@ -22,11 +22,10 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
-  DataTableFilterBar,
   useDataTableFilters,
   parsedFacetValue,
   type DataTableColumn,
-  type DataTableFacet,
+  type DataTableFacetOption,
   RowActions,
   RowAction,
   Checkbox,
@@ -70,17 +69,12 @@ import {
  * status is called. Options mirror `MaintenanceStatusEnum`, which is what the
  * list query filters on.
  */
-const MAINTENANCE_STATUS_FACET: DataTableFacet<MaintenanceWithSystems> = {
-  id: "status",
-  label: "Status",
-  anyLabel: "All statuses",
-  options: MaintenanceStatusEnum.options.map((status) => ({
+const MAINTENANCE_STATUS_FACET_ID = "status";
+const MAINTENANCE_STATUS_OPTIONS: readonly DataTableFacetOption[] =
+  MaintenanceStatusEnum.options.map((status) => ({
     value: status,
     label: presentMaintenanceStatus(status).label,
-  })),
-  value: (maintenance) => maintenance.status,
-  triggerClassName: "md:w-40",
-};
+  }));
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -106,10 +100,12 @@ const MaintenanceConfigPageContent: React.FC = () => {
   // Server-side filtering (both feed the list query's input), so the table
   // declares no facets - the shared bar drives the query. The status facet is
   // URL-backed, so a link to "the in-progress maintenances" reopens filtered.
-  const filters = useDataTableFilters({ facetIds: [MAINTENANCE_STATUS_FACET.id] });
+  const filters = useDataTableFilters({
+    facetIds: [MAINTENANCE_STATUS_FACET_ID],
+  });
   const statusFilter = parsedFacetValue({
     filters: filters.state,
-    facetId: MAINTENANCE_STATUS_FACET.id,
+    facetId: MAINTENANCE_STATUS_FACET_ID,
     schema: MaintenanceStatusEnum,
   });
 
@@ -369,6 +365,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
       id: "status",
       header: "Status",
       sortValue: (maintenance) => maintenanceStatusRank[maintenance.status],
+      filterValue: (maintenance) => maintenance.status,
+      filterOptions: MAINTENANCE_STATUS_OPTIONS,
+      filterAnyLabel: "All statuses",
       cell: (maintenance) => getMaintenanceStatusBadge(maintenance.status),
     },
     {
@@ -463,23 +462,6 @@ const MaintenanceConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
-      <DataTableFilterBar
-        filters={filters.state}
-        onFiltersChange={filters.setState}
-        facets={[MAINTENANCE_STATUS_FACET]}
-        // Maintenances are found by status and window, not by typing a title.
-        searchable={false}
-        className="mb-4 md:justify-end"
-      >
-        <label className="flex items-center gap-2 whitespace-nowrap text-sm">
-          <Checkbox
-            checked={showCompleted}
-            onCheckedChange={(checked) => setShowCompleted(checked === true)}
-          />
-          Show completed
-        </label>
-      </DataTableFilterBar>
-
       {loading ? (
         <div className="flex justify-center p-12">
           <LoadingSpinner />
@@ -542,12 +524,35 @@ const MaintenanceConfigPageContent: React.FC = () => {
             data={maintenances}
             columns={columns}
             getRowId={(maintenance) => maintenance.id}
+            // The Status column declares its own filter, so the control sits in
+            // the table's bar rather than floating above the card.
+            filters={filters.state}
+            onFiltersChange={filters.setState}
+            onClearFilters={filters.clear}
+            // "Show completed" is not a facet: a facet NARROWS, and this WIDENS
+            // the list to include rows the endpoint excludes by default.
+            toolbar={
+              <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+                <Checkbox
+                  checked={showCompleted}
+                  onCheckedChange={(checked) =>
+                    setShowCompleted(checked === true)
+                  }
+                />
+                Show completed
+              </label>
+            }
+            // Maintenances are found by status and window, not by typing a title.
             searchable={false}
             getRowProps={(maintenance) => ({
               selected: selectedIds.has(maintenance.id),
               className: "hover:bg-surface-inset",
             })}
+            // The list arrives already narrowed by the server, so an empty
+            // `data` means either "none exist" or "none match". Suppressing
+            // `emptyState` while a filter is active is what tells them apart.
             emptyState={
+              filters.active ? undefined : (
               <EmptyState
                 icon={<Wrench className="size-10" />}
                 title="No planned maintenances"
@@ -564,6 +569,19 @@ const MaintenanceConfigPageContent: React.FC = () => {
                       Schedule maintenance
                     </Button>
                   ) : undefined
+                }
+              />
+              )
+            }
+            noResultsState={
+              <EmptyState
+                icon={<Wrench className="size-10" />}
+                title="No maintenances match your filters"
+                description="Nothing in this list matches the current status filter. Completed maintenances are hidden unless you ask for them."
+                actions={
+                  <Button variant="outline" onClick={filters.clear}>
+                    Clear filters
+                  </Button>
                 }
               />
             }

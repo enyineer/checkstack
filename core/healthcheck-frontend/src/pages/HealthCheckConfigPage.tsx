@@ -22,17 +22,14 @@ import {
   HealthCheckListSkeleton,
 } from "../components/HealthCheckList";
 import {
-  HEALTHCHECK_SEARCH_PLACEHOLDER,
-  filterHealthChecks,
   healthCheckFacetIds,
-  healthCheckFilterControls,
+  healthCheckSystemControl,
   selectedSystemId,
 } from "../components/healthCheckFacets";
 import { FirstCheckWizard } from "../components/FirstCheckWizard";
 import {
   Button,
   ConfirmationModal,
-  DataTableFilterBar,
   ListEmptyState,
   PageLayout,
   QueryErrorState,
@@ -194,31 +191,20 @@ const HealthCheckConfigPageContent = () => {
   const systemsData = systemsQuery.data;
   const systems = useMemo(() => systemsData?.systems ?? [], [systemsData]);
 
-  const filteredConfigurations = useMemo(
+  // The rows to hand the table: system-scoped when that filter is active (the
+  // server applies it by swapping the data source), otherwise everything. The
+  // table applies search / strategy / status itself.
+  const listedConfigurations = useMemo(
     () =>
-      filterHealthChecks({
-        // The base list is ALREADY system-scoped when that filter is active, so
-        // only search/strategy/status are applied on top of it.
-        configurations: systemFilterActive
-          ? (systemConfigsQuery.data ?? [])
-          : configurations,
-        // The page does the filtering, so it wants the debounced query - a fast
-        // typist should not re-filter a long list on every keystroke.
-        filters: filters.debounced,
-        strategies,
-      }),
-    [
-      systemFilterActive,
-      systemConfigsQuery.data,
-      configurations,
-      filters.debounced,
-      strategies,
-    ],
+      systemFilterActive ? (systemConfigsQuery.data ?? []) : configurations,
+    [systemFilterActive, systemConfigsQuery.data, configurations],
   );
 
-  const filterControls = useMemo(
-    () => healthCheckFilterControls({ strategies, systems }),
-    [strategies, systems],
+  // The one dimension no column owns: it has nothing on the row to read,
+  // because selecting a system changes WHICH rows are fetched.
+  const systemControl = useMemo(
+    () => healthCheckSystemControl({ systems }),
+    [systems],
   );
 
   // Handle ?action=create URL parameter (from command palette)
@@ -444,17 +430,16 @@ const HealthCheckConfigPageContent = () => {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <DataTableFilterBar
+          <HealthCheckList
+            // The FULL set: the table owns search, strategy and status. Only the
+            // system dimension is applied before this point, by swapping the
+            // data source (it is authorized by system READ).
+            configurations={listedConfigurations}
+            strategies={strategies}
             filters={filters.state}
             onFiltersChange={filters.setState}
-            facets={filterControls}
-            searchPlaceholder={HEALTHCHECK_SEARCH_PLACEHOLDER}
-            onClear={filters.clear}
-          />
-
-          <HealthCheckList
-            configurations={filteredConfigurations}
-            strategies={strategies}
+            onClearFilters={filters.clear}
+            facets={[systemControl]}
             onEdit={handleEdit}
             onDelete={handleDelete}
             onPause={(id) => pauseMutation.mutate({ id })}

@@ -22,11 +22,10 @@ import {
   CardTitle,
   Button,
   DataTable,
-  DataTableFilterBar,
   useDataTableFilters,
   parsedFacetValue,
   type DataTableColumn,
-  type DataTableFacet,
+  type DataTableFacetOption,
   RowActions,
   RowAction,
   LoadingSpinner,
@@ -43,20 +42,14 @@ import { formatDuration } from "./run-duration";
  * that went wrong, so every outcome stays one click away rather than behind a
  * dropdown. Options mirror `RunStatusSchema`, which is what the query filters on.
  */
-const RUN_STATUS_FACET: DataTableFacet<AutomationRun> = {
-  id: "status",
-  label: "Status",
-  anyLabel: "All",
-  kind: "pills",
-  options: [
-    { value: "running", label: "Running" },
-    { value: "success", label: "Success" },
-    { value: "failed", label: "Failed" },
-    { value: "cancelled", label: "Cancelled" },
-    { value: "waiting", label: "Waiting" },
-  ],
-  value: (run) => run.status,
-};
+const RUN_STATUS_FACET_ID = "status";
+const RUN_STATUS_OPTIONS: readonly DataTableFacetOption[] = [
+  { value: "running", label: "Running" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "waiting", label: "Waiting" },
+];
 
 /**
  * Run history for a single automation. Status filter pinned to the top;
@@ -72,13 +65,13 @@ const RunsPageContent: React.FC = () => {
   const { allowed, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  // Server-side filtering (it narrows the runs query), so the table declares no
-  // facets - the shared bar drives the query. URL-backed, so a link to "the
-  // failed runs of this automation" reopens filtered.
-  const filters = useDataTableFilters({ facetIds: [RUN_STATUS_FACET.id] });
+  // The Status column owns the control; the selection ALSO narrows the runs
+  // query, which is what reduces the fetch. URL-backed, so a link to "the failed
+  // runs of this automation" reopens filtered.
+  const filters = useDataTableFilters({ facetIds: [RUN_STATUS_FACET_ID] });
   const statusFilter = parsedFacetValue({
     filters: filters.state,
-    facetId: RUN_STATUS_FACET.id,
+    facetId: RUN_STATUS_FACET_ID,
     schema: RunStatusSchema,
   });
 
@@ -106,6 +99,12 @@ const RunsPageContent: React.FC = () => {
       id: "status",
       header: "Status",
       sortValue: (run) => run.status,
+      filterValue: (run) => run.status,
+      filterOptions: RUN_STATUS_OPTIONS,
+      // Pills: the whole point of this page is scanning for the runs that went
+      // wrong, so every outcome stays one click away.
+      filterKind: "pills",
+      filterAnyLabel: "All",
       cell: (run) => <RunStatusPill status={run.status} />,
     },
     {
@@ -193,18 +192,7 @@ const RunsPageContent: React.FC = () => {
     >
       <Card>
         <CardHeader className="border-b">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">Runs</CardTitle>
-            <DataTableFilterBar
-              filters={filters.state}
-              onFiltersChange={filters.setState}
-              facets={[RUN_STATUS_FACET]}
-              // Runs are identified by time and outcome, not by a name worth
-              // typing, so the status facet is the whole control.
-              searchable={false}
-              className="md:justify-end"
-            />
-          </div>
+          <CardTitle className="text-base">Runs</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {runsQuery.isLoading ? (
@@ -216,18 +204,44 @@ const RunsPageContent: React.FC = () => {
               error={runsQuery.error}
               onRetry={() => runsQuery.refetch()}
             />
-          ) : runs.length === 0 ? (
-            <EmptyState
-              icon={<History className="h-8 w-8 text-muted-foreground" />}
-              title="No runs match this filter"
-              description="Manually trigger the automation from the edit page to generate a run."
-            />
           ) : (
             <DataTable
               data={runs}
               columns={columns}
               getRowId={(run) => run.id}
+              // The Status column declares its own filter, so the pills sit in
+              // the table's bar. Runs are identified by time and outcome, not
+              // by a name worth typing, so there is no search box.
+              filters={filters.state}
+              onFiltersChange={filters.setState}
+              onClearFilters={filters.clear}
               searchable={false}
+              // The list arrives already narrowed by the server, so an empty
+              // `data` means either outcome. Suppressing `emptyState` while a
+              // filter is active is what lets the table tell them apart - and
+              // rendering both INSIDE the table keeps the pills on screen, so a
+              // filter that matches nothing can still be cleared.
+              emptyState={
+                filters.active ? undefined : (
+                  <EmptyState
+                    icon={<History className="h-8 w-8 text-muted-foreground" />}
+                    title="No runs yet"
+                    description="Manually trigger the automation from the edit page to generate a run."
+                  />
+                )
+              }
+              noResultsState={
+                <EmptyState
+                  icon={<History className="h-8 w-8 text-muted-foreground" />}
+                  title="No runs match this filter"
+                  description="No run of this automation has that outcome."
+                  actions={
+                    <Button variant="outline" onClick={filters.clear}>
+                      Clear filter
+                    </Button>
+                  }
+                />
+              }
               // Nested inside the page's opaque Card, so the default bg-card
               // surface would create a panel-in-panel; the enclosing Card
               // already provides the opaque background.

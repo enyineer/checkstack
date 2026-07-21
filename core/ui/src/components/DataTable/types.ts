@@ -3,6 +3,7 @@ import type { SortValue } from "./helpers";
 import type {
   DataTableColumnFilter,
   DataTableFacet,
+  DataTableFacetControl,
   DataTableFilterState,
 } from "./facets.logic";
 
@@ -64,14 +65,21 @@ export interface DataTableProps<TData> {
   searchPlaceholder?: string;
   /**
    * "Narrow by one dimension" selects for a dimension NO SINGLE COLUMN owns -
-   * one matching several values per row, or shared across two row types.
+   * one matching several values per row, or a SERVER-APPLIED one that narrows
+   * the query rather than the rows.
    *
-   * Prefer declaring `filterValue` on the column instead: the column already
-   * reads the row for `sortValue` and renders it in `cell`, so filtering there
-   * too states the value once and keeps the three from drifting. Column-derived
-   * facets render first, in column order, followed by these.
+   * A control with no `value` accessor is rendered but not applied: it names a
+   * dimension you narrow yourself (by feeding the selection into a query input),
+   * and the rows that arrive are already scoped. This keeps such a control in
+   * the table's own bar instead of forcing the page to render a second one.
+   *
+   * Prefer declaring `filterValue` on the column when a column DOES own the
+   * dimension: the column already reads the row for `sortValue` and renders it
+   * in `cell`, so filtering there too states the value once and keeps the three
+   * from drifting. Column-derived facets render first, in column order,
+   * followed by these.
    */
-  facets?: ReadonlyArray<DataTableFacet<TData>>;
+  facets?: ReadonlyArray<DataTableFacet<TData> | DataTableFacetControl>;
   /**
    * Controlled filter state. Pair with {@link DataTableProps.onFiltersChange}.
    *

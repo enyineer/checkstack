@@ -1,13 +1,9 @@
 import { z } from "zod";
-import type {
-  HealthCheckConfiguration,
-  HealthCheckStrategyDto,
-} from "@checkstack/healthcheck-common";
+import type { HealthCheckStrategyDto } from "@checkstack/healthcheck-common";
 import {
-  applyTableFilters,
   parsedFacetValue,
-  type DataTableFacet,
   type DataTableFacetControl,
+  type DataTableFacetOption,
   type DataTableFilterState,
 } from "@checkstack/ui";
 
@@ -64,49 +60,30 @@ export interface HealthCheckSystemOption {
   name: string;
 }
 
-/** The search box matches the configuration name, and nothing else. */
-export const healthCheckSearchAccessors = [
-  (config: HealthCheckConfiguration) => config.name,
-];
-
 /** Placeholder + accessible name of the search box. */
 export const HEALTHCHECK_SEARCH_PLACEHOLDER = "Search health checks";
 
 /**
- * The client-applied facets: strategy (exact id) and active/paused. Strategy
- * options come from the strategy registry, so a newly installed strategy shows
- * up without a second list to maintain.
+ * Strategy options, from the strategy registry - so a newly installed strategy
+ * shows up without a second list to maintain. Declared rather than derived
+ * because the row carries an opaque id and the reader needs the display name.
  */
-export function healthCheckClientFacets({
+export function strategyFilterOptions({
   strategies,
 }: {
   strategies: HealthCheckStrategyDto[];
-}): DataTableFacet<HealthCheckConfiguration>[] {
-  return [
-    {
-      id: HEALTHCHECK_FACET_ID.strategy,
-      label: "Strategy",
-      anyLabel: "All strategies",
-      options: strategies.map((strategy) => ({
-        value: strategy.id,
-        label: strategy.displayName,
-      })),
-      value: (config) => config.strategyId,
-      triggerClassName: "md:w-48",
-    },
-    {
-      id: HEALTHCHECK_FACET_ID.status,
-      label: "Status",
-      anyLabel: "All statuses",
-      options: [
-        { value: "active", label: "Active" },
-        { value: "paused", label: "Paused" },
-      ],
-      value: (config) => (config.paused ? "paused" : "active"),
-      triggerClassName: "md:w-40",
-    },
-  ];
+}): DataTableFacetOption[] {
+  return strategies.map((strategy) => ({
+    value: strategy.id,
+    label: strategy.displayName,
+  }));
 }
+
+/** Active vs paused, derived from `config.paused`. */
+export const HEALTHCHECK_STATUS_OPTIONS: readonly DataTableFacetOption[] = [
+  { value: "active", label: "Active" },
+  { value: "paused", label: "Paused" },
+];
 
 /**
  * The server-applied system control. No row accessor: the selection narrows the
@@ -129,20 +106,6 @@ export function healthCheckSystemControl({
   };
 }
 
-/** Every control the filter bar renders, in display order. */
-export function healthCheckFilterControls({
-  strategies,
-  systems,
-}: {
-  strategies: HealthCheckStrategyDto[];
-  systems: HealthCheckSystemOption[];
-}): DataTableFacetControl[] {
-  return [
-    ...healthCheckClientFacets({ strategies }),
-    healthCheckSystemControl({ systems }),
-  ];
-}
-
 /**
  * The selected system id, or `undefined` for "all systems". Parsed rather than
  * read straight off the state so a hand-edited link cannot smuggle an empty
@@ -160,27 +123,3 @@ export function selectedSystemId({
   });
 }
 
-/**
- * Apply the search + the client-side facets. The system dimension is NOT
- * applied here - the caller has already scoped the rows by choosing the data
- * source, and re-applying it against a field the row does not have would drop
- * every row.
- *
- * Order is left to `DataTable`, which sorts by name by default.
- */
-export function filterHealthChecks({
-  configurations,
-  filters,
-  strategies,
-}: {
-  configurations: HealthCheckConfiguration[];
-  filters: DataTableFilterState;
-  strategies: HealthCheckStrategyDto[];
-}): HealthCheckConfiguration[] {
-  return applyTableFilters({
-    rows: configurations,
-    state: filters,
-    facets: healthCheckClientFacets({ strategies }),
-    searchAccessors: healthCheckSearchAccessors,
-  });
-}
