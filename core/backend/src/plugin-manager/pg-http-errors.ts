@@ -83,3 +83,24 @@ export function mapPgErrorToHttp(error: unknown): ORPCError<string, unknown> | u
   if (!mapping) return undefined;
   return new ORPCError(mapping.code, { message: mapping.message, cause: error });
 }
+
+/**
+ * True for a deliberate, contract-level REJECTION of the caller: an anonymous
+ * caller hitting an authenticated procedure (401), a caller missing an access
+ * rule (403), an id that does not exist (404), a conflicting write (409), bad
+ * input (400). The authorization layer working exactly as designed is NOT a
+ * server fault, so it must not be logged at error level with a stack trace -
+ * an unauthenticated visitor loading the app would otherwise fill the log with
+ * alarming "RPC ... failed: Authentication required" stacks for every
+ * authenticated-only query the page happens to mount.
+ *
+ * A 5xx `ORPCError` (a handler's own INTERNAL_SERVER_ERROR) is deliberately NOT
+ * a client error and keeps its loud logging.
+ */
+export function isClientRejection(
+  error: unknown,
+): error is ORPCError<string, unknown> {
+  return (
+    error instanceof ORPCError && error.status >= 400 && error.status < 500
+  );
+}

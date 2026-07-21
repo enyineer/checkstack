@@ -78,4 +78,8 @@ export default createFrontendPlugin({
 // stream plugins import `StreamSourcesSection` from this package entry.
 export { StreamSourcesSection } from "./components/StreamSourcesSection";
 export type { StreamSourcesSectionProps } from "./components/StreamSourcesSection";
+// The dashboard signal filler engine every stream plugin's headless
+// `SystemSignalsSlot` filler is built on.
+export { useLinkedStreamSignals } from "./hooks/useLinkedStreamSignals";
+export type { UseLinkedStreamSignalsOptions } from "./hooks/useLinkedStreamSignals";
 export * from "./api";
