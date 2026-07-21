@@ -182,6 +182,7 @@
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
         "react-router-dom": "^7.16.0",
+        "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",

@@ -5,6 +5,9 @@ import {
   severityToTone,
   statusToTone,
   tallyStatuses,
+  STATUS_BUCKETS,
+  announcementSeverityRank,
+  announcementStatusRank,
 } from "./announcementStatus.logic";
 
 const NOW = new Date("2026-06-20T12:00:00Z");
@@ -77,11 +80,31 @@ describe("getAnnouncementStatus", () => {
 });
 
 describe("statusToTone", () => {
-  test("active maps to ok, everything else to unknown", () => {
+  test("active is the live state", () => {
     expect(statusToTone("active")).toBe("ok");
-    expect(statusToTone("scheduled")).toBe("unknown");
+  });
+
+  test("scheduled is informational blue, not grey and not amber", () => {
+    // Regression: scheduled fell through a `default:` arm to the grey `unknown`
+    // tone, so "waiting for its start date" was indistinguishable from "inert".
+    // It is deliberately NOT `warn` either - amber means "degraded / needs
+    // attention" product-wide, and a correctly scheduled announcement is fine.
+    expect(statusToTone("scheduled")).toBe("info");
+  });
+
+  test("expired and inactive are the inert grey", () => {
+    // Grey is the DESIGNED tone for inert states, so these two keep it - but now
+    // by explicit decision rather than by falling through a default arm. They
+    // share a hue and are told apart by their labels, never by colour alone.
     expect(statusToTone("expired")).toBe("unknown");
     expect(statusToTone("inactive")).toBe("unknown");
+  });
+
+  test("every bucket in the stat strip resolves to a defined tone", () => {
+    for (const { status } of STATUS_BUCKETS) {
+      const styles = toneStyles[statusToTone(status)];
+      expect(styles.accent).toContain(`status-${statusToTone(status)}`);
+    }
   });
 });
 
@@ -105,6 +128,29 @@ describe("severityToTone", () => {
       expect(styles.dot).toContain(`status-${severityToTone(severity)}`);
       expect(styles.accent).toContain(`status-${severityToTone(severity)}`);
       expect(styles.text).toContain(`status-${severityToTone(severity)}`);
+    }
+  });
+});
+
+describe("sort ranks", () => {
+  test("severity sorts by impact, not alphabetically", () => {
+    const byRank = (["info", "warning", "critical"] as const)
+      .toSorted((a, b) => announcementSeverityRank[a] - announcementSeverityRank[b]);
+    expect(byRank).toEqual(["critical", "warning", "info"]);
+  });
+
+  test("status sorts by lifecycle, matching the stat strip's bucket order", () => {
+    const byRank = (["inactive", "expired", "scheduled", "active"] as const)
+      .toSorted((a, b) => announcementStatusRank[a] - announcementStatusRank[b]);
+    expect(byRank).toEqual(STATUS_BUCKETS.map((b) => b.status));
+  });
+
+  test("every status and severity has a rank (no undefined sort key)", () => {
+    for (const { status } of STATUS_BUCKETS) {
+      expect(announcementStatusRank[status]).toBeNumber();
+    }
+    for (const severity of ["info", "warning", "critical"] as const) {
+      expect(announcementSeverityRank[severity]).toBeNumber();
     }
   });
 });
