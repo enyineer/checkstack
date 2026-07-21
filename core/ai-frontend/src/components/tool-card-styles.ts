@@ -4,34 +4,20 @@
  * proposed/applied pair reads as a matched set, differentiated only by the
  * status tone driving the left accent stripe and the status pill.
  *
- * Tone is the colorblind-safe status triad (ok/warn/down). Class strings are
- * spelled out literally (never interpolated) so Tailwind's JIT keeps them.
+ * Tone is the colorblind-safe status triad (ok/warn/down).
  */
+import { pillToneStyles } from "@checkstack/ui";
+
 export type ToolCardTone = "ok" | "warn" | "down";
 
-/** Per-tone pill, dot, and left-accent-stripe classes for the status triad. */
-export const toolCardToneStyles: Record<
-  ToolCardTone,
-  { pill: string; dot: string; accent: string; icon: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-    icon: "text-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    icon: "text-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-    icon: "text-status-down",
-  },
+/**
+ * Per-tone pill, dot, accent-stripe and leading-icon (`text`) classes, taken
+ * from the shared `pillToneStyles` table rather than a private copy.
+ */
+export const toolCardToneStyles: Pick<typeof pillToneStyles, ToolCardTone> = {
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
 };
 
 /**
@@ -47,6 +33,11 @@ export const toolCardShell =
 export const toolCardInset =
   "rounded-md border border-border/60 bg-surface-inset";
 
-/** The status pill: a filled dot + label, multi-encoding status beyond hue. */
+/**
+ * Chip shape matching the shared `StatusPill`, for the ONE chip that carries no
+ * status tone: the terminal "Applied. / Declined." outcome, whose declined half
+ * is a surface-inset chip outside the ok/warn/down ladder. Toned chips use
+ * `StatusPill` itself.
+ */
 export const toolCardPill =
   "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium";

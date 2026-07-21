@@ -24,6 +24,7 @@ import {
   AlertTitle,
   AlertDescription,
   CopyableValue,
+  StatusPill,
   type LucideIconName,
 } from "@checkstack/ui";
 import {
@@ -64,34 +65,6 @@ export interface UserChannelCardProps {
   saving?: boolean;
   connecting?: boolean;
   testing?: boolean;
-}
-
-/**
- * Status pill for a channel's connection state, built on the colorblind-safe
- * status triad and multi-encoded with a dot + text label (never color alone).
- */
-function ChannelStatusPill({
-  tone,
-  label,
-}: {
-  tone: "ok" | "warn";
-  label: string;
-}) {
-  const styles =
-    tone === "ok"
-      ? { pill: "bg-status-ok/10 text-status-ok", dot: "bg-status-ok" }
-      : { pill: "bg-status-warn/10 text-status-warn", dot: "bg-status-warn" };
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        styles.pill
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-      {label}
-    </span>
-  );
 }
 
 /**
@@ -177,13 +150,13 @@ export function UserChannelCard({
   // colorblind-safe status triad and is multi-encoded with a dot + label.
   const getStatusBadge = () => {
     if (requiresOAuth && !isLinked) {
-      return <ChannelStatusPill tone="warn" label="Not Connected" />;
+      return <StatusPill tone="warn">Not Connected</StatusPill>;
     }
     if (requiresUserConfig && !channel.isConfigured) {
-      return <ChannelStatusPill tone="warn" label="Setup Required" />;
+      return <StatusPill tone="warn">Setup Required</StatusPill>;
     }
     if (localEnabled) {
-      return <ChannelStatusPill tone="ok" label="Active" />;
+      return <StatusPill tone="ok">Active</StatusPill>;
     }
     return <Badge variant="outline">Disabled</Badge>;
   };

@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { cn, usePerformance } from "@checkstack/ui";
+import { cn, pillToneStyles, usePerformance } from "@checkstack/ui";
 import { combineStatus, type NodeStatus } from "../dependencyDisplay.logic";
 
 export interface SystemNodeData extends Record<string, unknown> {
@@ -24,29 +24,16 @@ export interface SystemNodeData extends Record<string, unknown> {
 export type SystemNode = Node<SystemNodeData, "system">;
 
 /**
- * Per-status class sets for the node's left accent stripe, status pill, and dot.
- * Spelled out as full literal strings (not interpolated) so Tailwind's JIT keeps
- * them, and driven by the colorblind-safe status triad.
+ * A node's status mapped onto the colorblind-safe status triad; the classes
+ * themselves come from the shared `pillToneStyles` table so a graph node can
+ * never drift from the pills the rest of the app renders. The node keeps its
+ * own pill markup: it is a denser chip than the shared `StatusPill` and its dot
+ * carries an extra "ping" halo while a system is not operational.
  */
-const statusStyles: Record<
-  NodeStatus,
-  { accent: string; pill: string; dot: string }
-> = {
-  operational: {
-    accent: "bg-status-ok",
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-  },
-  degraded: {
-    accent: "bg-status-warn",
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-  },
-  down: {
-    accent: "bg-status-down",
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-  },
+const statusStyles: Record<NodeStatus, (typeof pillToneStyles)["ok"]> = {
+  operational: pillToneStyles.ok,
+  degraded: pillToneStyles.warn,
+  down: pillToneStyles.down,
 };
 
 const ownStatusLabel: Record<string, string> = {

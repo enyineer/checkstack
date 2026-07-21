@@ -10,6 +10,7 @@ import {
   DataTable,
   type DataTableColumn,
   PageLayout,
+  StatusPill,
   cn,
   usePerformance,
 } from "@checkstack/ui";
@@ -70,17 +71,10 @@ function getUserTypeIcon(userType?: string) {
  * both carry the security posture so the signal is not color-only.
  */
 function AccessStatusPill({ userType }: { userType?: string }) {
-  const styles = accessToneStyles[accessToneForUserType(userType)];
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        styles.pill,
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+    <StatusPill tone={accessToneForUserType(userType)}>
       {userType ?? "unknown"}
-    </span>
+    </StatusPill>
   );
 }
 

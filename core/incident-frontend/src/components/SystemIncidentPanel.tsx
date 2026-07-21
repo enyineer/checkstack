@@ -14,6 +14,7 @@ import {
   DetailCard,
   LoadingSpinner,
   Button,
+  pillToneStyles,
   type StatusPillTone,
 } from "@checkstack/ui";
 import { AlertTriangle, History } from "lucide-react";
@@ -33,41 +34,19 @@ function severityTone(severity: IncidentSeverity): StatusPillTone {
   return presentIncidentSeverity(severity).tone;
 }
 
-/** Per-tone class sets for the card border, leading icon/number, pill, and accent. */
-const toneStyles: Record<
-  StatusPillTone,
-  { border: string; icon: string; pill: string; dot: string }
-> = {
-  ok: {
-    border: "border-status-ok/30",
-    icon: "text-status-ok",
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-  },
-  down: {
-    border: "border-status-down/30",
-    icon: "text-status-down",
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-  },
-  warn: {
-    border: "border-status-warn/30",
-    icon: "text-status-warn",
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-  },
-  info: {
-    border: "border-status-info/30",
-    icon: "text-status-info",
-    pill: "bg-status-info/10 text-status-info",
-    dot: "bg-status-info",
-  },
-  unknown: {
-    border: "border-status-unknown/30",
-    icon: "text-status-unknown",
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-  },
+/**
+ * The panel's border tint per tone. Deliberately one step stronger than the
+ * shared table's `border` (/30 vs /20): this is a full-width alert surface
+ * sitting on a system detail page, where the shared value - tuned for an inline
+ * chip - reads as no edge at all. Everything else (icon, pill, dot, accent)
+ * comes from the shared `pillToneStyles` table.
+ */
+const panelBorder: Record<StatusPillTone, string> = {
+  ok: "border-status-ok/30",
+  down: "border-status-down/30",
+  warn: "border-status-warn/30",
+  info: "border-status-info/30",
+  unknown: "border-status-unknown/30",
 };
 
 
@@ -135,26 +114,27 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
   }
 
   const mostSevere = findMostSevereIncident(incidents);
-  const panelStyles = toneStyles[severityTone(mostSevere.severity)];
+  const panelTone = severityTone(mostSevere.severity);
+  const panelStyles = pillToneStyles[panelTone];
 
   return (
     <DetailCard
       className={cn(
         "relative flex items-center justify-between gap-3 overflow-hidden p-[var(--d-pad)]",
-        panelStyles.border,
+        panelBorder[panelTone],
       )}
     >
       <span
-        className={cn("absolute inset-y-0 left-0 w-1", panelStyles.dot)}
+        className={cn("absolute inset-y-0 left-0 w-1", panelStyles.accent)}
         aria-hidden
       />
       <div className="flex min-w-0 items-center gap-3 pl-2">
-        <AlertTriangle className={cn("h-4 w-4 shrink-0", panelStyles.icon)} />
+        <AlertTriangle className={cn("h-4 w-4 shrink-0", panelStyles.text)} />
         <div className="min-w-0">
           <p
             className={cn(
               "text-2xl font-bold leading-none tabular-nums",
-              panelStyles.icon,
+              panelStyles.text,
             )}
           >
             {incidents.length}
@@ -164,8 +144,13 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Kept as hand-rolled markup rather than `StatusPill`: this strip
+              packs one chip per active incident, so it needs a denser shape
+              than `size="md"` while keeping the standard 12px label and dot
+              that `size="sm"` shrinks. The classes still come from the shared
+              tone table, which is the part that must never drift. */}
           {incidents.map((i) => {
-            const styles = toneStyles[severityTone(i.severity)];
+            const styles = pillToneStyles[severityTone(i.severity)];
             return (
               <span
                 key={i.id}

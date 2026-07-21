@@ -1,10 +1,12 @@
 /**
  * Per-tone class sets for the status pill, dot, and a card/row's left accent
- * stripe, driven by the colorblind-safe status triad. Spelled out as full
- * literal strings (not interpolated) so Tailwind's JIT keeps them. Shared
- * across the GitOps provider, secret, and provenance surfaces so the depth
- * recipe stays consistent.
+ * stripe, driven by the colorblind-safe status triad. The classes come from the
+ * shared `pillToneStyles` table rather than a private copy, so the GitOps
+ * provider, secret, and provenance surfaces stay in step with the rest of the
+ * design system.
  */
+
+import { pillToneStyles } from "@checkstack/ui";
 
 export type GitOpsTone = "ok" | "warn" | "down" | "unknown";
 
@@ -16,30 +18,10 @@ export interface ToneStyle {
 }
 
 export const toneStyles: Record<GitOpsTone, ToneStyle> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-    text: "text-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    text: "text-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-    text: "text-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-    text: "text-status-unknown",
-  },
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  unknown: pillToneStyles.unknown,
 };
 
 /**

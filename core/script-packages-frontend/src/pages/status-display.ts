@@ -1,3 +1,4 @@
+import { pillToneStyles } from "@checkstack/ui";
 import type { AuditSeverity } from "@checkstack/script-packages-common";
 
 /**
@@ -20,33 +21,14 @@ export interface ToneStyle {
 }
 
 /**
- * Full literal class strings (not interpolated) so Tailwind's JIT keeps them.
+ * Sourced from the shared `pillToneStyles` table rather than a private copy, so
+ * a script-packages readout can never drift from the rest of the design system.
  */
 export const toneStyles: Record<StatusTone, ToneStyle> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-    text: "text-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    text: "text-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-    text: "text-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-    text: "text-status-unknown",
-  },
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  unknown: pillToneStyles.unknown,
 };
 
 /** Install-state status values mapped to a triad tone. */

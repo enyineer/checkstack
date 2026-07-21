@@ -1,4 +1,4 @@
-import { cn } from "@checkstack/ui";
+import { cn, StatusPill } from "@checkstack/ui";
 import { CheckCircle2 } from "lucide-react";
 import type { AppliedCard } from "../lib/stream-parser";
 import { DiffView } from "./DiffView";
@@ -6,7 +6,6 @@ import {
   toolCardToneStyles,
   toolCardShell,
   toolCardInset,
-  toolCardPill,
 } from "./tool-card-styles";
 
 /**
@@ -32,7 +31,7 @@ export function AppliedCardView({ card }: { card: AppliedCard }) {
       <div className="space-y-3 pl-2">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
-            <CheckCircle2 className={cn("mt-0.5 h-4 w-4 shrink-0", styles.icon)} />
+            <CheckCircle2 className={cn("mt-0.5 h-4 w-4 shrink-0", styles.text)} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
                 {card.summary}
@@ -42,10 +41,7 @@ export function AppliedCardView({ card }: { card: AppliedCard }) {
               </p>
             </div>
           </div>
-          <span className={cn(toolCardPill, styles.pill)}>
-            <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-            Applied
-          </span>
+          <StatusPill tone="ok">Applied</StatusPill>
         </div>
 
         {hasDiff ? (

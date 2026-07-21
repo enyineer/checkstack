@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, cn } from "@checkstack/ui";
+import { Button, cn, StatusPill } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AiApi } from "@checkstack/ai-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -70,7 +70,7 @@ export function ConfirmCardView({
       <div className="space-y-3 pl-2">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
-            <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", styles.icon)} />
+            <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", styles.text)} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
                 {card.summary}
@@ -80,10 +80,7 @@ export function ConfirmCardView({
               </p>
             </div>
           </div>
-          <span className={cn(toolCardPill, styles.pill)}>
-            <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-            {card.effect}
-          </span>
+          <StatusPill tone={tone}>{card.effect}</StatusPill>
         </div>
 
         {/* For an update we show the before -> after diff (what changes);

@@ -1,3 +1,4 @@
+import { pillToneStyles } from "@checkstack/ui";
 import type { InstalledPlugin } from "@checkstack/pluginmanager-common";
 
 /**
@@ -15,20 +16,12 @@ export interface PluginToneClasses {
 }
 
 /**
- * Per-tone class sets for the plugin status pill, dot, and card accent stripe.
- * Spelled out as full literal strings so Tailwind's JIT keeps them.
+ * Per-tone class sets for the plugin status pill, dot, and card accent stripe,
+ * taken from the shared `pillToneStyles` table rather than a private copy.
  */
 export const PLUGIN_TONE_STYLES: Record<PluginTone, PluginToneClasses> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
+  ok: pillToneStyles.ok,
+  unknown: pillToneStyles.unknown,
 };
 
 /**
