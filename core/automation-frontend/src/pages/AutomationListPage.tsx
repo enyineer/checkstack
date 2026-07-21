@@ -13,6 +13,7 @@ import {
   automationAccess,
   automationRoutes,
   automationResourceTypes,
+  AutomationStatusSchema,
   type Automation,
 } from "@checkstack/automation-common";
 import {
@@ -25,7 +26,11 @@ import {
   Badge,
   Toggle,
   DataTable,
+  DataTableFilterBar,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacet,
   RowActions,
   RowAction,
   LoadingSpinner,
@@ -67,6 +72,23 @@ const automationAccent = (status: Automation["status"]): string =>
  * Cache shape of the `listAutomations` loader: the paginated wrapper around the
  * automation rows. Used to type the optimistic snapshot/patch on the toggle.
  */
+/**
+ * Enabled/disabled, as pills: two short options a reader benefits from seeing
+ * at a glance. `value` mirrors what the server filters on, so the facet stays
+ * meaningful if this list ever filters client-side.
+ */
+const AUTOMATION_STATUS_FACET: DataTableFacet<Automation> = {
+  id: "status",
+  label: "Status",
+  anyLabel: "All",
+  kind: "pills",
+  options: [
+    { value: "enabled", label: "Enabled" },
+    { value: "disabled", label: "Disabled" },
+  ],
+  value: (automation) => automation.status,
+};
+
 type AutomationsQueryData = {
   items: Automation[];
 };
@@ -93,9 +115,16 @@ const AutomationListContent: React.FC = () => {
     AutomationApi.contract.createAutomation,
   );
 
-  const [statusFilter, setStatusFilter] = React.useState<
-    "all" | "enabled" | "disabled"
-  >("all");
+  // Filtering is server-side (it narrows the list query's input), so the table
+  // itself declares no facets - the shared filter bar drives the query. The
+  // state still lives in the URL, so a filtered list is shareable and survives
+  // opening an automation and coming back.
+  const filters = useDataTableFilters({ facetIds: [AUTOMATION_STATUS_FACET.id] });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: AUTOMATION_STATUS_FACET.id,
+    schema: AutomationStatusSchema,
+  });
   const [deleteId, setDeleteId] = React.useState<string | undefined>();
 
   // The loader input depends on the status filter, so the cache key changes
@@ -106,7 +135,7 @@ const AutomationListContent: React.FC = () => {
     () => ({
       limit: 100,
       offset: 0,
-      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...(statusFilter === undefined ? {} : { status: statusFilter }),
     }),
     [statusFilter],
   );
@@ -478,19 +507,15 @@ const AutomationListContent: React.FC = () => {
         <CardHeader className="border-b">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">All automations</CardTitle>
-            <div className="flex items-center gap-1">
-              {(["all", "enabled", "disabled"] as const).map((option) => (
-                <Button
-                  key={option}
-                  size="sm"
-                  variant={statusFilter === option ? "primary" : "outline"}
-                  onClick={() => setStatusFilter(option)}
-                  className="capitalize"
-                >
-                  {option}
-                </Button>
-              ))}
-            </div>
+            <DataTableFilterBar
+              filters={filters.state}
+              onFiltersChange={filters.setState}
+              facets={[AUTOMATION_STATUS_FACET]}
+              // The list groups into several tables, so there is no single one
+              // to search; the status facet is the whole control here.
+              searchable={false}
+              className="md:justify-end"
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">

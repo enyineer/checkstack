@@ -7,7 +7,7 @@ import {
   type Density,
   type HealthFilter,
 } from "../components/browse/browseState.logic";
-import { useDebouncedValue } from "./useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 
 const QUERY_DEBOUNCE_MS = 150;
 

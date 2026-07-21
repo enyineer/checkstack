@@ -11,8 +11,9 @@ import {
   AutomationApi,
   automationAccess,
   automationRoutes,
+  RunStatusSchema,
 } from "@checkstack/automation-common";
-import type { RunStatus, AutomationRun } from "@checkstack/automation-common";
+import type { AutomationRun } from "@checkstack/automation-common";
 import {
   PageLayout,
   Card,
@@ -21,7 +22,11 @@ import {
   CardTitle,
   Button,
   DataTable,
+  DataTableFilterBar,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacet,
   RowActions,
   RowAction,
   LoadingSpinner,
@@ -32,6 +37,26 @@ import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
 import { RunStatusPill } from "./run-status-pill";
 import { formatDuration } from "./run-duration";
+
+/**
+ * Run outcome, as pills: the whole point of this page is scanning for the runs
+ * that went wrong, so every outcome stays one click away rather than behind a
+ * dropdown. Options mirror `RunStatusSchema`, which is what the query filters on.
+ */
+const RUN_STATUS_FACET: DataTableFacet<AutomationRun> = {
+  id: "status",
+  label: "Status",
+  anyLabel: "All",
+  kind: "pills",
+  options: [
+    { value: "running", label: "Running" },
+    { value: "success", label: "Success" },
+    { value: "failed", label: "Failed" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "waiting", label: "Waiting" },
+  ],
+  value: (run) => run.status,
+};
 
 /**
  * Run history for a single automation. Status filter pinned to the top;
@@ -47,9 +72,15 @@ const RunsPageContent: React.FC = () => {
   const { allowed, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  const [statusFilter, setStatusFilter] = React.useState<RunStatus | "all">(
-    "all",
-  );
+  // Server-side filtering (it narrows the runs query), so the table declares no
+  // facets - the shared bar drives the query. URL-backed, so a link to "the
+  // failed runs of this automation" reopens filtered.
+  const filters = useDataTableFilters({ facetIds: [RUN_STATUS_FACET.id] });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: RUN_STATUS_FACET.id,
+    schema: RunStatusSchema,
+  });
 
   const automationQuery = client.getAutomation.useQuery(
     { id: automationId ?? "" },
@@ -63,7 +94,7 @@ const RunsPageContent: React.FC = () => {
     {
       automationId: automationId ?? "",
       limit: 50,
-      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...(statusFilter === undefined ? {} : { status: statusFilter }),
     },
     { enabled: Boolean(automationId) },
   );
@@ -164,28 +195,15 @@ const RunsPageContent: React.FC = () => {
         <CardHeader className="border-b">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Runs</CardTitle>
-            <div className="flex flex-wrap items-center gap-1">
-              {(
-                [
-                  "all",
-                  "running",
-                  "success",
-                  "failed",
-                  "cancelled",
-                  "waiting",
-                ] as const
-              ).map((option) => (
-                <Button
-                  key={option}
-                  size="sm"
-                  variant={statusFilter === option ? "primary" : "outline"}
-                  onClick={() => setStatusFilter(option)}
-                  className="capitalize"
-                >
-                  {option}
-                </Button>
-              ))}
-            </div>
+            <DataTableFilterBar
+              filters={filters.state}
+              onFiltersChange={filters.setState}
+              facets={[RUN_STATUS_FACET]}
+              // Runs are identified by time and outcome, not by a name worth
+              // typing, so the status facet is the whole control.
+              searchable={false}
+              className="md:justify-end"
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -210,6 +228,10 @@ const RunsPageContent: React.FC = () => {
               columns={columns}
               getRowId={(run) => run.id}
               searchable={false}
+              // Nested inside the page's opaque Card, so the default bg-card
+              // surface would create a panel-in-panel; the enclosing Card
+              // already provides the opaque background.
+              surface={false}
               renderMobileCard={(run) => (
                 <div className="rounded-md border bg-surface p-4">
                   <div className="flex items-start justify-between gap-2">

@@ -6,7 +6,7 @@ import {
   type HealthCheckListState,
   type StatusFilter,
 } from "../components/healthCheckListState.logic";
-import { useDebouncedValue } from "./useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 
 const QUERY_DEBOUNCE_MS = 150;
 

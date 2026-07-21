@@ -25,7 +25,7 @@ import {
   TracestreamApi,
   buildViewTraceHref,
 } from "@checkstack/tracestream-common";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 import { toMetricSeries, hasMetricSamples } from "../lib/metric-series";
 import { ExemplarLane } from "./ExemplarLane";
 

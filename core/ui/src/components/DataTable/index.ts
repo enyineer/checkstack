@@ -16,6 +16,7 @@ export {
   filterParamKey,
   hasActiveTableFilters,
   isFacetConstrained,
+  parsedFacetValue,
   parseTableFilters,
   selectedFacetValue,
   serializeTableFilters,

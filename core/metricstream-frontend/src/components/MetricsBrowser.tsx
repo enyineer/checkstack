@@ -16,7 +16,7 @@ import {
 } from "@checkstack/ui";
 import { Gauge } from "lucide-react";
 import { MetricstreamApi } from "@checkstack/metricstream-common";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 import { MetricDetail } from "./MetricDetail";
 
 export interface MetricsBrowserProps {

@@ -17,7 +17,7 @@ import {
 import { extractErrorMessage } from "@checkstack/common";
 import { LogstreamApi } from "@checkstack/logstream-common";
 import { Sparkles, Wand2 } from "lucide-react";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 import {
   WILDCARD,
   canSavePattern,

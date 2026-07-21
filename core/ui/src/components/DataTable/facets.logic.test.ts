@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import {
   ANY_FACET_VALUE,
   EMPTY_TABLE_FILTERS,
@@ -7,6 +8,7 @@ import {
   filterParamKey,
   hasActiveTableFilters,
   isFacetConstrained,
+  parsedFacetValue,
   parseTableFilters,
   selectedFacetValue,
   serializeTableFilters,
@@ -93,6 +95,52 @@ describe("selection helpers", () => {
       "alpha",
     );
     expect(next).toEqual({ query: "alpha", facets: { status: "active" } });
+  });
+});
+
+describe("parsedFacetValue", () => {
+  const schema = z.enum(["enabled", "disabled"]);
+
+  test("returns the domain value for a valid selection", () => {
+    expect(
+      parsedFacetValue({
+        filters: state({ facets: { status: "enabled" } }),
+        facetId: "status",
+        schema,
+      }),
+    ).toBe("enabled");
+  });
+
+  test("an unset facet is undefined (unconstrained)", () => {
+    expect(
+      parsedFacetValue({
+        filters: EMPTY_TABLE_FILTERS,
+        facetId: "status",
+        schema,
+      }),
+    ).toBeUndefined();
+  });
+
+  test("the sentinel is undefined, never passed through as a value", () => {
+    expect(
+      parsedFacetValue({
+        filters: state({ facets: { status: ANY_FACET_VALUE } }),
+        facetId: "status",
+        schema,
+      }),
+    ).toBeUndefined();
+  });
+
+  test("a value the schema rejects degrades to unconstrained", () => {
+    // A hand-edited or stale URL must not smuggle an unknown value into a
+    // server query input.
+    expect(
+      parsedFacetValue({
+        filters: state({ facets: { status: "haunted" } }),
+        facetId: "status",
+        schema,
+      }),
+    ).toBeUndefined();
   });
 });
 

@@ -87,34 +87,45 @@ export function DataTableFilterBar<TData>({
         </div>
       )}
 
-      {facets.map((facet) => (
-        <Select
-          key={facet.id}
-          value={selectedFacetValue(filters, facet.id)}
-          onValueChange={(value) =>
-            onFiltersChange(withFacetValue(filters, facet.id, value))
-          }
-        >
-          <SelectTrigger
-            className={cn("w-full md:w-44", facet.triggerClassName)}
-            aria-label={`Filter by ${facet.label.toLowerCase()}`}
+      {facets.map((facet) =>
+        facet.kind === "pills" ? (
+          <FacetPills
+            key={facet.id}
+            facet={facet}
+            selected={selectedFacetValue(filters, facet.id)}
+            onSelect={(value) =>
+              onFiltersChange(withFacetValue(filters, facet.id, value))
+            }
+          />
+        ) : (
+          <Select
+            key={facet.id}
+            value={selectedFacetValue(filters, facet.id)}
+            onValueChange={(value) =>
+              onFiltersChange(withFacetValue(filters, facet.id, value))
+            }
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {/* Named rather than blank, so the unconstrained state is something
-                you can read and deliberately return to. */}
-            <SelectItem value={ANY_FACET_VALUE}>
-              {facet.anyLabel ?? `Any ${facet.label.toLowerCase()}`}
-            </SelectItem>
-            {facet.options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
+            <SelectTrigger
+              className={cn("w-full md:w-44", facet.triggerClassName)}
+              aria-label={`Filter by ${facet.label.toLowerCase()}`}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Named rather than blank, so the unconstrained state is
+                  something you can read and deliberately return to. */}
+              <SelectItem value={ANY_FACET_VALUE}>
+                {facet.anyLabel ?? `Any ${facet.label.toLowerCase()}`}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ))}
+              {facet.options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ),
+      )}
 
       {children}
 
@@ -124,6 +135,57 @@ export function DataTableFilterBar<TData>({
           Clear
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The `kind: "pills"` rendering: a segmented row where every option is visible
+ * and one click away, led by the unconstrained option.
+ *
+ * `aria-pressed` is what makes the group announce its state - the hand-rolled
+ * pill groups this replaces were split on whether to set it, and two shipped
+ * without it, leaving screen-reader users no way to tell which filter was live.
+ */
+function FacetPills<TData>({
+  facet,
+  selected,
+  onSelect,
+}: {
+  facet: DataTableFacet<TData>;
+  selected: string;
+  onSelect: (value: string) => void;
+}): React.ReactElement {
+  const options = [
+    {
+      value: ANY_FACET_VALUE,
+      label: facet.anyLabel ?? `All ${facet.label.toLowerCase()}`,
+    },
+    ...facet.options,
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-1 rounded-md border border-border bg-surface-inset p-0.5"
+      role="group"
+      aria-label={`Filter by ${facet.label.toLowerCase()}`}
+    >
+      {options.map((option) => {
+        const active = option.value === selected;
+        return (
+          <Button
+            key={option.value}
+            type="button"
+            size="sm"
+            variant={active ? "secondary" : "ghost"}
+            aria-pressed={active}
+            onClick={() => onSelect(option.value)}
+            className="h-7 px-2 text-xs"
+          >
+            {option.label}
+          </Button>
+        );
+      })}
     </div>
   );
 }

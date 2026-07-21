@@ -58,6 +58,20 @@ export interface DataTableFacet<TData> {
    * e.g. `"Any severity"`.
    */
   anyLabel?: string;
+  /**
+   * How to render the control.
+   *
+   * - `"select"` (default) - a dropdown. Right for anything past a handful of
+   *   options, and the only sane choice on a narrow viewport.
+   * - `"pills"` - a segmented row of buttons, every option visible and one
+   *   click away. Right for two or three short options that a reader benefits
+   *   from seeing at a glance (enabled/disabled, a run status). Use it
+   *   sparingly: a dozen pills is a worse dropdown.
+   *
+   * Both variants share the same state, sentinel and URL round-trip, so the
+   * choice is purely presentational.
+   */
+  kind?: "select" | "pills";
   /** Extra classes for the select trigger (typically a width). */
   triggerClassName?: string;
 }
@@ -126,6 +140,39 @@ export function withQuery(
   query: string,
 ): DataTableFilterState {
   return { ...state, query };
+}
+
+/**
+ * Read a facet's selection back as a DOMAIN value, by parsing it against the
+ * schema that defines it.
+ *
+ * Facet state is stringly-typed because it round-trips through the URL and
+ * through `<Select>`, but a server-side filter needs the narrow union its query
+ * input declares. Parsing rather than casting means a hand-edited or stale link
+ * yields `undefined` - "unconstrained" - instead of smuggling an unknown value
+ * into a request.
+ *
+ * ```ts
+ * const status = parsedFacetValue({
+ *   filters: filters.state,
+ *   facetId: "status",
+ *   schema: AutomationStatusSchema,
+ * });
+ * ```
+ */
+export function parsedFacetValue<TValue>({
+  filters,
+  facetId,
+  schema,
+}: {
+  filters: DataTableFilterState;
+  facetId: string;
+  schema: { safeParse: (value: unknown) => { success: boolean; data?: TValue } };
+}): TValue | undefined {
+  const raw = filters.facets[facetId];
+  if (!isFacetConstrained(raw)) return undefined;
+  const parsed = schema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
