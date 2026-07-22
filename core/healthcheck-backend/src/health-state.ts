@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
-import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
+import type { SystemHealthStatus } from "@checkstack/healthcheck-common";
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -20,8 +20,11 @@ type MaintenanceClient = InferClient<typeof MaintenanceApi>;
  * re-deriving the math each time.
  */
 export interface HealthState {
-  /** Aggregate status across all enabled checks. */
-  status: HealthCheckStatus;
+  /**
+   * Aggregate status across all enabled checks. `unknown` when nothing has been
+   * measured yet - the system has no checks, or none of them has ever run.
+   */
+  status: SystemHealthStatus;
   /**
    * When the system most recently entered `status`. Null when no
    * transition has been recorded yet (fail-safe: never throws).
@@ -58,7 +61,8 @@ export interface HealthState {
 
 /** Raw inputs to the pure builder, decoupled from the DB layer. */
 export interface HealthStateInputs {
-  status: HealthCheckStatus;
+  /** May be `unknown` - nothing measured yet. */
+  status: SystemHealthStatus;
   inStatusSince: Date | null;
   latencyMs?: number;
   avgLatencyMs?: number;
@@ -330,7 +334,7 @@ export async function computeHealthState({
    */
   environmentId?: string | null;
   /** Returns the aggregate status for the system (per-check when scoped). */
-  resolveStatus: () => Promise<HealthCheckStatus>;
+  resolveStatus: () => Promise<SystemHealthStatus>;
   maintenanceClient?: MaintenanceClient;
   logger?: Logger;
   /** Trailing window (minutes) for the transition count. */
@@ -341,7 +345,12 @@ export async function computeHealthState({
 
   const [inStatusSince, latest, windowed, inMaintenance, transitionsInWindow] =
     await Promise.all([
-      findInStatusSince({ db, systemId, status, environmentId }),
+      // An UNMEASURED system has no transition rows to find - and `unknown` is
+      // not a member of the transition table's status enum, so querying for it
+      // would be a database error, not merely an empty result.
+      status === "unknown"
+        ? Promise.resolve(null)
+        : findInStatusSince({ db, systemId, status, environmentId }),
       findLatestRun({ db, systemId, configurationId, environmentId }),
       computeWindowedMetrics({ db, systemId, configurationId, environmentId, now }),
       resolveInMaintenance({ maintenanceClient, systemId, logger }),

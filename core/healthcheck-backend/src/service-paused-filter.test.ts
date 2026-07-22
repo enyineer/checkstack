@@ -159,9 +159,12 @@ describe("HealthCheckService - paused configuration filtering", () => {
       const result = await service.getSystemHealthStatus("system-1");
 
       // The post-filter associations list is empty, so the system has no
-      // active checks and reads healthy — paused failures do NOT keep the
-      // system degraded.
-      expect(result.status).toBe("healthy");
+      // ACTIVE checks. Paused failures still do NOT keep the system degraded -
+      // that is the behaviour this test guards - but the result is now
+      // `unknown` rather than `healthy`: with its only check paused, nothing is
+      // measuring this system, and claiming health it has no evidence for is
+      // what made a broken check read green on the catalog and status page.
+      expect(result.status).toBe("unknown");
       expect(result.checkStatuses).toHaveLength(0);
     });
 
@@ -260,7 +263,9 @@ describe("HealthCheckService - paused configuration filtering", () => {
 
       const result = await service.getSystemHealthStatus("system-1");
 
-      expect(result.status).toBe("healthy");
+      // No enabled associations = nothing measured, so `unknown` rather than an
+      // invented `healthy`.
+      expect(result.status).toBe("unknown");
       expect(result.checkStatuses).toHaveLength(0);
     });
   });

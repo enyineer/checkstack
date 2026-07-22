@@ -181,6 +181,28 @@ export const HealthCheckStatusSchema = z.enum([
 export type HealthCheckStatus = z.infer<typeof HealthCheckStatusSchema>;
 
 /**
+ * The status of a SYSTEM or of one of its checks, which - unlike a single run -
+ * may have no signal at all.
+ *
+ * `unknown` means "not measured", and is deliberately NOT a run status: a run
+ * that happened is always one of the three above, and the database enum stays
+ * three-valued. It exists because absence of evidence was previously reported
+ * as `healthy`, so a check that had never produced a run, or a system with no
+ * checks at all, showed green everywhere - in the catalog, in a group rollup,
+ * and as "operational" on a public status page. For a monitoring product that
+ * is the worst possible default: the one state you must never invent is the
+ * reassuring one.
+ */
+export const SystemHealthStatusSchema = z.enum([
+  "healthy",
+  "unhealthy",
+  "degraded",
+  "unknown",
+]);
+
+export type SystemHealthStatus = z.infer<typeof SystemHealthStatusSchema>;
+
+/**
  * Structured, per-run transport timing breakdown.
  *
  * Every field is OPTIONAL and expressed in milliseconds. Each strategy

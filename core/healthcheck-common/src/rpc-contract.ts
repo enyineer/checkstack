@@ -15,6 +15,7 @@ import {
   HealthCheckRunSchema,
   HealthCheckRunPublicSchema,
   HealthCheckStatusSchema,
+  SystemHealthStatusSchema,
   HealthCheckRunResultSchema,
   StateThresholdsSchema,
   RetentionConfigSchema,
@@ -29,7 +30,8 @@ import {
 const SystemCheckStatusSchema = z.object({
   configurationId: z.string(),
   configurationName: z.string(),
-  status: HealthCheckStatusSchema,
+  /** `unknown` when this check has produced no runs to evaluate. */
+  status: SystemHealthStatusSchema,
   runsConsidered: z.number(),
   lastRunAt: z.date().optional(),
   /**
@@ -68,7 +70,11 @@ const SystemHealthOverrideSchema = z.object({
 export type SystemHealthOverride = z.infer<typeof SystemHealthOverrideSchema>;
 
 const SystemHealthStatusResponseSchema = z.object({
-  status: HealthCheckStatusSchema,
+  /**
+   * `unknown` when NO check contributed a signal - the system has no enabled
+   * checks, or none of them has ever run. Never invented as `healthy`.
+   */
+  status: SystemHealthStatusSchema,
   evaluatedAt: z.date(),
   checkStatuses: z.array(SystemCheckStatusSchema),
   /**
@@ -90,7 +96,8 @@ export type SystemHealthStatusResponse = z.infer<
  * transition has been recorded; `inStatusForMs` is 0 in that case.
  */
 const HealthStateSchema = z.object({
-  status: HealthCheckStatusSchema,
+  /** `unknown` when nothing has been measured yet. */
+  status: SystemHealthStatusSchema,
   inStatusSince: z.date().nullable(),
   inStatusForMs: z.number(),
   latencyMs: z.number().optional(),
@@ -954,7 +961,7 @@ export const healthCheckContract = {
           z.string(),
           z.object({
             /** Cross-environment rollup (same as getSystemHealthStatus). */
-            status: HealthCheckStatusSchema,
+            status: SystemHealthStatusSchema,
             /** Cross-environment per-check statuses. */
             checkStatuses: z.array(SystemCheckStatusSchema),
             /**
@@ -965,7 +972,7 @@ export const healthCheckContract = {
             environments: z.record(
               z.string(),
               z.object({
-                status: HealthCheckStatusSchema,
+                status: SystemHealthStatusSchema,
                 checkStatuses: z.array(SystemCheckStatusSchema),
               }),
             ),

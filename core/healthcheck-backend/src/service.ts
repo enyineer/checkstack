@@ -4,6 +4,7 @@ import {
   UpdateHealthCheckConfiguration,
   StateThresholds,
   HealthCheckStatus,
+  SystemHealthStatus,
   RetentionConfig,
   type HealthCheckRunResult,
   type NotificationPolicy,
@@ -112,7 +113,8 @@ type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 interface SystemCheckStatus {
   configurationId: string;
   configurationName: string;
-  status: HealthCheckStatus;
+  /** `unknown` when this check has produced no runs to evaluate. */
+  status: SystemHealthStatus;
   runsConsidered: number;
   lastRunAt?: Date;
   /** Environment slices this check currently fans out to (>= 1). */
@@ -122,7 +124,8 @@ interface SystemCheckStatus {
 }
 
 interface SystemHealthStatusResponse {
-  status: HealthCheckStatus;
+  /** `unknown` when no check contributed a signal. */
+  status: SystemHealthStatus;
   evaluatedAt: Date;
   checkStatuses: SystemCheckStatus[];
 }
@@ -1267,7 +1270,8 @@ export class HealthCheckService {
           thresholds = await stateThresholds.parse(assoc.stateThresholds);
         }
 
-        let status: HealthCheckStatus;
+        // Can be `unknown`: a check whose slices produced no runs.
+        let status: SystemHealthStatus;
         let runsConsidered: number;
         let lastRunAt: Date | undefined;
         // Fan-out accounting for the honest "X of Y checks failing" denominator:
@@ -1325,7 +1329,10 @@ export class HealthCheckService {
             presentEnvKeys,
           });
 
-          status = "healthy";
+          // Start from "no signal", NOT from healthy: a check whose slices
+          // have produced no runs has measured nothing, and inventing health
+          // for it is what made a misconfigured check read green everywhere.
+          status = "unknown";
           runsConsidered = 0;
           lastRunAt = undefined;
           // Each EFFECTIVE env group is a slice. A check that has runs against N
@@ -1361,10 +1368,15 @@ export class HealthCheckService {
             if (envStatus !== "healthy") {
               failingSliceCount++;
             }
+            // A slice that produced no runs contributes nothing - it must not
+            // upgrade the check to healthy, nor mask a failing sibling.
+            if (envRuns.length === 0) continue;
             if (envStatus === "unhealthy") {
               status = "unhealthy";
-            } else if (envStatus === "degraded" && status === "healthy") {
+            } else if (envStatus === "degraded" && status !== "unhealthy") {
               status = "degraded";
+            } else if (status === "unknown") {
+              status = "healthy";
             }
           }
         } else {
@@ -1387,12 +1399,17 @@ export class HealthCheckService {
             .orderBy(desc(healthCheckRuns.timestamp))
             .limit(maxWindowSize);
 
-          status = evaluateHealthStatus({ runs, thresholds });
+          // No runs at all means this slice has measured nothing.
+          status =
+            runs.length === 0
+              ? "unknown"
+              : evaluateHealthStatus({ runs, thresholds });
           runsConsidered = runs.length;
           lastRunAt = runs[0]?.timestamp;
           // Single-slice evaluation: this env either counts as failing or not.
+          // `unknown` is not a failure - it is the absence of a measurement.
           sliceCount = 1;
-          failingSliceCount = status === "healthy" ? 0 : 1;
+          failingSliceCount = status === "healthy" || status === "unknown" ? 0 : 1;
         }
 
         out.push({
@@ -1408,8 +1425,14 @@ export class HealthCheckService {
       return out;
     });
 
-    // Aggregate status: worst status wins (unhealthy > degraded > healthy)
-    let aggregateStatus: HealthCheckStatus = "healthy";
+    // Aggregate status: worst status wins (unhealthy > degraded > healthy),
+    // starting from `unknown` so a system with NO checks - or whose checks have
+    // never run - reports "not measured" instead of claiming health it has no
+    // evidence for. A check that DID report keeps deciding the outcome, so a
+    // system with one healthy check and one never-run check still reads healthy:
+    // it has positive evidence, and the unmeasured check is visible on the
+    // system's own page rather than dragging the whole system to unknown.
+    let aggregateStatus: SystemHealthStatus = "unknown";
     for (const cs of checkStatuses) {
       if (cs.status === "unhealthy") {
         aggregateStatus = "unhealthy";
@@ -1418,6 +1441,8 @@ export class HealthCheckService {
       if (cs.status === "degraded") {
         aggregateStatus = "degraded";
         // Don't break - keep looking for unhealthy
+      } else if (cs.status === "healthy" && aggregateStatus === "unknown") {
+        aggregateStatus = "healthy";
       }
     }
 

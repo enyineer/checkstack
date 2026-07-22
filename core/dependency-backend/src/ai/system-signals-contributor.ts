@@ -7,6 +7,7 @@ import {
 import type { InferClient } from "@checkstack/common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
 import {
   dependencyAccess,
   deriveDependencySignals,
@@ -78,10 +79,17 @@ export function createDependencySystemSignalsContributor({
             systemId,
             systemName: system.name,
             status: overallStatus,
-            healthCheckStatuses: healthStatus.checkStatuses.map((cs) => ({
-              healthCheckId: cs.configurationId,
-              status: cs.status,
-            })),
+            // A check that has never run says nothing about the dependency, so
+            // it is dropped rather than counted as passing.
+            healthCheckStatuses: healthStatus.checkStatuses
+              .filter(
+                (cs): cs is typeof cs & { status: HealthCheckStatus } =>
+                  cs.status !== "unknown",
+              )
+              .map((cs) => ({
+                healthCheckId: cs.configurationId,
+                status: cs.status,
+              })),
           });
         } else {
           statuses.set(systemId, {

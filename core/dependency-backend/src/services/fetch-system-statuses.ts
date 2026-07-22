@@ -1,7 +1,10 @@
 import type { Logger } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import type { CatalogApi } from "@checkstack/catalog-common";
-import type { HealthCheckApi } from "@checkstack/healthcheck-common";
+import type {
+  HealthCheckApi,
+  SystemHealthStatus,
+} from "@checkstack/healthcheck-common";
 import type { SystemStatus, SliceStatus } from "./warning-evaluation-service";
 
 type HealthCheckStatus = "healthy" | "degraded" | "unhealthy";
@@ -16,15 +19,31 @@ function toDependencyStatus(
 }
 
 function toSlice(source: {
-  status: HealthCheckStatus;
-  checkStatuses: Array<{ configurationId: string; status: HealthCheckStatus }>;
+  status: SystemHealthStatus;
+  checkStatuses: Array<{ configurationId: string; status: SystemHealthStatus }>;
 }): SliceStatus {
   return {
-    status: toDependencyStatus(source.status),
-    healthCheckStatuses: source.checkStatuses.map((cs) => ({
-      healthCheckId: cs.configurationId,
-      status: cs.status,
-    })),
+    // An UNMEASURED upstream must not raise a dependency warning: "we have not
+    // measured this" is not evidence that a downstream is at risk, and treating
+    // it as `down` would alarm on every newly-added system. It maps to
+    // `operational` here purely so dependency alerting behaves exactly as it did
+    // before `unknown` existed - deliberately NOT a claim that the system is
+    // healthy, which is what the catalog and status page now report honestly.
+    status:
+      source.status === "unknown"
+        ? "operational"
+        : toDependencyStatus(source.status),
+    // A check that has never run says nothing about the dependency, so it is
+    // dropped rather than counted as passing.
+    healthCheckStatuses: source.checkStatuses
+      .filter(
+        (cs): cs is typeof cs & { status: HealthCheckStatus } =>
+          cs.status !== "unknown",
+      )
+      .map((cs) => ({
+        healthCheckId: cs.configurationId,
+        status: cs.status,
+      })),
   };
 }
 

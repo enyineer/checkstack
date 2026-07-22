@@ -17,6 +17,7 @@ export * from "./environment-slices";
 // `./schemas` (inferred from their Zod schemas) and re-exported above.
 
 import type { CollectorConfigEntry } from "./schemas";
+import { SystemHealthStatusSchema } from "./schemas";
 
 /**
  * Represents a Health Check Configuration (the check definition/template).
@@ -97,8 +98,14 @@ export const SYSTEM_STATUS_CHANGED = createSignal({
   event: "system.status_changed",
   payloadSchema: z.object({
     systemId: z.string(),
-    previousStatus: z.enum(["healthy", "degraded", "unhealthy"]),
-    newStatus: z.enum(["healthy", "degraded", "unhealthy"]),
+    /**
+     * Either side may be `unknown`: a system whose checks have never run has no
+     * measured status, so its first result is a genuine `unknown -> healthy`
+     * transition that consumers should see. A RUN's own status is never
+     * `unknown` - see `run.completed` above.
+     */
+    previousStatus: SystemHealthStatusSchema,
+    newStatus: SystemHealthStatusSchema,
   }),
 });
 

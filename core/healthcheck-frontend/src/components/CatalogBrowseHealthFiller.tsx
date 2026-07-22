@@ -33,7 +33,11 @@ const HealthStatusReporter: React.FC<Props> = ({
     const result: CatalogHealthStatuses = {};
     for (const id of systemIds) {
       const status = getSystemBadgeData(id)?.health?.status;
-      if (status) result[id] = status;
+      // `unknown` is reported by OMISSION: the rollup already treats an absent
+      // system as "no signal", and the catalog vocabulary has no `unknown`
+      // member. Mapping it to a status here would be inventing one - and
+      // mapping it to `healthy` is exactly the bug this reporting fixes.
+      if (status && status !== "unknown") result[id] = status;
     }
     return result;
   }, [systemIds, getSystemBadgeData]);

@@ -31,6 +31,7 @@ import {
   SYSTEM_STATUS_CHANGED,
   ENVIRONMENT_RESOLUTION_FAILED,
   type HealthCheckStatus,
+  type SystemHealthStatus,
   stripEphemeralFields,
   HEALTH_CHECK_QUEUE,
   type HealthCheckJobPayload,
@@ -357,7 +358,10 @@ export async function recomputeSystemRollupHealth(args: {
    */
   signalService?: SignalService;
   cache?: HealthCheckCache;
-}): Promise<{ previousStatus: HealthCheckStatus; newStatus: HealthCheckStatus } | undefined> {
+}): Promise<
+  | { previousStatus: SystemHealthStatus; newStatus: SystemHealthStatus }
+  | undefined
+> {
   const {
     systemId,
     service,
@@ -968,7 +972,8 @@ async function executeHealthCheckJob(props: {
       // stale cached status until the TTL. Assigned by whichever branch's
       // `apply` runs; used for the transition log AND the cache reconcile.
       let previousState!: AggregatedHealth;
-      let previousStatus!: HealthCheckStatus;
+      // May be `unknown`: the pre-run baseline of a check that had never run.
+      let previousStatus!: SystemHealthStatus;
 
       // Curated, read-only run-context metadata exposed to collectors.
       // Metadata only - never secrets or config. `environment` carries the
@@ -1356,7 +1361,10 @@ async function executeHealthCheckJob(props: {
         environmentName: environment?.name,
       });
 
-      if (newState.status !== previousStatus) {
+      // `newState.status` cannot be `unknown` here - a run just completed, so
+      // the check has a measurement - but narrowing it keeps that guarantee
+      // explicit rather than asserted with a cast.
+      if (newState.status !== previousStatus && newState.status !== "unknown") {
         // Record the aggregate transition so the sensing layer has a
         // reliable "in status since" for every status (Wave 2).
         await recordStateTransition({
@@ -1364,7 +1372,11 @@ async function executeHealthCheckJob(props: {
           systemId,
           configurationId: configId,
           environmentId,
-          fromStatus: previousStatus,
+          // NULL means "no prior measured status" - the column is nullable for
+          // exactly this first-measurement case, so a system whose checks had
+          // never run records an honest `null -> healthy` rather than
+          // pretending it was healthy all along.
+          fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
           toStatus: newState.status,
         });
 
@@ -1374,7 +1386,11 @@ async function executeHealthCheckJob(props: {
           systemName,
           configurationId: configId,
           configurationName: configRow.configName,
-          previousStatus,
+          // A first measurement is not a transition anyone asked to hear about
+          // when it lands healthy; `notifyStateChange` decides, and it needs a
+          // concrete previous status to compare against.
+          previousStatus:
+            previousStatus === "unknown" ? "healthy" : previousStatus,
           newStatus: newState.status,
           environmentId,
           environmentName: environment?.name,
@@ -1538,7 +1554,9 @@ async function executeHealthCheckJob(props: {
       environmentId,
     });
 
-    if (newState.status !== previousStatus) {
+    // `newState.status` cannot be `unknown` here (a run just completed);
+    // narrowing keeps that explicit instead of asserting it with a cast.
+    if (newState.status !== previousStatus && newState.status !== "unknown") {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
       await recordStateTransition({
@@ -1546,7 +1564,9 @@ async function executeHealthCheckJob(props: {
         systemId,
         configurationId: configId,
         environmentId,
-        fromStatus: previousStatus,
+        // `undefined` records NULL - "no prior measured status" - which is what
+        // the recorder already documents for a first-ever transition.
+        fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
         toStatus: newState.status,
       });
 
@@ -1556,7 +1576,10 @@ async function executeHealthCheckJob(props: {
         systemName,
         configurationId: configId,
         configurationName: configRow.configName,
-        previousStatus,
+        // A first measurement has no previous status to compare against;
+        // `notifyStateChange` needs a concrete one to decide what to send.
+        previousStatus:
+          previousStatus === "unknown" ? "healthy" : previousStatus,
         newStatus: newState.status,
         environmentId,
         environmentName: environment?.name,
@@ -1576,7 +1599,7 @@ async function executeHealthCheckJob(props: {
       if (!isFannedOut) {
         await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
           systemId,
-          previousStatus: previousStatus as HealthCheckStatus,
+          previousStatus,
           newStatus: newState.status,
         });
       }
@@ -1624,7 +1647,8 @@ async function executeHealthCheckJob(props: {
     // catastrophic tick for the same system can't commit between the baseline
     // read and this insert and make the cache change-gate miss a transition.
     let rollupPreState!: AggregatedHealth;
-    let previousStatus!: HealthCheckStatus;
+    // May be `unknown`: the pre-run baseline of a check that had never run.
+    let previousStatus!: SystemHealthStatus;
     let newState!: AggregatedHealth;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
@@ -1719,14 +1743,16 @@ async function executeHealthCheckJob(props: {
       environmentId: null,
     });
 
-    if (newState.status !== previousStatus) {
+    // `newState.status` cannot be `unknown` here (a run just completed).
+    if (newState.status !== previousStatus && newState.status !== "unknown") {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
       await recordStateTransition({
         db,
         systemId,
         configurationId: configId,
-        fromStatus: previousStatus,
+        // `undefined` records NULL: no prior measured status.
+        fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
         toStatus: newState.status,
       });
 
@@ -1736,7 +1762,9 @@ async function executeHealthCheckJob(props: {
         systemName,
         configurationId: configId,
         configurationName: configName,
-        previousStatus,
+        // A first measurement has no previous status to compare against.
+        previousStatus:
+          previousStatus === "unknown" ? "healthy" : previousStatus,
         newStatus: newState.status,
         service,
         catalogClient,
