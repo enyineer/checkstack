@@ -188,6 +188,17 @@ export const AssignmentPanels: React.FC<AssignmentPanelsProps> = ({
             onToggleSatellite={(satelliteId) =>
               editor.toggleSatellite(systemId, satelliteId)
             }
+            satelliteEnvironmentIds={assignment.satelliteEnvironmentIds ?? {}}
+            onSetSatelliteEnvironmentMode={(satelliteId, mode) =>
+              editor.setSatelliteEnvironmentMode(systemId, satelliteId, mode)
+            }
+            onToggleSatelliteEnvironment={(satelliteId, environmentId) =>
+              editor.toggleSatelliteEnvironment(
+                systemId,
+                satelliteId,
+                environmentId,
+              )
+            }
             environmentIds={assignment.environmentIds ?? null}
             environments={editor.systemEnvironments.map((e) => ({
               id: e.id,

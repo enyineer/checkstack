@@ -51,11 +51,26 @@ By default a health check assignment runs locally on the core. To use satellites
 
 - **Satellite IDs.** Pick one or more satellites to run the check from.
 - **Include local.** When satellites are selected, you can decide whether the core also continues running the check locally in parallel. Default is on.
+- **Environments per satellite.** Once a satellite is assigned, you can scope it to specific environments. The default is all of them.
 
 Each result is tagged with its **source**: `null` for local execution, the satellite's UUID otherwise. The UI shows a human-readable source label (for example, "EU West (eu-west-1)") on each run row and aggregates per-source for charts.
 
 > [!TIP]
 > Running both local and satellite execution in parallel is the typical pattern when adding a satellite to an existing check. You see the local result you already trusted alongside the new per-region result; once the satellite is proven you can toggle local off.
+
+### Satellites and environments
+
+A satellite fans a check out exactly as the core does: if the assignment covers three environments, the satellite runs the check three times, once per environment, and reports each result against that environment. Per-environment history, charts and rollups therefore include satellite results, and collectors running on a satellite get the same `{{ environment.<key> }}` templating they get locally.
+
+Scope each satellite to the environments it can actually reach. A satellite inside the staging network has no route to production, so probing it there produces failures that say nothing about production:
+
+- **All environments** (the default) - the satellite runs every environment the assignment covers, and automatically picks up new ones.
+- **Specific environments** - the satellite runs only the ones you tick.
+
+A satellite can only ever narrow the assignment's own environment selector, never widen it: the assignment decides which environments the check covers, and the satellite decides which of those it is responsible for. Ticking nothing opts that satellite out of environment fan-out entirely - it runs the check once, with no environment in context.
+
+> [!NOTE]
+> A satellite older than this feature is sent no environments and keeps reporting env-less results, exactly as it did before. Upgrade the satellite to get per-environment attribution.
 
 ## Forwarding telemetry and scraping metrics
 

@@ -1,4 +1,6 @@
 ---
+"@checkstack/healthcheck-frontend": minor
+"@checkstack/ai-backend": patch
 "@checkstack/healthcheck-backend": minor
 "@checkstack/healthcheck-common": minor
 "@checkstack/satellite": minor
@@ -36,3 +38,8 @@ Both protocol additions are optional, for version skew in either direction: an
 older satellite sends no `environmentId` and its runs are stored env-less as they
 always were, while an older core sends no environments and the agent falls back to
 a single env-less run.
+
+The assignment's Execution panel gains a per-satellite environment picker,
+shown for each assigned satellite once the system has environments.
+
+Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.

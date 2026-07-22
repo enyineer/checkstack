@@ -25,6 +25,20 @@ interface ExecutionPanelProps {
   onToggleLocal: () => void;
   onToggleSatellite: (satelliteId: string) => void;
   /**
+   * Per-SATELLITE environment scoping, keyed by satellite id. An absent key
+   * means that satellite runs every environment the assignment resolves to.
+   */
+  satelliteEnvironmentIds: Record<string, string[] | null>;
+  /** Scope a satellite to all environments (`null`) or to a specific list. */
+  onSetSatelliteEnvironmentMode: (
+    satelliteId: string,
+    mode: "all" | "specific",
+  ) => void;
+  onToggleSatelliteEnvironment: (
+    satelliteId: string,
+    environmentId: string,
+  ) => void;
+  /**
    * Per-assignment environment selector value. null = all current
    * environments; [] = opt out (env-less); non-empty = those env ids.
    */
@@ -62,6 +76,9 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   satellites,
   onToggleLocal,
   onToggleSatellite,
+  satelliteEnvironmentIds,
+  onSetSatelliteEnvironmentMode,
+  onToggleSatelliteEnvironment,
   environmentIds,
   environments,
   environmentsSettled,
@@ -166,6 +183,77 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                 </div>
               );
             })}
+            {/* Per-satellite scoping, only worth showing once a satellite is
+                actually assigned AND there is more than one environment to
+                choose between - otherwise the control has nothing to decide. */}
+            {environments.length > 0 &&
+              satellites
+                .filter((sat) => satelliteIds.includes(sat.id))
+                .map((sat) => {
+                  const scope = satelliteEnvironmentIds[sat.id];
+                  const scoped = Array.isArray(scope);
+                  const selected = new Set(scope);
+                  return (
+                    <div
+                      key={`${sat.id}-scope`}
+                      className="ml-6 space-y-1.5 rounded-md border border-dashed p-2.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-medium">
+                          {sat.name}: environments
+                        </span>
+                        <Tooltip content="Which environments this satellite probes. Scope a satellite to the environments it can actually reach - a staging-network satellite should not be probing production." />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {(["all", "specific"] as const).map((mode) => (
+                          <label
+                            key={mode}
+                            className="flex items-center gap-1.5 text-xs cursor-pointer"
+                          >
+                            <input
+                              type="radio"
+                              name={`sat-env-mode-${sat.id}`}
+                              checked={scoped === (mode === "specific")}
+                              disabled={saving || isLocked}
+                              onChange={() =>
+                                onSetSatelliteEnvironmentMode(sat.id, mode)
+                              }
+                            />
+                            {mode === "all"
+                              ? "All environments"
+                              : "Specific environments"}
+                          </label>
+                        ))}
+                      </div>
+                      {scoped && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5 pl-5">
+                          {environments.map((env) => (
+                            <label
+                              key={env.id}
+                              className="flex items-center gap-2 text-xs cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={selected.has(env.id)}
+                                onCheckedChange={() =>
+                                  onToggleSatelliteEnvironment(sat.id, env.id)
+                                }
+                                disabled={saving || isLocked}
+                              />
+                              <span className="truncate">{env.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {scoped && selected.size === 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          No environment selected: this satellite runs the check
+                          once, with no environment in context.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
           </div>
         )}
       </div>
