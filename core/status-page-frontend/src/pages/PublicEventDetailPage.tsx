@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { EmptyState, LoadingSpinner,
   StatusPill,
+  pillToneStyles,
 } from "@checkstack/ui";
 import { ArrowLeft, FileQuestion, Wrench } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -11,6 +12,10 @@ import {
 } from "@checkstack/status-page-common";
 import { resolveRoute } from "@checkstack/common";
 import { severityTone } from "../utils/severityTone";
+import {
+  maintenanceStatusLabel,
+  maintenanceStatusTone,
+} from "../utils/maintenanceStatusTone";
 
 /**
  * Public incident / maintenance DETAIL pages. Each renders ENTIRELY from a
@@ -166,11 +171,15 @@ export const PublicMaintenanceDetailView: React.FC<{
     <DetailShell>
       <BackLink href={backHref} />
       <div className="flex flex-wrap items-center gap-2">
-        <Wrench className="size-5 text-status-unknown" />
+        <Wrench
+          className={`size-5 ${pillToneStyles[maintenanceStatusTone(data.status)].text}`}
+        />
         <h1 className="text-2xl font-bold tracking-tight">{data.title}</h1>
-        <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
-          {data.status.replace("_", " ")}
-        </span>
+        {/* Maintenance carries no severity, so its LIFECYCLE gets the hue -
+            one coloured dimension per row (see `status-tone.ts`). */}
+        <StatusPill tone={maintenanceStatusTone(data.status)} size="sm">
+          {maintenanceStatusLabel(data.status)}
+        </StatusPill>
       </div>
       <p className="mt-2 text-sm tabular-nums text-muted-foreground">
         {formatAt(data.startAt)} - {formatAt(data.endAt)}

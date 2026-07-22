@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Markdown, MarkdownBlock, formatPercent,
   StatusPill,
+  pillToneStyles,
 } from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
@@ -34,6 +35,10 @@ import {
   type WidgetRendererMap,
 } from "./renderer-map";
 import { severityStripeClass, severityTone } from "./utils/severityTone";
+import {
+  maintenanceStatusLabel,
+  maintenanceStatusTone,
+} from "./utils/maintenanceStatusTone";
 
 export {
   mergeWidgetRenderers,
@@ -95,9 +100,12 @@ export const STATUS: Record<PublicStatus, StatusMeta> = {
   },
   maintenance: {
     label: "Maintenance",
-    solid: "bg-status-unknown",
-    soft: "bg-status-unknown/10 text-status-unknown",
-    hero: "bg-status-unknown/10 text-status-unknown ring-status-unknown/20",
+    // Blue `info`, not grey: a system under planned maintenance is neither
+    // broken nor in an unknown state - it is a deliberate, announced window.
+    // Grey read as "we have no idea", which is the opposite of the message.
+    solid: "bg-status-info",
+    soft: "bg-status-info/10 text-status-info",
+    hero: "bg-status-info/10 text-status-info ring-status-info/20",
     Icon: Wrench,
   },
   unknown: {
@@ -523,6 +531,20 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
+/**
+ * An active maintenance card, striped in its own lifecycle hue. Wraps
+ * {@link ActiveEventCard} purely so the stripe cannot drift from the pill
+ * beside it - both read from `maintenanceStatusTone`.
+ */
+const MaintenanceEventCard: React.FC<{
+  status: string;
+  children: React.ReactNode;
+}> = ({ status, children }) => (
+  <ActiveEventCard stripe={pillToneStyles[maintenanceStatusTone(status)].accent}>
+    {children}
+  </ActiveEventCard>
+);
+
 const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = MaintenanceDtoSchema.safeParse(data);
   const buildHref = React.useContext(StatusDetailLinkContext);
@@ -541,18 +563,22 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
           </p>
         ) : (
           active.map((m) => (
-            <ActiveEventCard key={m.id} stripe="bg-status-unknown">
+            <MaintenanceEventCard key={m.id} status={m.status}>
               <div className="flex flex-wrap items-center gap-2">
-                <Wrench className="size-4 text-status-unknown" />
+                <Wrench
+                  className={`size-4 ${pillToneStyles[maintenanceStatusTone(m.status)].text}`}
+                />
                 <MaybeLink
                   href={hrefFor(m.id)}
                   className="font-semibold hover:text-primary hover:underline"
                 >
                   <h4 className="font-semibold">{m.title}</h4>
                 </MaybeLink>
-                <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
-                  {m.status.replace("_", " ")}
-                </span>
+                {/* Maintenance carries no severity, so its LIFECYCLE gets the
+                    hue - one coloured dimension per row (`status-tone.ts`). */}
+                <StatusPill tone={maintenanceStatusTone(m.status)} size="sm">
+                  {maintenanceStatusLabel(m.status)}
+                </StatusPill>
               </div>
               <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">
                 {formatAt(m.startAt)} – {formatAt(m.endAt)}
@@ -563,7 +589,7 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                 </p>
               )}
               <UpdatesTimeline updates={m.updates} />
-            </ActiveEventCard>
+            </MaintenanceEventCard>
           ))
         )}
         {past.length > 0 && (

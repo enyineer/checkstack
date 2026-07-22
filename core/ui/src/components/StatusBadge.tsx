@@ -3,12 +3,19 @@ import { cn } from "../utils";
 
 export type StatusTone = "ok" | "warn" | "error" | "info" | "neutral";
 
+// Drawn from the shared status tokens (`--status-*`, see `themes.css` and
+// `status-tone.ts`), NOT the generic `--success`/`--warning`/`--info` palette.
+// The two diverge - e.g. `--info` (217 91% 60%) vs `--status-info` (214 90%
+// 45%) - so a badge and a status PILL of the same tone used to render two
+// different blues (and two different ambers) for the same meaning. A system's
+// badge row and its detail pills now share one hue per tone. `error` maps onto
+// the `down` token and `neutral` onto `unknown`, matching the pill vocabulary.
 const toneClass: Record<StatusTone, string> = {
-  ok: "bg-success/10 text-success",
-  warn: "bg-warning/10 text-warning",
-  error: "bg-destructive/10 text-destructive",
-  info: "bg-info/10 text-info",
-  neutral: "bg-secondary text-secondary-foreground",
+  ok: "bg-status-ok/10 text-status-ok",
+  warn: "bg-status-warn/10 text-status-warn",
+  error: "bg-status-down/10 text-status-down",
+  info: "bg-status-info/10 text-status-info",
+  neutral: "bg-status-unknown/10 text-status-unknown",
 };
 
 /**
