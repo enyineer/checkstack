@@ -17,6 +17,7 @@ import {
   HealthCheckRunsTable,
   type HealthCheckRunDetailed,
 } from "../components/HealthCheckRunsTable";
+import { useEnvironmentLabels } from "../hooks/useEnvironmentLabels";
 import {
   healthCheckAccess,
   healthCheckResourceTypes,
@@ -44,6 +45,12 @@ const HealthCheckHistoryPageContent = () => {
 
   // Pagination state
   const pagination = usePagination({ defaultLimit: 25 });
+  // Names for the run rows' environment chips, resolved from EVERY environment
+  // in the instance so an unassigned-but-existing environment still shows its
+  // name. Without this the table was told nothing and labelled every live
+  // environment "Removed environment".
+  const { environmentLabels, isLoading: environmentLabelsLoading } =
+    useEnvironmentLabels();
 
   // Fetch data with useQuery - newest first for table display
   const { data, isLoading } = healthCheckClient.getDetailedHistory.useQuery({
@@ -72,7 +79,10 @@ const HealthCheckHistoryPageContent = () => {
         <CardContent>
           <HealthCheckRunsTable
             runs={runs}
-            loading={isLoading}
+            // Hold the rows until the names resolve: a run whose environment is
+            // merely still loading must never flash "Removed environment".
+            loading={isLoading || environmentLabelsLoading}
+            environmentLabels={environmentLabels}
             showFilterColumns
             pagination={pagination}
             onRowSelect={(run) =>
