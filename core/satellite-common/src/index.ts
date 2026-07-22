@@ -16,9 +16,11 @@ export {
 } from "./schemas";
 export {
   SatelliteAssignmentSchema,
+  SatelliteEnvironmentSchema,
   SatelliteToCoreMessageSchema,
   CoreToSatelliteMessageSchema,
   type SatelliteAssignment,
+  type SatelliteEnvironment,
   type SatelliteToCoreMessage,
   type CoreToSatelliteMessage,
   type AuthenticateMessage,

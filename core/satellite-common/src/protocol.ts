@@ -29,6 +29,20 @@ const SatelliteCollectorConfigSchema = z.object({
 });
 
 /**
+ * One environment a satellite assignment fans out into. Mirrors the core's
+ * `EffectiveEnvironment`: `fields` is the environment's free-form catalog
+ * metadata, surfaced to collectors as `{{ environment.<key> }}` - metadata
+ * only, never secrets.
+ */
+export const SatelliteEnvironmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type SatelliteEnvironment = z.infer<typeof SatelliteEnvironmentSchema>;
+
+/**
  * A health check assignment sent from the core to a satellite.
  * Contains everything the satellite needs to execute the check.
  */
@@ -49,6 +63,16 @@ export const SatelliteAssignmentSchema = z.object({
    * treats it as `{}`.
    */
   systemMetadata: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * The environments this assignment fans out into, already resolved by the
+   * core against the system's membership and the assignment's selector. The
+   * satellite runs the check ONCE PER entry and reports each result with that
+   * environment's id.
+   *
+   * Absent or empty means one env-less run - which is also what an older core
+   * sends, so an older core keeps producing exactly today's behaviour.
+   */
+  environments: z.array(SatelliteEnvironmentSchema).optional(),
 });
 
 export type SatelliteAssignment = z.infer<typeof SatelliteAssignmentSchema>;
@@ -154,6 +178,12 @@ const ResultMessageSchema = z.object({
   /** Structured run result — typed to enforce parity with the local executor */
   result: HealthCheckRunResultSchema.optional(),
   executedAt: z.string(),
+  /**
+   * The environment this run executed for, or `null`/absent for an env-less
+   * run. Optional for version-skew safety: an older satellite omits it and the
+   * core stores the run env-less, exactly as it always did.
+   */
+  environmentId: z.string().nullable().optional(),
 });
 
 const StrategyErrorMessageSchema = z.object({

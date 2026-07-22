@@ -382,6 +382,16 @@ export const healthCheckContract = {
           /** IDs of satellites assigned to execute this health check */
           satelliteIds: z.array(z.string()).optional(),
           /**
+           * Per-SATELLITE environment scoping, keyed by satellite id. Absent
+           * key = that satellite runs every environment the assignment
+           * resolves to; `[]` = one env-less run on it; non-empty = those ids,
+           * intersected with the assignment's own set (a satellite can narrow
+           * but never widen). Lets a prod satellite run only prod.
+           */
+          satelliteEnvironmentIds: z
+            .record(z.string(), z.array(z.string()).nullable())
+            .optional(),
+          /**
            * Per-assignment environment selector. null = all current
            * environments; [] = opt out (env-less); non-empty = those ids.
            */
@@ -456,6 +466,16 @@ export const healthCheckContract = {
           stateThresholds: StateThresholdsSchema.optional(),
           /** IDs of satellites assigned to execute this health check */
           satelliteIds: z.array(z.string()).optional(),
+          /**
+           * Per-SATELLITE environment scoping, keyed by satellite id. Absent
+           * key = that satellite runs every environment the assignment
+           * resolves to; `[]` = one env-less run on it; non-empty = those ids,
+           * intersected with the assignment's own set (a satellite can narrow
+           * but never widen). Lets a prod satellite run only prod.
+           */
+          satelliteEnvironmentIds: z
+            .record(z.string(), z.array(z.string()).nullable())
+            .optional(),
           /**
            * Per-assignment environment selector. null = all current
            * environments; [] = opt out (env-less); non-empty = those ids.
@@ -1101,6 +1121,22 @@ export const healthCheckContract = {
           intervalSeconds: z.number(),
           configName: z.string().optional(),
           systemName: z.string().optional(),
+          systemMetadata: z.record(z.string(), z.unknown()).optional(),
+          /**
+           * The environments this assignment fans out into, resolved against
+           * the system's current membership and the assignment's selector. The
+           * satellite runs the check once per entry. Empty/absent = one
+           * env-less run, which is what an older core sends.
+           */
+          environments: z
+            .array(
+              z.object({
+                id: z.string(),
+                name: z.string(),
+                fields: z.record(z.string(), z.unknown()).optional(),
+              }),
+            )
+            .optional(),
         }),
       ),
     ),
@@ -1120,6 +1156,12 @@ export const healthCheckContract = {
         executedAt: z.string(),
         sourceId: z.string(),
         sourceLabel: z.string(),
+        /**
+         * The environment this run executed for. Absent/null stores the run
+         * env-less - what an older satellite, which is handed no environments,
+         * will always send.
+         */
+        environmentId: z.string().nullable().optional(),
       }),
     )
     .output(z.void()),

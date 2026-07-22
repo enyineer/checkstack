@@ -19,7 +19,7 @@ import { evaluateCollectorAssertionOutcomes } from "./collector-assertions";
 import { summarizeRuns, type StatRun } from "./run-stats.logic";
 import type { ConfigService } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
-import type { CatalogApi } from "@checkstack/catalog-common";
+import type { CatalogApi, Environment } from "@checkstack/catalog-common";
 import {
   notificationDefaultsConfigV1,
   NOTIFICATION_DEFAULTS_CONFIG_ID,
@@ -54,7 +54,10 @@ import { parseHealthEntityId } from "./health-entity-id";
 import { stateThresholds } from "./state-thresholds-migrations";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
-import { resolveEffectiveEnvironments } from "./effective-environments";
+import {
+  resolveEffectiveEnvironments,
+  resolveSatelliteEnvironments,
+} from "./effective-environments";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import { withScopedTransaction } from "@checkstack/backend-api";
 import type {
@@ -641,6 +644,13 @@ export class HealthCheckService {
     stateThresholds?: StateThresholds;
     satelliteIds?: string[];
     /**
+     * Per-SATELLITE environment scoping. Absent key = that satellite runs every
+     * environment the assignment resolves to; `[]` = one env-less run on it;
+     * non-empty = those ids, intersected with `environmentIds` (a satellite can
+     * narrow the assignment's scope, never widen it).
+     */
+    satelliteEnvironmentIds?: Record<string, string[] | null>;
+    /**
      * Per-assignment environment selector. `null` (or `undefined`) = all
      * current environments; `[]` = opt out (env-less); non-empty = those
      * ids. `null` and `[]` are stored distinctly so the run-time resolver
@@ -656,6 +666,7 @@ export class HealthCheckService {
       enabled = true,
       stateThresholds: stateThresholds_,
       satelliteIds,
+      satelliteEnvironmentIds,
       environmentIds,
       includeLocal = true,
       notificationPolicy,
@@ -678,6 +689,7 @@ export class HealthCheckService {
         enabled,
         stateThresholds: versionedThresholds,
         satelliteIds: satelliteIds ?? undefined,
+        satelliteEnvironmentIds: satelliteEnvironmentIds ?? undefined,
         environmentIds: environmentIdsValue,
         includeLocal,
         notificationPolicy: notificationPolicy ?? undefined,
@@ -691,6 +703,7 @@ export class HealthCheckService {
           enabled,
           stateThresholds: versionedThresholds,
           satelliteIds: satelliteIds ?? undefined,
+          satelliteEnvironmentIds: satelliteEnvironmentIds ?? undefined,
           environmentIds: environmentIdsValue,
           includeLocal,
           notificationPolicy: notificationPolicy ?? undefined,
@@ -714,6 +727,13 @@ export class HealthCheckService {
     stateThresholds?: StateThresholds;
     satelliteIds?: string[];
     /**
+     * Per-SATELLITE environment scoping. Absent key = that satellite runs every
+     * environment the assignment resolves to; `[]` = one env-less run on it;
+     * non-empty = those ids, intersected with `environmentIds` (a satellite can
+     * narrow the assignment's scope, never widen it).
+     */
+    satelliteEnvironmentIds?: Record<string, string[] | null>;
+    /**
      * Per-assignment environment selector. `null` (or `undefined`) = all
      * current environments; `[]` = opt out (env-less); non-empty = those ids.
      */
@@ -727,6 +747,7 @@ export class HealthCheckService {
       enabled = true,
       stateThresholds: stateThresholds_,
       satelliteIds,
+      satelliteEnvironmentIds,
       environmentIds,
       includeLocal = true,
       notificationPolicy,
@@ -784,6 +805,7 @@ export class HealthCheckService {
           enabled,
           stateThresholds: versionedThresholds,
           satelliteIds: satelliteIds ?? undefined,
+          satelliteEnvironmentIds: satelliteEnvironmentIds ?? undefined,
           environmentIds: environmentIdsValue,
           includeLocal,
           notificationPolicy: notificationPolicy ?? undefined,
@@ -955,6 +977,7 @@ export class HealthCheckService {
         enabled: systemHealthChecks.enabled,
         stateThresholds: systemHealthChecks.stateThresholds,
         satelliteIds: systemHealthChecks.satelliteIds,
+        satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
         environmentIds: systemHealthChecks.environmentIds,
         includeLocal: systemHealthChecks.includeLocal,
         notificationPolicy: systemHealthChecks.notificationPolicy,
@@ -1002,6 +1025,7 @@ export class HealthCheckService {
         enabled: systemHealthChecks.enabled,
         stateThresholds: systemHealthChecks.stateThresholds,
         satelliteIds: systemHealthChecks.satelliteIds,
+        satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
         environmentIds: systemHealthChecks.environmentIds,
         includeLocal: systemHealthChecks.includeLocal,
         notificationPolicy: systemHealthChecks.notificationPolicy,
@@ -2671,6 +2695,7 @@ export class HealthCheckService {
         systemId: systemHealthChecks.systemId,
         configurationId: systemHealthChecks.configurationId,
         satelliteIds: systemHealthChecks.satelliteIds,
+        satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
       })
       .from(systemHealthChecks);
 
@@ -2705,7 +2730,9 @@ export class HealthCheckService {
         systemId: systemHealthChecks.systemId,
         configurationId: systemHealthChecks.configurationId,
         satelliteIds: systemHealthChecks.satelliteIds,
+        satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
         enabled: systemHealthChecks.enabled,
+        environmentIds: systemHealthChecks.environmentIds,
       })
       .from(systemHealthChecks);
 
@@ -2749,6 +2776,31 @@ export class HealthCheckService {
       return resolved;
     };
 
+    // The system's current environment membership, resolved once per distinct
+    // system. A satellite must fan out exactly as the local executor does, or
+    // its results land env-less and every per-environment surface loses them.
+    // A catalog failure degrades to "no environments" - a single env-less run,
+    // which is the pre-fan-out behaviour - rather than dropping the check.
+    const membershipCache = new Map<string, Environment[]>();
+    const resolveMembership = async (
+      systemId: string,
+    ): Promise<Environment[]> => {
+      const cached = membershipCache.get(systemId);
+      if (cached !== undefined) return cached;
+      let membership: Environment[] = [];
+      if (this.catalogClient) {
+        try {
+          membership = await this.catalogClient.resolveSystemEnvironments({
+            systemId,
+          });
+        } catch {
+          // Degrade to env-less rather than withholding the assignment.
+        }
+      }
+      membershipCache.set(systemId, membership);
+      return membership;
+    };
+
     // Get configurations for each matching association
     const assignments = [];
     for (const assoc of matchingAssociations) {
@@ -2760,6 +2812,17 @@ export class HealthCheckService {
       if (!config || config.paused) continue;
 
       const system = await resolveSystem(assoc.systemId);
+      // The assignment decides which environments exist for this check; the
+      // satellite decides which of those IT is responsible for. Narrowing in
+      // that order is what lets a prod satellite run only prod, and stops any
+      // satellite widening its own scope.
+      const environments = resolveSatelliteEnvironments({
+        effective: resolveEffectiveEnvironments({
+          environmentIds: assoc.environmentIds,
+          membership: await resolveMembership(assoc.systemId),
+        }),
+        satelliteEnvironmentIds: assoc.satelliteEnvironmentIds?.[satelliteId],
+      });
       assignments.push({
         configId: config.id,
         systemId: assoc.systemId,
@@ -2771,6 +2834,10 @@ export class HealthCheckService {
         configName: config.name,
         systemName: system.name,
         systemMetadata: system.metadata,
+        // One run per environment, mirroring the local fan-out. Empty means a
+        // single env-less run (the system has no environments, or this
+        // assignment opted out with `[]`).
+        environments,
       });
     }
 
@@ -2849,8 +2916,22 @@ export class HealthCheckService {
     executedAt: string;
     sourceId: string;
     sourceLabel: string;
+    /**
+     * The environment this run executed for. Absent/null stores the run
+     * env-less - what a satellite older than per-environment fan-out sends,
+     * and what an assignment with no environments legitimately produces.
+     */
+    environmentId?: string | null;
   }) {
-    const { configId, systemId, latencyMs, result, sourceId, sourceLabel } =
+    const {
+      configId,
+      systemId,
+      latencyMs,
+      result,
+      sourceId,
+      sourceLabel,
+      environmentId,
+    } =
       props;
 
     const resultRecord = result
@@ -2938,6 +3019,11 @@ export class HealthCheckService {
         result: resultRecord,
         sourceId,
         sourceLabel,
+        // The environment the satellite ran for. `null` when the satellite is
+        // older than per-environment fan-out, or the assignment genuinely has
+        // no environments - the same env-less slice the local executor writes
+        // in that case.
+        environmentId: environmentId ?? null,
       });
 
       // Trigger incremental hourly aggregation — same as local executor
@@ -2951,6 +3037,7 @@ export class HealthCheckService {
         result: resultRecord,
         collectorRegistry: this.collectorRegistry,
         sourceLabel,
+        environmentId: environmentId ?? null,
       });
     });
   }

@@ -234,6 +234,9 @@ export default createBackendPlugin({
                 executedAt: result.executedAt,
                 sourceId: satelliteId,
                 sourceLabel,
+                // The environment this satellite ran for. Absent from an older
+                // satellite, which stores the run env-less exactly as before.
+                environmentId: result.environmentId ?? null,
               });
               logger.debug(
                 `Ingested result from satellite ${satelliteId} (${sourceLabel}): ` +

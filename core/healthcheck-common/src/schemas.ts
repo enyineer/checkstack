@@ -368,6 +368,20 @@ export const AssociateHealthCheckSchema = z.object({
   /** IDs of satellites assigned to execute this health check */
   satelliteIds: z.array(z.string()).optional(),
   /**
+   * Per-SATELLITE environment scoping, keyed by satellite id, so a prod
+   * satellite can run only the prod environment instead of probing every
+   * environment from a network it may have no route to.
+   *
+   * Absent key = that satellite runs every environment the assignment resolves
+   * to (the default, and what every pre-existing assignment does). `[]` = one
+   * env-less run on that satellite. Non-empty = those ids, INTERSECTED with the
+   * assignment's own `environmentIds`: a satellite can narrow the assignment's
+   * scope, never widen it.
+   */
+  satelliteEnvironmentIds: z
+    .record(z.string(), z.array(z.string()).nullable())
+    .optional(),
+  /**
    * Per-assignment environment selector for per-environment fan-out.
    * `null`/omitted = all environments the system currently belongs to;
    * non-empty array = exactly those (intersected with current membership);
@@ -403,6 +417,15 @@ export const CreateAndAssignHealthCheckSchema = z.object({
   stateThresholds: StateThresholdsSchema.optional(),
   /** IDs of satellites assigned to execute this health check. */
   satelliteIds: z.array(z.string()).optional(),
+  /**
+   * Per-SATELLITE environment scoping, keyed by satellite id. Absent key = that
+   * satellite runs every environment the assignment resolves to; `[]` = one
+   * env-less run on it; non-empty = those ids, intersected with the
+   * assignment's own set. See {@link AssociateHealthCheckSchema}.
+   */
+  satelliteEnvironmentIds: z
+    .record(z.string(), z.array(z.string()).nullable())
+    .optional(),
   /**
    * Per-assignment environment selector for per-environment fan-out.
    * `null`/omitted = all environments the system currently belongs to (the

@@ -14,6 +14,7 @@ import { SatelliteSandboxPolicyCache } from "./sandbox-policy-cache";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
+import type { SatelliteEnvironment } from "@checkstack/satellite-common";
 import {
   hasUnresolvedConfigSecrets,
   assertConfigSecretsResolved,
@@ -121,6 +122,7 @@ function declaresSecretEnv(config: Record<string, unknown>): boolean {
 
 async function executeAssignment(
   assignment: SatelliteAssignment,
+  environment: SatelliteEnvironment | null,
   deps: {
     /**
      * Request a collector run's resolved secret env from core (JIT). Throws
@@ -152,6 +154,7 @@ async function executeAssignment(
       type: "result",
       configId: assignment.configId,
       systemId: assignment.systemId,
+      environmentId: environment?.id ?? null,
       status: "unhealthy",
       latencyMs: 0,
       executedAt: new Date().toISOString(),
@@ -170,7 +173,10 @@ async function executeAssignment(
   // Curated, read-only run-context metadata exposed to collectors.
   // Mirrors the core queue-executor; falls back to IDs when the optional
   // name fields are absent (version-skew safety).
-  const runContext: CollectorRunContext = buildRunContext({ assignment });
+  const runContext: CollectorRunContext = buildRunContext({
+    assignment,
+    environment,
+  });
 
   const start = performance.now();
   let connectedClient:
@@ -325,6 +331,7 @@ async function executeAssignment(
       type: "result",
       configId: assignment.configId,
       systemId: assignment.systemId,
+      environmentId: environment?.id ?? null,
       status,
       latencyMs,
       executedAt: new Date().toISOString(),
@@ -349,6 +356,7 @@ async function executeAssignment(
       type: "result",
       configId: assignment.configId,
       systemId: assignment.systemId,
+      environmentId: environment?.id ?? null,
       status: "unhealthy",
       latencyMs,
       executedAt: new Date().toISOString(),
@@ -444,9 +452,9 @@ const scriptPackages = new SatelliteScriptPackages({
 
 const scheduler = new Scheduler({
   logger,
-  onExecute: async (assignment: SatelliteAssignment) => {
+  onExecute: async ({ assignment, environment }) => {
     try {
-      const result = await executeAssignment(assignment, {
+      const result = await executeAssignment(assignment, environment, {
         requestRunSecrets: (input) => client.requestRunSecrets(input),
         requestConfigSecrets: (input) => client.requestConfigSecrets(input),
       });
@@ -459,6 +467,7 @@ const scheduler = new Scheduler({
         type: "result",
         configId: assignment.configId,
         systemId: assignment.systemId,
+        environmentId: environment?.id ?? null,
         status: "unhealthy",
         latencyMs: 0,
         executedAt: new Date().toISOString(),
