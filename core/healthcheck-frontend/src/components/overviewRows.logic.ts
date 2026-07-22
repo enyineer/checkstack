@@ -118,24 +118,81 @@ function isConcreteEnvLive({
 }
 
 /**
- * A slice is orphaned (old) when it no longer receives runs: a concrete
- * environment that is no longer part of the system OR was disabled for this
- * assignment, or the env-less (`null`) slice of a check that currently fans out
- * to a live environment.
+ * How many missed intervals before a slice is taken to have STOPPED receiving
+ * runs. Generous on purpose: a probe that is merely slow, backed off, or
+ * recovering from a blip must never be mistaken for a dead slice.
+ */
+const ORPHAN_MISSED_INTERVALS = 5;
+
+/** Floor for fast checks, so a 10s probe needs a real outage, not 50 seconds. */
+const ORPHAN_MIN_SILENCE_MS = 10 * 60 * 1000;
+
+/**
+ * Has this slice actually stopped receiving runs?
+ *
+ * A slice with NO runs at all is not stale - it is pending, and has simply
+ * never been executed (a freshly-added environment). Only a slice that ran and
+ * then went quiet for several intervals counts as stopped.
+ */
+function hasStoppedReceivingRuns({
+  recentRuns,
+  intervalSeconds,
+  now,
+}: {
+  recentRuns: OverviewRunLike[];
+  intervalSeconds: number;
+  now: Date;
+}): boolean {
+  const last = lastRunAt(recentRuns);
+  if (!last) return false;
+  const silenceMs = Math.max(
+    intervalSeconds * 1000 * ORPHAN_MISSED_INTERVALS,
+    ORPHAN_MIN_SILENCE_MS,
+  );
+  return now.getTime() - last.getTime() > silenceMs;
+}
+
+/**
+ * A slice is orphaned (old) when it no longer receives runs:
+ *
+ * - a CONCRETE environment that is no longer part of the system, or was
+ *   disabled for this assignment. That is decided structurally because it is
+ *   certain: such a slice can never be run again, so waiting for it to go quiet
+ *   would only delay a label we already know is right.
+ * - the ENV-LESS (`null`) slice of a check that fans out to a live environment
+ *   AND has itself gone quiet.
+ *
+ * That second condition is the fix for a real bug. The env-less slice used to be
+ * called orphaned on the structural test alone, reasoning that a check which
+ * fans out per environment cannot still be writing env-less runs. Satellites
+ * break that: they receive no environment information at all, so EVERY satellite
+ * result is written env-less. A check assigned to both the local core and a
+ * satellite therefore had its satellite slice - the freshest data on the page -
+ * labelled "Old checks" the instant the satellite first reported.
+ *
+ * Requiring actual silence makes the rule mean what its name says, for
+ * satellites and for any future env-less writer.
  */
 function isSliceOrphaned({
   environmentId,
   currentEnvIds,
   environmentIds,
   hasLiveEnvSlice,
+  recentRuns,
+  intervalSeconds,
+  now,
 }: {
   environmentId: string | null;
   currentEnvIds: Set<string>;
   environmentIds: EnvironmentSelector;
   hasLiveEnvSlice: boolean;
+  recentRuns: OverviewRunLike[];
+  intervalSeconds: number;
+  now: Date;
 }): boolean {
   return environmentId === null
-    ? hasLiveEnvSlice
+    ? hasLiveEnvSlice &&
+        hasStoppedReceivingRuns({ recentRuns, intervalSeconds, now })
     : !isConcreteEnvLive({ environmentId, currentEnvIds, environmentIds });
 }
 
@@ -151,17 +208,22 @@ function isSliceOrphaned({
  *
  * The env-less slice is the ambiguous one: it is live when the check does NOT
  * currently fan out (opt-out, or the system has no environments so runs are
- * env-less again), and stale only when the check DOES fan out to an environment
- * the system still has. `hasLiveEnvSlice` is exactly that disambiguator.
+ * env-less again), OR when something is still writing env-less runs for it -
+ * which is exactly what every satellite does, since satellites are handed no
+ * environment information. It is stale only when the check fans out to a live
+ * environment AND the slice has itself gone quiet.
  */
 export function buildOverviewRows({
   checks,
   environmentIds,
   envNameById,
+  now = new Date(),
 }: {
   checks: OverviewCheckLike[];
   environmentIds: string[];
   envNameById: Map<string, string>;
+  /** Injectable so the "has it gone quiet" test is deterministic. */
+  now?: Date;
 }): HealthCheckOverviewItem[] {
   const currentEnvIds = new Set(environmentIds);
   const rows: HealthCheckOverviewItem[] = [];
@@ -199,6 +261,9 @@ export function buildOverviewRows({
           currentEnvIds,
           environmentIds,
           hasLiveEnvSlice,
+          recentRuns: only?.recentRuns ?? check.recentRuns,
+          intervalSeconds: check.intervalSeconds,
+          now,
         });
       rows.push({
         rowKey: check.configurationId,
@@ -252,6 +317,9 @@ export function buildOverviewRows({
           currentEnvIds,
           environmentIds,
           hasLiveEnvSlice,
+          recentRuns: pe.recentRuns,
+          intervalSeconds: check.intervalSeconds,
+          now,
         }),
       });
     }
