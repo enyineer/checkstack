@@ -27,6 +27,28 @@ import {
 
 // --- Response Schemas for Evaluated Status ---
 
+/**
+ * One independently-evaluated run stream of a check: an (environment, source)
+ * pair. Both dimensions key the slice because both interleave in the runs
+ * table - see `run-slices.ts` for why collapsing either one masks a genuinely
+ * failing stream.
+ */
+const SystemCheckSliceStatusSchema = z.object({
+  /** `null` for the env-less slice. */
+  environmentId: z.string().nullable(),
+  /** `null` for the local core; a satellite id otherwise. */
+  sourceId: z.string().nullable(),
+  /** The source's display name as recorded on its runs, when it had one. */
+  sourceLabel: z.string().optional(),
+  status: SystemHealthStatusSchema,
+  runsConsidered: z.number(),
+  lastRunAt: z.date().optional(),
+});
+
+export type SystemCheckSliceStatus = z.infer<
+  typeof SystemCheckSliceStatusSchema
+>;
+
 const SystemCheckStatusSchema = z.object({
   configurationId: z.string(),
   configurationName: z.string(),
@@ -35,19 +57,28 @@ const SystemCheckStatusSchema = z.object({
   runsConsidered: z.number(),
   lastRunAt: z.date().optional(),
   /**
-   * Number of environment slices this check CURRENTLY fans out to (worst-wins
-   * rollup only). A check with no environments (or opted out) is a single
-   * slice, so this is always >= 1. Dashboards sum this across checks to report
-   * the honest denominator: a 1-check/3-env system contributes 3, not 1. In a
-   * single-env (non-rollup) evaluation this is always 1.
+   * Number of slices this check CURRENTLY fans out to. A slice is one
+   * (environment, source) pair - one environment as probed from one location
+   * (the local core, or a satellite). A check with no environments and no
+   * satellites is a single slice, so this is always >= 1. Dashboards sum this
+   * across checks to report the honest denominator: a 1-check/3-env system
+   * contributes 3, not 1. A pinned-environment view still counts its sources
+   * separately.
    */
   sliceCount: z.number(),
   /**
-   * How many of this check's {@link sliceCount} environment slices are
-   * currently non-healthy. Dashboards sum this across checks for the numerator
-   * of "X of Y checks failing".
+   * How many of this check's {@link sliceCount} slices are currently
+   * non-healthy. Dashboards sum this across checks for the numerator of
+   * "X of Y checks failing".
    */
   failingSliceCount: z.number(),
+  /**
+   * The per-slice breakdown behind `status`, so a UI can name the location that
+   * is failing instead of showing one combined verdict - a check that is green
+   * locally but red from a satellite is a different situation from one that is
+   * red everywhere. Empty when the check has produced no runs at all.
+   */
+  slices: z.array(SystemCheckSliceStatusSchema),
 });
 
 /**
@@ -1055,23 +1086,43 @@ export const healthCheckContract = {
               }),
             ),
             /**
-             * Per-environment breakdown of this assignment, one entry per
-             * environment the assignment fans out to (plus a `null` entry if
-             * env-less runs exist). Each carries its own rollup `status` and
-             * the env-scoped recent runs. A frontend can use this to render
-             * a row per (check, environment) pair — surfacing per-env outages
-             * that `status` (the worst-wins rollup) intentionally hides in
-             * the aggregate view.
+             * Per-SLICE breakdown of this assignment: one entry per
+             * (environment, source) pair it fans out to — an environment as
+             * probed from one location, the local core or a satellite. Each
+             * carries its own rollup `status` and slice-scoped recent runs, so
+             * a frontend can render a row per slice and surface an outage that
+             * `status` (the worst-wins rollup) intentionally hides in the
+             * aggregate view.
+             *
+             * Named `perEnvironment` for wire compatibility; the source
+             * dimension was added when a check that passed locally and failed
+             * from a satellite was found to read healthy (both locations'
+             * runs interleaved inside one environment entry, which defeats the
+             * consecutive evaluator - see `run-slices.ts`).
              */
             perEnvironment: z.array(
               z.object({
                 environmentId: z.string().nullable(),
+                /** `null` for the local core; a satellite id otherwise. */
+                sourceId: z.string().nullable(),
+                /** The source's display name as recorded on its runs. */
+                sourceLabel: z.string().optional(),
+                /**
+                 * True when this slice's SOURCE is no longer assigned to the
+                 * check (a de-assigned satellite, or the core once
+                 * `includeLocal` was turned off). Such a slice keeps its last
+                 * runs but no longer contributes to `status`, so the frontend
+                 * tucks it under "Old checks" alongside orphaned environments.
+                 * Resolved here because the frontend has no view of the
+                 * assignment's satellite selectors.
+                 */
+                sourceOrphaned: z.boolean().optional(),
                 status: HealthCheckStatusSchema,
                 /**
-                 * Most recent HEALTHY run for THIS environment slice, or
-                 * `undefined` when this environment has never succeeded.
-                 * Computed independently of the sparkline window so a per-env
-                 * row can show since when that specific environment degraded.
+                 * Most recent HEALTHY run for THIS slice, or `undefined` when
+                 * it has never succeeded. Computed independently of the
+                 * sparkline window so a row can show since when that specific
+                 * location/environment degraded.
                  */
                 lastSuccessfulRunAt: z.date().optional(),
                 recentRuns: z.array(

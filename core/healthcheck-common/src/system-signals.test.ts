@@ -10,9 +10,13 @@ import { healthCheckAccess } from "./access";
 
 /**
  * Build a check status. By default a check is a SINGLE slice (env-less or
- * single-env), so `sliceCount` is 1 and it fails as a whole — matching the
- * non-fanned behavior. Fan-out cases pass `sliceCount`/`failingSliceCount`
- * explicitly to model a check spanning several environments.
+ * single-env, run from the core only), so `sliceCount` is 1 and it fails as a
+ * whole — matching the non-fanned behavior. Fan-out cases pass
+ * `sliceCount`/`failingSliceCount` explicitly to model a check spanning several
+ * environments or probed from several sources.
+ *
+ * `slices` stays empty: signal derivation reads only the counts, so the
+ * breakdown these tests would have to invent adds nothing to what they assert.
  */
 const mkCheck = ({
   configurationId,
@@ -31,6 +35,7 @@ const mkCheck = ({
   status,
   sliceCount,
   failingSliceCount,
+  slices: [],
 });
 
 describe("deriveHealthcheckSignals", () => {

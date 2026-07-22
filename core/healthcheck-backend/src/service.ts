@@ -14,7 +14,10 @@ import {
   type HealthcheckSignalStatuses,
   type RunStats,
   stripEphemeralFields,
-  selectEffectiveEnvKeys,
+  selectEffectiveRunSlices,
+  isSourceSliceEffective,
+  runSliceKeyOf,
+  type RunSliceKey,
 } from "@checkstack/healthcheck-common";
 import { evaluateCollectorAssertionOutcomes } from "./collector-assertions";
 import { summarizeRuns, type StatRun } from "./run-stats.logic";
@@ -110,6 +113,24 @@ type CatalogClient = InferClient<typeof CatalogApi>;
 // state into the health-state snapshot. Optional on the read path.
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 
+/**
+ * One independently-evaluated run stream of a check: an (environment, source)
+ * pair. Surfaced so the system page can show WHICH location is failing instead
+ * of one combined verdict - a check that is green locally and red from a
+ * satellite is a genuinely different situation from one that is red everywhere.
+ */
+interface SystemCheckSliceStatus {
+  /** `null` for the env-less slice. */
+  environmentId: string | null;
+  /** `null` for the local core; a satellite id otherwise. */
+  sourceId: string | null;
+  /** The source's display name as recorded on its runs, when it had one. */
+  sourceLabel?: string;
+  status: SystemHealthStatus;
+  runsConsidered: number;
+  lastRunAt?: Date;
+}
+
 interface SystemCheckStatus {
   configurationId: string;
   configurationName: string;
@@ -117,10 +138,15 @@ interface SystemCheckStatus {
   status: SystemHealthStatus;
   runsConsidered: number;
   lastRunAt?: Date;
-  /** Environment slices this check currently fans out to (>= 1). */
+  /** (environment, source) slices this check currently fans out to (>= 1). */
   sliceCount: number;
   /** How many of {@link sliceCount} slices are currently non-healthy. */
   failingSliceCount: number;
+  /**
+   * The per-slice breakdown behind {@link status}. Empty when the check has
+   * produced no runs at all (there is nothing to break down).
+   */
+  slices: SystemCheckSliceStatus[];
 }
 
 interface SystemHealthStatusResponse {
@@ -1222,6 +1248,13 @@ export class HealthCheckService {
           // stops dragging the aggregate the instant it is disabled - instead
           // of lingering until its stale runs age out of the bounded window.
           environmentIds: systemHealthChecks.environmentIds,
+          // The SOURCE half of the fan-out. Runs are sliced by (environment,
+          // source), so these decide which satellites' (and the core's) run
+          // streams still contribute - exactly as `environmentIds` does for
+          // environments.
+          satelliteIds: systemHealthChecks.satelliteIds,
+          satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
+          includeLocal: systemHealthChecks.includeLocal,
         })
         .from(systemHealthChecks)
         .innerJoin(
@@ -1275,118 +1308,46 @@ export class HealthCheckService {
         let runsConsidered: number;
         let lastRunAt: Date | undefined;
         // Fan-out accounting for the honest "X of Y checks failing" denominator:
-        // how many environment slices this check currently spans, and how many
-        // are non-healthy. A non-fanned (single-env / env-less) check is one
-        // slice. Populated in both branches so the DTO field is always present.
+        // how many (environment, source) slices this check currently spans, and
+        // how many are non-healthy. A check that neither fans out nor uses
+        // satellites is one slice.
         let sliceCount = 1;
         let failingSliceCount = 0;
+        // The per-slice breakdown, so the system page can name the failing
+        // location rather than showing one combined verdict.
+        const slices: SystemCheckSliceStatus[] = [];
 
-        if (environmentId === undefined) {
-          // System rollup: evaluate the threshold window PER ENVIRONMENT within
-          // the association, then take worst-wins ACROSS envs. Flattening every
-          // env's runs into one list feeds interleaved statuses to
+        {
+          // Evaluate the threshold window PER SLICE - one (environment, source)
+          // pair - then take worst-wins ACROSS slices. Flattening a check's runs
+          // into one list feeds interleaved statuses to
           // `evaluateConsecutive` (the default mode): the streak breaks on the
-          // first interleaving env, so the evaluator collapses to whatever
-          // single env's status the most recent run landed on. That masks any
-          // permanently-failing sibling env in the default mode ("the healthy
-          // env wins"), and flaps healthy↔degraded whenever env insertion
-          // order drifts across ticks (see the regression test
-          // `rollup — worst-wins across environments within an association`).
-          // Per-env evaluation makes the rollup worst-wins stable regardless of
-          // insertion order or multi-pod racing.
+          // first interleaving slice, so the evaluator collapses to whatever
+          // single slice's status the most recent run landed on - and when no
+          // streak survives long enough to meet a threshold, evaluation falls
+          // through to its healthy default. That masks any permanently-failing
+          // sibling slice ("the healthy one wins"), and flaps
+          // healthy<->degraded whenever insertion order drifts across ticks.
           //
-          // Each env is windowed SEPARATELY (`maxWindowSize` runs PER env), not
-          // via one shared `LIMIT maxWindowSize` across the mixed pool. A shared
-          // window silently truncates a check that fans out to many envs: with
-          // E envs each env sees only ~maxWindowSize/E of its own runs, so a
-          // small consecutive threshold can miss a genuine per-env streak once
-          // E grows. Per-env windows give every environment its full evaluation
-          // depth regardless of how many siblings it has.
-          const distinctEnvRows = await tx
-            .selectDistinct({ environmentId: healthCheckRuns.environmentId })
-            .from(healthCheckRuns)
-            .where(
-              and(
-                eq(healthCheckRuns.systemId, systemId),
-                eq(healthCheckRuns.configurationId, assoc.configurationId),
-              ),
-            );
-          const presentEnvKeys = distinctEnvRows.map(
-            (r) => r.environmentId ?? null,
-          );
-
-          // Keep only slices that are still EFFECTIVE for this assignment: a
-          // concrete environment removed from `environmentIds` (the reported
-          // bug - "disable env for assignment"), plus the stale env-less slice
-          // of a check that now fans out, are dropped. Without this a disabled
-          // env's last unhealthy runs keep dragging the rollup via worst-wins,
-          // because no health-change event fires for a slice that stopped
-          // producing runs, so the event-driven rollup consumer never recomputes
-          // it away. The selector is durable Postgres state (`environmentIds`),
-          // so this is catalog-free and returns the same answer on every pod.
-          const effectiveKeys = selectEffectiveEnvKeys({
-            environmentIds: assoc.environmentIds,
-            presentEnvKeys,
-          });
-
-          // Start from "no signal", NOT from healthy: a check whose slices
-          // have produced no runs has measured nothing, and inventing health
-          // for it is what made a misconfigured check read green everywhere.
-          status = "unknown";
-          runsConsidered = 0;
-          lastRunAt = undefined;
-          // Each EFFECTIVE env group is a slice. A check that has runs against N
-          // effective envs currently fans out to N; before it has ever run (no
-          // effective group) it is still one logical slice.
-          sliceCount = Math.max(effectiveKeys.size, 1);
-          failingSliceCount = 0;
-          for (const key of effectiveKeys) {
-            const envRuns = await tx
-              .select({
-                status: healthCheckRuns.status,
-                timestamp: healthCheckRuns.timestamp,
-              })
-              .from(healthCheckRuns)
-              .where(
-                and(
-                  eq(healthCheckRuns.systemId, systemId),
-                  eq(healthCheckRuns.configurationId, assoc.configurationId),
-                  key === null
-                    ? isNull(healthCheckRuns.environmentId)
-                    : eq(healthCheckRuns.environmentId, key),
-                ),
-              )
-              .orderBy(desc(healthCheckRuns.timestamp))
-              .limit(maxWindowSize);
-
-            runsConsidered += envRuns.length;
-            const newest = envRuns[0]?.timestamp;
-            if (newest && (!lastRunAt || newest > lastRunAt)) lastRunAt = newest;
-            const envStatus = evaluateHealthStatus({ runs: envRuns, thresholds });
-            // Count EVERY failing slice (don't break early): the failing count
-            // feeds the dashboard numerator, so all non-healthy envs must tally.
-            if (envStatus !== "healthy") {
-              failingSliceCount++;
-            }
-            // A slice that produced no runs contributes nothing - it must not
-            // upgrade the check to healthy, nor mask a failing sibling.
-            if (envRuns.length === 0) continue;
-            if (envStatus === "unhealthy") {
-              status = "unhealthy";
-            } else if (envStatus === "degraded" && status !== "unhealthy") {
-              status = "degraded";
-            } else if (status === "unknown") {
-              status = "healthy";
-            }
-          }
-        } else {
-          // Per-env (string) or env-less (null) slice: that slice's flat run
-          // window is monotonic per-env, so the threshold evaluator sees no
-          // interleaving — the consecutive streak is well-defined.
-          const runs = await tx
-            .select({
-              status: healthCheckRuns.status,
-              timestamp: healthCheckRuns.timestamp,
+          // BOTH dimensions must key the slice. Environments were handled here
+          // first (see the regression test `rollup — worst-wins across
+          // environments within an association`); the SOURCE dimension was not,
+          // and produced the same masking: a system whose local check passed
+          // while its satellite check failed every time read HEALTHY, because
+          // both sources' runs interleaved inside one environment slice. The
+          // rule is one stream per (environment, source).
+          //
+          // Each slice is windowed SEPARATELY (`maxWindowSize` runs PER slice),
+          // not via one shared `LIMIT maxWindowSize` across the mixed pool. A
+          // shared window silently truncates a check that fans out widely: with
+          // S slices each sees only ~maxWindowSize/S of its own runs, so a small
+          // consecutive threshold can miss a genuine per-slice streak once S
+          // grows. Per-slice windows give every stream its full evaluation depth
+          // regardless of how many siblings it has.
+          const distinctSliceRows = await tx
+            .selectDistinct({
+              environmentId: healthCheckRuns.environmentId,
+              sourceId: healthCheckRuns.sourceId,
             })
             .from(healthCheckRuns)
             .where(
@@ -1395,21 +1356,102 @@ export class HealthCheckService {
                 eq(healthCheckRuns.configurationId, assoc.configurationId),
                 ...(envFilter ? [envFilter] : []),
               ),
-            )
-            .orderBy(desc(healthCheckRuns.timestamp))
-            .limit(maxWindowSize);
+            );
 
-          // No runs at all means this slice has measured nothing.
-          status =
-            runs.length === 0
-              ? "unknown"
-              : evaluateHealthStatus({ runs, thresholds });
-          runsConsidered = runs.length;
-          lastRunAt = runs[0]?.timestamp;
-          // Single-slice evaluation: this env either counts as failing or not.
-          // `unknown` is not a failure - it is the absence of a measurement.
-          sliceCount = 1;
-          failingSliceCount = status === "healthy" || status === "unknown" ? 0 : 1;
+          // Keep only slices that are still EFFECTIVE for this assignment: a
+          // concrete environment removed from `environmentIds` (the reported
+          // "disable env for assignment" bug), the stale env-less slice of a
+          // check that now fans out, and the runs of a DE-ASSIGNED satellite,
+          // are all dropped. Without this their last unhealthy runs keep
+          // dragging the rollup via worst-wins, because no health-change event
+          // fires for a slice that stopped producing runs, so the event-driven
+          // rollup consumer never recomputes it away. Every input is durable
+          // Postgres state (the assignment's selectors), so this is catalog-free
+          // and returns the same answer on every pod.
+          const effectiveSlices = selectEffectiveRunSlices({
+            environmentIds: assoc.environmentIds,
+            includeLocal: assoc.includeLocal,
+            satelliteIds: assoc.satelliteIds,
+            satelliteEnvironmentIds: assoc.satelliteEnvironmentIds,
+            presentSlices: distinctSliceRows.map((r) => ({
+              environmentId: r.environmentId ?? null,
+              sourceId: r.sourceId ?? null,
+            })),
+            // A pinned environment (the per-environment view) is the user's
+            // explicit choice, so it is not re-derived - but its sources are
+            // still split apart, or the masking bug simply reappears inside
+            // that one environment's view.
+            ...(environmentId === undefined ? {} : { environmentScope: environmentId }),
+          });
+
+          // Start from "no signal", NOT from healthy: a check whose slices
+          // have produced no runs has measured nothing, and inventing health
+          // for it is what made a misconfigured check read green everywhere.
+          status = "unknown";
+          runsConsidered = 0;
+          lastRunAt = undefined;
+          // A check with runs across N effective slices fans out to N; before it
+          // has ever run (no slice at all) it is still one logical slice.
+          sliceCount = Math.max(effectiveSlices.length, 1);
+          failingSliceCount = 0;
+          for (const slice of effectiveSlices) {
+            const sliceRuns = await tx
+              .select({
+                status: healthCheckRuns.status,
+                timestamp: healthCheckRuns.timestamp,
+                sourceLabel: healthCheckRuns.sourceLabel,
+              })
+              .from(healthCheckRuns)
+              .where(
+                and(
+                  eq(healthCheckRuns.systemId, systemId),
+                  eq(healthCheckRuns.configurationId, assoc.configurationId),
+                  slice.environmentId === null
+                    ? isNull(healthCheckRuns.environmentId)
+                    : eq(healthCheckRuns.environmentId, slice.environmentId),
+                  slice.sourceId === null
+                    ? isNull(healthCheckRuns.sourceId)
+                    : eq(healthCheckRuns.sourceId, slice.sourceId),
+                ),
+              )
+              .orderBy(desc(healthCheckRuns.timestamp))
+              .limit(maxWindowSize);
+
+            runsConsidered += sliceRuns.length;
+            const newest = sliceRuns[0]?.timestamp;
+            if (newest && (!lastRunAt || newest > lastRunAt)) lastRunAt = newest;
+            // A slice always has runs (it was derived from them), but an empty
+            // one must contribute nothing rather than invent health.
+            const sliceStatus: SystemHealthStatus =
+              sliceRuns.length === 0
+                ? "unknown"
+                : evaluateHealthStatus({ runs: sliceRuns, thresholds });
+
+            const sourceLabel = sliceRuns[0]?.sourceLabel;
+            slices.push({
+              environmentId: slice.environmentId,
+              sourceId: slice.sourceId,
+              ...(sourceLabel ? { sourceLabel } : {}),
+              status: sliceStatus,
+              runsConsidered: sliceRuns.length,
+              ...(newest ? { lastRunAt: newest } : {}),
+            });
+
+            // Count EVERY failing slice (don't break early): the failing count
+            // feeds the dashboard numerator, so all of them must tally.
+            // `unknown` is not a failure - it is the absence of a measurement.
+            if (sliceStatus !== "healthy" && sliceStatus !== "unknown") {
+              failingSliceCount++;
+            }
+            if (sliceRuns.length === 0) continue;
+            if (sliceStatus === "unhealthy") {
+              status = "unhealthy";
+            } else if (sliceStatus === "degraded" && status !== "unhealthy") {
+              status = "degraded";
+            } else if (status === "unknown") {
+              status = "healthy";
+            }
+          }
         }
 
         out.push({
@@ -1420,6 +1462,7 @@ export class HealthCheckService {
           lastRunAt,
           sliceCount,
           failingSliceCount,
+          slices,
         });
       }
       return out;
@@ -1655,6 +1698,12 @@ export class HealthCheckService {
           // detection (a disabled-for-assignment env is tucked under "Old checks"
           // even though it is still part of the system's membership).
           environmentIds: systemHealthChecks.environmentIds,
+          // The SOURCE half of the fan-out: which satellites (and whether the
+          // core) still run this check, so a de-assigned satellite's slice can
+          // be marked orphaned rather than left dragging the rollup.
+          satelliteIds: systemHealthChecks.satelliteIds,
+          satelliteEnvironmentIds: systemHealthChecks.satelliteEnvironmentIds,
+          includeLocal: systemHealthChecks.includeLocal,
         })
         .from(systemHealthChecks)
         .innerJoin(
@@ -1674,6 +1723,7 @@ export class HealthCheckService {
             status: healthCheckRuns.status,
             timestamp: healthCheckRuns.timestamp,
             environmentId: healthCheckRuns.environmentId,
+            sourceId: healthCheckRuns.sourceId,
           })
           .from(healthCheckRuns)
           .where(
@@ -1727,14 +1777,19 @@ export class HealthCheckService {
           }
         }
 
-        // Group the fetched runs by environmentId (null = env-less slice). We
-        // query each env's slice separately below to evaluate it on its own
-        // monotonic run window and worst-wins across envs — this is the same
+        // Group the fetched runs into SLICES - one (environment, source) pair.
+        // Each slice is queried and evaluated separately below on its own
+        // monotonic run window, then worst-wins across slices. This is the same
         // derivation `getSystemHealthStatus(systemId)` uses for the rollup; see
-        // that method for the rationale (flattening envs feeds interleaved
-        // statuses to the consecutive evaluator and masks sibling outages).
+        // that method for the rationale (flattening slices feeds interleaved
+        // statuses to the consecutive evaluator, which masks a sibling outage -
+        // originally observed across environments, then reported again across
+        // sources when a satellite failed behind a passing local check).
         const perEnvironment: {
           environmentId: string | null;
+          sourceId: string | null;
+          sourceLabel?: string;
+          sourceOrphaned?: boolean;
           status: HealthCheckStatus;
           lastSuccessfulRunAt?: Date;
           recentRuns: {
@@ -1744,50 +1799,65 @@ export class HealthCheckService {
           }[];
         }[] = [];
 
-        // Stable ordering of env keys: env-less (`null`) first, then env ids in
-        // the order they were first encountered in the mixed pool (membership
-        // order is otherwise unobservable here without a catalog read; recent
-        // runs surface stable, recent order).
-        const envKeys: (string | null)[] = [];
-        const seenEnv = new Set<string | null>();
+        // Stable ordering of slice keys: in the order they were first
+        // encountered in the mixed pool (membership order is otherwise
+        // unobservable here without a catalog read; recent runs surface stable,
+        // recent order).
+        const sliceKeys: RunSliceKey[] = [];
+        const seenSlice = new Set<string>();
         for (const r of runs) {
-          const key = r.environmentId ?? null;
-          if (!seenEnv.has(key)) {
-            seenEnv.add(key);
-            envKeys.push(key);
+          const key: RunSliceKey = {
+            environmentId: r.environmentId ?? null,
+            sourceId: r.sourceId ?? null,
+          };
+          const id = runSliceKeyOf(key);
+          if (!seenSlice.has(id)) {
+            seenSlice.add(id);
+            sliceKeys.push(key);
           }
         }
-        // If no runs at all, surface a single env-less entry so UI can render
-        // an empty row rather than nothing.
-        if (envKeys.length === 0) envKeys.push(null);
+        // If no runs at all, surface a single env-less local entry so UI can
+        // render an empty row rather than nothing.
+        if (sliceKeys.length === 0)
+          sliceKeys.push({ environmentId: null, sourceId: null });
 
         // The slices that currently CONTRIBUTE to this check's rollup status: a
-        // concrete env removed from `environmentIds` (disabled for the assignment)
-        // and the stale env-less slice of a check that now fans out are excluded,
-        // mirroring `getSystemHealthStatus`. The orphaned slices are still emitted
-        // in `perEnvironment` (the frontend tucks them under "Old checks"); they
+        // concrete env removed from `environmentIds` (disabled for the
+        // assignment), the stale env-less slice of a check that now fans out,
+        // and a de-assigned satellite's slice are all excluded, mirroring
+        // `getSystemHealthStatus`. The orphaned slices are still emitted in
+        // `perEnvironment` (the frontend tucks them under "Old checks"); they
         // just no longer drag the check-level worst-wins `status`.
-        const effectiveKeys = selectEffectiveEnvKeys({
-          environmentIds: assoc.environmentIds,
-          presentEnvKeys: envKeys,
-        });
+        const effectiveKeys = new Set(
+          selectEffectiveRunSlices({
+            environmentIds: assoc.environmentIds,
+            includeLocal: assoc.includeLocal,
+            satelliteIds: assoc.satelliteIds,
+            satelliteEnvironmentIds: assoc.satelliteEnvironmentIds,
+            presentSlices: sliceKeys,
+          }).map((slice) => runSliceKeyOf(slice)),
+        );
 
         let aggregateStatus: HealthCheckStatus = "healthy";
-        for (const envId of envKeys) {
+        for (const slice of sliceKeys) {
           const envRuns = await tx
             .select({
               id: healthCheckRuns.id,
               status: healthCheckRuns.status,
               timestamp: healthCheckRuns.timestamp,
+              sourceLabel: healthCheckRuns.sourceLabel,
             })
             .from(healthCheckRuns)
             .where(
               and(
                 eq(healthCheckRuns.systemId, systemId),
                 eq(healthCheckRuns.configurationId, assoc.configurationId),
-                envId === null
+                slice.environmentId === null
                   ? isNull(healthCheckRuns.environmentId)
-                  : eq(healthCheckRuns.environmentId, envId),
+                  : eq(healthCheckRuns.environmentId, slice.environmentId),
+                slice.sourceId === null
+                  ? isNull(healthCheckRuns.sourceId)
+                  : eq(healthCheckRuns.sourceId, slice.sourceId),
               ),
             )
             .orderBy(desc(healthCheckRuns.timestamp))
@@ -1797,10 +1867,10 @@ export class HealthCheckService {
             runs: envRuns,
             thresholds,
           });
-          // Worst-wins across EFFECTIVE envs (unhealthy > degraded > healthy).
-          // An orphaned slice's status is still reported per-env but must not
+          // Worst-wins across EFFECTIVE slices (unhealthy > degraded > healthy).
+          // An orphaned slice's status is still reported per-slice but must not
           // move the aggregate.
-          if (effectiveKeys.has(envId)) {
+          if (effectiveKeys.has(runSliceKeyOf(slice))) {
             if (envStatus === "unhealthy") {
               aggregateStatus = "unhealthy";
             } else if (
@@ -1811,10 +1881,23 @@ export class HealthCheckService {
             }
           }
 
+          const sourceLabel = envRuns[0]?.sourceLabel;
           perEnvironment.push({
-            environmentId: envId,
+            environmentId: slice.environmentId,
+            sourceId: slice.sourceId,
+            ...(sourceLabel ? { sourceLabel } : {}),
+            // The frontend classifies orphaned ENVIRONMENTS itself (it knows
+            // system membership and the env selector) but has no view of the
+            // satellite selectors, so the source verdict is resolved here.
+            ...(isSourceSliceEffective({
+              sourceId: slice.sourceId,
+              includeLocal: assoc.includeLocal,
+              satelliteIds: assoc.satelliteIds,
+            })
+              ? {}
+              : { sourceOrphaned: true }),
             status: envStatus,
-            lastSuccessfulRunAt: lastHealthyByEnv.get(envId),
+            lastSuccessfulRunAt: lastHealthyByEnv.get(slice.environmentId),
             recentRuns: envRuns.toReversed().map((r) => ({
               id: r.id,
               status: r.status,

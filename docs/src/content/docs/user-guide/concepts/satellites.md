@@ -72,6 +72,17 @@ A satellite can only ever narrow the assignment's own environment selector, neve
 > [!NOTE]
 > A satellite older than this feature is sent no environments and keeps reporting env-less results, exactly as it did before. Upgrade the satellite to get per-environment attribution.
 
+### How health is decided across locations
+
+Every **(environment, location)** pair is evaluated independently against the check's thresholds, and the worst result decides the check's status. A check that passes from the core but fails from a satellite is **unhealthy**, not healthy - the service is unreachable for whoever that satellite speaks for.
+
+The system overview names the location on each row once a check runs from more than one place, so you can see which one is failing without opening run history. The dashboard's "X of Y checks failing" counts these slices, so a check probing one environment from the core and one satellite counts as two.
+
+> [!WARNING]
+> Do not assign a satellite to a check it has no route to. A satellite that fails every run makes the check unhealthy - which is correct, and is the whole point - so scope satellites to the environments they can actually reach (above) rather than leaving a permanently-failing probe in place.
+
+Retiring a location retires its verdict with it: remove a satellite from the check (or turn **Include local** off) and its slice stops counting immediately. Its history is preserved under **Old checks** in the system overview.
+
 ## Forwarding telemetry and scraping metrics
 
 Beyond executing health checks, a satellite can act as a telemetry relay for the

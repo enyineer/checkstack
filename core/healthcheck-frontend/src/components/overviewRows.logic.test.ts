@@ -473,3 +473,137 @@ describe("buildOverviewRows – env-less slice that is still being written", () 
     );
   });
 });
+
+describe("buildOverviewRows – per-location slices", () => {
+  it("emits one row per (environment, source) and keeps their verdicts apart", () => {
+    // The reported bug's UI half: a check that passes locally and fails from a
+    // satellite showed ONE combined row, so the failing location was invisible.
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          perEnvironment: [
+            {
+              environmentId: "env-prod",
+              sourceId: null,
+              status: "healthy",
+              recentRuns: [run()],
+            },
+            {
+              environmentId: "env-prod",
+              sourceId: "sat-eu",
+              sourceLabel: "EU West",
+              status: "unhealthy",
+              recentRuns: [run("unhealthy")],
+            },
+          ],
+        }),
+      ],
+      environmentIds: ["env-prod"],
+      envNameById: new Map([["env-prod", "Production"]]),
+    });
+
+    expect(rows).toHaveLength(2);
+    const local = rows.find((r) => r.sourceLabel === "Local");
+    const satellite = rows.find((r) => r.sourceLabel === "EU West");
+    expect(local?.state).toBe("healthy");
+    expect(satellite?.state).toBe("unhealthy");
+    // Distinct keys, or React collapses the two rows into one.
+    expect(new Set(rows.map((r) => r.rowKey)).size).toBe(2);
+  });
+
+  it("stays silent about location when a check only runs on the core", () => {
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          perEnvironment: [
+            { environmentId: null, sourceId: null, status: "healthy", recentRuns: [run()] },
+          ],
+        }),
+      ],
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+
+    expect(rows[0].sourceLabel).toBeUndefined();
+  });
+
+  it("names the location of a check that runs ONLY on a satellite", () => {
+    // One slice, but "where" is still a real question - it is not the core.
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          perEnvironment: [
+            {
+              environmentId: null,
+              sourceId: "sat-eu",
+              sourceLabel: "EU West",
+              status: "healthy",
+              recentRuns: [run()],
+            },
+          ],
+        }),
+      ],
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+
+    expect(rows[0].sourceLabel).toBe("EU West");
+  });
+
+  it("tucks a de-assigned satellite's slice under Old checks", () => {
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          perEnvironment: [
+            { environmentId: null, sourceId: null, status: "healthy", recentRuns: [run()] },
+            {
+              environmentId: null,
+              sourceId: "sat-gone",
+              sourceLabel: "Retired probe",
+              sourceOrphaned: true,
+              status: "unhealthy",
+              recentRuns: [run("unhealthy")],
+            },
+          ],
+        }),
+      ],
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+
+    expect(rows.find((r) => r.sourceLabel === "Retired probe")?.isOrphaned).toBe(true);
+    expect(rows.find((r) => r.sourceLabel === "Local")?.isOrphaned).toBe(false);
+  });
+
+  it("keeps a satellite's env-less slice live while the core fans out", () => {
+    // Per-satellite scoping: the satellite is scoped to run once with no
+    // environment while the core probes prod. Resolving "does a live env slice
+    // exist" globally rather than per source would orphan the satellite's row.
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          environmentIds: ["env-prod"],
+          perEnvironment: [
+            {
+              environmentId: "env-prod",
+              sourceId: null,
+              status: "healthy",
+              recentRuns: [run()],
+            },
+            {
+              environmentId: null,
+              sourceId: "sat-eu",
+              sourceLabel: "EU West",
+              status: "healthy",
+              recentRuns: [run()],
+            },
+          ],
+        }),
+      ],
+      environmentIds: ["env-prod"],
+      envNameById: new Map([["env-prod", "Production"]]),
+    });
+
+    expect(rows.find((r) => r.sourceLabel === "EU West")?.isOrphaned).toBe(false);
+  });
+});
