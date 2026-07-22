@@ -12,15 +12,22 @@ import {
 import { Card, CardContent, DynamicIcon, cn } from "@checkstack/ui";
 import { ChevronRight } from "lucide-react";
 import type { ProblemSystem } from "../logic/systemSignals";
+import { pillToneStyles } from "@checkstack/ui";
 import {
   resolveProblemToneStyle,
   signalCountCaption,
 } from "./problemToneStyles";
 
+/**
+ * Per-signal chip tint. All three are rungs of the status ladder, so all three
+ * come from its table - `info` used to reach for the general-purpose `--info`
+ * accent, which put the same "Watch" signal in two different blues depending on
+ * whether you were looking at the card or the fleet header.
+ */
 const chipBg: Record<SystemSignalTone, string> = {
-  error: "bg-status-down/10 text-status-down",
-  warn: "bg-status-warn/10 text-status-warn",
-  info: "bg-info/10 text-info",
+  error: pillToneStyles.down.pill,
+  warn: pillToneStyles.warn.pill,
+  info: pillToneStyles.info.pill,
 };
 
 /** The icon + label + detail (+ hover chevron when `interactive`) of a signal. */

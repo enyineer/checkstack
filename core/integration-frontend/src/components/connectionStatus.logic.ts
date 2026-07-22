@@ -9,7 +9,8 @@
  * unit-tested without rendering React.
  */
 
-import { pillToneStyles } from "@checkstack/ui";
+import {
+  neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 
 /** The colorblind-safe status-triad stem a test result maps onto. */
 export type ConnectionTone = "ok" | "down" | "unknown";
@@ -51,13 +52,9 @@ const toneStyles: Record<ConnectionTone, ConnectionToneStyles> = {
   down: pillToneStyles.down,
   // An untested connection is not a status the operator should read as bad, so
   // it renders as the ABSENCE of a hue (the muted classes the shared
-  // `StatusPill` uses for `tone="neutral"`, plus a border-toned accent stripe)
-  // rather than the shared table's `unknown` grey. Kept local for that reason.
-  unknown: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  // `StatusPill` uses for `tone="neutral"`) rather than the shared table's
+  // `unknown` grey - an untested connection carries no signal at all.
+  unknown: neutralToneStyle,
 };
 
 /** Resolve the Tailwind class set for a given {@link ConnectionTone}. */

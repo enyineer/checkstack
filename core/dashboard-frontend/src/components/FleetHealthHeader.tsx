@@ -80,7 +80,7 @@ export const FleetHealthHeader: React.FC<FleetHealthHeaderProps> = ({
   const segments: BarSegment[] = [
     { key: "error", label: "critical", count: counts.error, fill: "bg-status-down" },
     { key: "warn", label: "degraded", count: counts.warn, fill: "bg-status-warn" },
-    { key: "info", label: "watch", count: counts.info, fill: "bg-info" },
+    { key: "info", label: "watch", count: counts.info, fill: "bg-status-info" },
     { key: "healthy", label: "healthy", count: healthyCount, fill: "bg-status-ok" },
   ];
   const barTotal = segments.reduce((sum, s) => sum + s.count, 0);
@@ -108,8 +108,8 @@ export const FleetHealthHeader: React.FC<FleetHealthHeaderProps> = ({
       tone: "info",
       label: "Watch",
       count: counts.info,
-      dot: "bg-info",
-      activeClass: "bg-info/10 text-info",
+      dot: "bg-status-info",
+      activeClass: "bg-status-info/10 text-status-info",
     },
   ];
 

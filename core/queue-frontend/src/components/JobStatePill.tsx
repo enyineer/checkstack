@@ -1,12 +1,16 @@
+import { StatusPill } from "@checkstack/ui";
+
 /**
- * A small neutral status pill used for a job's State in the jobs table and
- * mobile cards. The queue surfaces only generic lifecycle states (pending /
- * recurring), so this stays a single neutral treatment rather than inventing
- * a per-state color encoding.
+ * A job's State in the jobs table and mobile cards.
+ *
+ * The queue surfaces only generic lifecycle states (pending / recurring), none
+ * of which is good or bad, so this stays the shared NEUTRAL pill rather than
+ * inventing a per-state colour encoding. It used to hand-roll the chip at a
+ * softer opacity than the shared neutral, which made the same "carries no
+ * signal" idea look like two different things on one page.
  */
 export const JobStatePill = ({ label }: { label: string }) => (
-  <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground capitalize">
-    <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden />
+  <StatusPill tone="neutral" size="sm" className="capitalize">
     {label}
-  </span>
+  </StatusPill>
 );

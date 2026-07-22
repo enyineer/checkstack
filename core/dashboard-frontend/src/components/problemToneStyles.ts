@@ -35,15 +35,13 @@ export const problemToneStyles: Record<SystemSignalTone, ProblemToneStyle> = {
     glow: "from-status-warn/[0.08]",
     label: "Degraded",
   },
-  // `info` here is the general-purpose `--info` accent, NOT the status ladder's
-  // `--status-info` - they are different hues (see `themes.css`). The "Watch"
-  // signal is an informational nudge on a dashboard card rather than a rung on
-  // the ok/warn/down ladder, so it deliberately keeps its own row.
+  // "Watch" is a rung on the same ladder as its siblings above, so it takes the
+  // status `info` blue - not the general-purpose `--info` accent it used to.
+  // That blue is also the darker L45 one, chosen so the pill's text stays
+  // readable on exactly this light card background (see `themes.css`).
   info: {
-    pill: "bg-info/10 text-info",
-    dot: "bg-info",
-    accent: "bg-info",
-    glow: "from-info/[0.07]",
+    ...pillToneStyles.info,
+    glow: "from-status-info/[0.08]",
     label: "Watch",
   },
 };

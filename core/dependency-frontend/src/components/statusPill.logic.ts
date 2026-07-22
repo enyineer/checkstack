@@ -9,7 +9,7 @@
  * rather than a private copy.
  */
 
-import { pillToneStyles } from "@checkstack/ui";
+import { neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 import type { DerivedState, ImpactType } from "@checkstack/dependency-common";
 
 /** Tone token for the triad plus a neutral fallback. */
@@ -26,14 +26,9 @@ export const toneStyles: Record<
   ok: pillToneStyles.ok,
   warn: pillToneStyles.warn,
   down: pillToneStyles.down,
-  // `neutral` is NOT a status tone - it is the absence of one - so the shared
-  // table has no entry for it. These are the muted classes the shared
-  // `StatusPill` uses for `tone="neutral"`, plus a border-toned accent stripe.
-  neutral: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  // `neutral` is NOT a status tone - it is the absence of one - so it lives
+  // beside the table rather than in it.
+  neutral: neutralToneStyle,
 };
 
 /**

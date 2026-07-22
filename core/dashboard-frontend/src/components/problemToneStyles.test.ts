@@ -10,7 +10,10 @@ describe("resolveProblemToneStyle", () => {
   it("maps each signal tone onto the colorblind-safe status triad", () => {
     expect(resolveProblemToneStyle("error").accent).toBe("bg-status-down");
     expect(resolveProblemToneStyle("warn").accent).toBe("bg-status-warn");
-    expect(resolveProblemToneStyle("info").accent).toBe("bg-info");
+    // The status ladder's blue, NOT the general-purpose `--info` accent this
+    // once used: all three signal tones are rungs of the same ladder, and the
+    // ladder's blue is the darker one chosen to stay readable on a light card.
+    expect(resolveProblemToneStyle("info").accent).toBe("bg-status-info");
   });
 
   it("keeps pill and dot hues consistent within a tone", () => {

@@ -38,6 +38,24 @@
 export type StatusPillTone = "ok" | "warn" | "down" | "unknown" | "info";
 
 /**
+ * The NEUTRAL treatment: the deliberate absence of a tone, for a state read
+ * from its label alone.
+ *
+ * Not a member of {@link pillToneStyles} because it is not a tone - it is what
+ * you use when the row already spends its colour on a more important dimension
+ * (see the "at most one coloured dimension per row" rule above), or when a value
+ * genuinely carries no good/bad/informational signal.
+ *
+ * Exported because three plugins had each written these same three strings out
+ * by hand. `StatusPill`'s `tone="neutral"` renders the `pill` half of it.
+ */
+export const neutralToneStyle = {
+  pill: "bg-muted text-muted-foreground",
+  dot: "bg-muted-foreground",
+  accent: "bg-border",
+} as const;
+
+/**
  * Per-tone class sets for the status pill, its leading dot, a left accent
  * stripe used by cards/rows, and the standalone foreground/tint/border classes
  * a banner or icon needs. Spelled out as full literal strings (never

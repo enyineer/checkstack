@@ -41,13 +41,6 @@ function severityTone(severity: IncidentSeverity): StatusPillTone {
  * chip - reads as no edge at all. Everything else (icon, pill, dot, accent)
  * comes from the shared `pillToneStyles` table.
  */
-const panelBorder: Record<StatusPillTone, string> = {
-  ok: "border-status-ok/30",
-  down: "border-status-down/30",
-  warn: "border-status-warn/30",
-  info: "border-status-info/30",
-  unknown: "border-status-unknown/30",
-};
 
 
 function findMostSevereIncident(
@@ -121,7 +114,7 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
     <DetailCard
       className={cn(
         "relative flex items-center justify-between gap-3 overflow-hidden p-[var(--d-pad)]",
-        panelBorder[panelTone],
+        pillToneStyles[panelTone].border,
       )}
     >
       <span

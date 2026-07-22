@@ -1,6 +1,10 @@
 import * as React from "react";
 import { cn } from "../utils";
-import { pillToneStyles, type StatusPillTone } from "./status-tone";
+import {
+  neutralToneStyle,
+  pillToneStyles,
+  type StatusPillTone,
+} from "./status-tone";
 
 /**
  * The one status pill. A tinted chip carrying a leading dot and a text label,
@@ -58,7 +62,7 @@ export function StatusPill({
 
   if (tone === "neutral") {
     return (
-      <span className={cn(base, "bg-muted text-muted-foreground", className)}>
+      <span className={cn(base, neutralToneStyle.pill, className)}>
         {children}
       </span>
     );

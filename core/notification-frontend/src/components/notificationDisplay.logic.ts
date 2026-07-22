@@ -8,7 +8,8 @@
  * `sloDisplay.logic.ts`.
  */
 
-import { pillToneStyles } from "@checkstack/ui";
+import {
+  neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 import type { Notification } from "@checkstack/notification-common";
 
 /** The colorblind-safe status-triad stem a surface maps onto. */
@@ -32,11 +33,7 @@ export const toneStyles: Record<StatusTone, ToneStyle> = {
   // `neutral` is NOT a status tone - it is the absence of one - so the shared
   // table has no entry for it. These are the muted classes the shared
   // `StatusPill` uses for `tone="neutral"`, plus a border-toned accent stripe.
-  neutral: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  neutral: neutralToneStyle,
 };
 
 /** Human label shown on a notification importance pill, by importance. */
