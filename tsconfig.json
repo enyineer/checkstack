@@ -151,6 +151,9 @@
       "path": "./core/healthcheck-common"
     },
     {
+      "path": "./core/healthcheck-execution"
+    },
+    {
       "path": "./core/healthcheck-frontend"
     },
     {

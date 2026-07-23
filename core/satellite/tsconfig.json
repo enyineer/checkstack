@@ -21,6 +21,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../healthcheck-execution"
+    },
+    {
       "path": "../ingest-utils"
     },
     {

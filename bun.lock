@@ -1100,6 +1100,7 @@
         "@checkstack/gitops-backend": "workspace:*",
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/healthcheck-execution": "workspace:*",
         "@checkstack/incident-backend": "workspace:*",
         "@checkstack/incident-common": "workspace:*",
         "@checkstack/maintenance-common": "workspace:*",
@@ -1151,6 +1152,22 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/healthcheck-execution": {
+      "name": "@checkstack/healthcheck-execution",
+      "version": "0.34.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/template-engine": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "latest",
         "typescript": "^5.7.2",
       },
     },
@@ -1819,6 +1836,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/healthcheck-execution": "workspace:*",
         "@checkstack/ingest-utils": "workspace:*",
         "@checkstack/k8s-events-common": "workspace:*",
         "@checkstack/logstream-common": "workspace:*",
@@ -3829,6 +3847,8 @@
     "@checkstack/healthcheck-container-common": ["@checkstack/healthcheck-container-common@workspace:plugins/healthcheck-container-common"],
 
     "@checkstack/healthcheck-dns-backend": ["@checkstack/healthcheck-dns-backend@workspace:plugins/healthcheck-dns-backend"],
+
+    "@checkstack/healthcheck-execution": ["@checkstack/healthcheck-execution@workspace:core/healthcheck-execution"],
 
     "@checkstack/healthcheck-frontend": ["@checkstack/healthcheck-frontend@workspace:core/healthcheck-frontend"],
 

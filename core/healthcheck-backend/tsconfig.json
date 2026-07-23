@@ -47,6 +47,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../healthcheck-execution"
+    },
+    {
       "path": "../incident-backend"
     },
     {

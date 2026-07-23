@@ -4,10 +4,9 @@ import type {
 } from "@checkstack/satellite-common";
 import {
   registerSandboxPolicyProvider,
-  type ConnectedClient,
-  type TransportClient,
   type CollectorRunContext,
 } from "@checkstack/backend-api";
+import { runHealthCheckCollection } from "@checkstack/healthcheck-execution";
 import { resolveScriptPackagesDir } from "@checkstack/script-packages-backend";
 import { SatelliteClient } from "./satellite-client";
 import { SatelliteSandboxPolicyCache } from "./sandbox-policy-cache";
@@ -178,11 +177,6 @@ async function executeAssignment(
     environment,
   });
 
-  const start = performance.now();
-  let connectedClient:
-    | ConnectedClient<TransportClient<never, unknown>>
-    | undefined;
-
   try {
     // 0. JIT config-secret delivery: if any `x-secret` field of the strategy
     // or a collector config still holds a marker / reference, fetch the
@@ -232,102 +226,91 @@ async function executeAssignment(
       });
     }
 
-    // 1. Establish connection (measures connectivity + latency)
-    connectedClient = await strategy.createClient(strategyConfig);
-    const connectionTimeMs = Math.round(performance.now() - start);
-
-    // 2. Execute collectors if configured
-    const collectors = assignment.collectors ?? [];
-    const collectorResults: Record<string, unknown> = {};
-    let hasCollectorError = false;
-    let errorMessage: string | undefined;
-
-    if (collectors.length > 0) {
-      const collectorPromises = collectors.map(async (collectorEntry) => {
-        const registered = collectorRegistry.getCollector(
-          collectorEntry.collectorId,
-        );
-        if (!registered) {
-          logger.warn(
-            `Collector ${collectorEntry.collectorId} not found, skipping`,
-          );
-          return { storageKey: collectorEntry.id, skipped: true };
-        }
-
-        try {
-          // JIT secret delivery: if this collector declares a secretEnv,
-          // fetch the resolved values from core over the WS channel just
-          // before running. Held in memory only for this run; never written
-          // to disk and never part of the persisted assignment. A delivery
-          // / resolution failure throws and fails the collector clearly.
-          let secretEnv: Record<string, string> | undefined;
-          if (declaresSecretEnv(collectorEntry.config)) {
-            secretEnv = await deps.requestRunSecrets({
-              configId: assignment.configId,
-              collectorId: collectorEntry.id,
-              runId: crypto.randomUUID(),
-            });
-          }
-
-          const collectorResult = await registered.collector.execute({
-            config: collectorConfigOverrides.get(collectorEntry.id) ?? collectorEntry.config,
-            client: connectedClient!.client,
-            pluginId: assignment.strategyId,
-            runContext,
-            ...(secretEnv ? { secretEnv } : {}),
-          });
-
-          return {
-            storageKey: collectorEntry.id,
-            skipped: false,
-            success: !collectorResult.error,
-            error: collectorResult.error,
-            result: {
-              _collectorId: collectorEntry.collectorId,
-              ...collectorResult.result,
-            },
-          };
-        } catch (error) {
-          return {
-            storageKey: collectorEntry.id,
-            skipped: false,
-            success: false,
+    // Build the client, render `{{ ... }}` templates, and run the collectors
+    // through the SHARED engine - the SAME code path the core queue executor
+    // uses. This is what makes `{{ system.metadata.* }}` / `{{ environment.* }}`
+    // expand on a satellite exactly as they do locally (previously the satellite
+    // had its own copy of the loop that never grew the templating pass, so
+    // custom-field templates silently rendered to nothing here).
+    //
+    // The satellite's own edges are the JIT secret fetch and the RAW,
+    // assertion-free result mapping: the satellite reports the received result
+    // and the core evaluates the assignment's assertions on ingest.
+    const outcome = await runHealthCheckCollection<
+      NonNullable<SatelliteAssignment["collectors"]>[number]
+    >({
+      strategy,
+      strategyConfig,
+      collectors: assignment.collectors ?? [],
+      runContext,
+      pluginId: assignment.strategyId,
+      logger,
+      hooks: {
+        getCollector: (entry) =>
+          collectorRegistry.getCollector(entry.collectorId),
+        storageKeyOf: (entry) => entry.id,
+        // JIT run-secret (secretEnv) fetch, only for collectors that declare
+        // one. Held in memory for this run; never persisted.
+        resolveSecretEnv: async (entry) =>
+          declaresSecretEnv(entry.config)
+            ? deps.requestRunSecrets({
+                configId: assignment.configId,
+                collectorId: entry.id,
+                runId: crypto.randomUUID(),
+              })
+            : undefined,
+        // Config secrets were resolved up front; hand the engine the resolved
+        // override (or the raw entry) as the pre-template config.
+        prepareCollectorConfig: async (entry) =>
+          collectorConfigOverrides.get(entry.id) ?? entry.config,
+        mapResult: ({ entry, collectorResult }) => ({
+          storageKey: entry.id,
+          success: !collectorResult.error,
+          error: collectorResult.error,
+          storedResult: {
+            _collectorId: entry.collectorId,
+            ...(collectorResult.result as Record<string, unknown>),
+          },
+        }),
+        mapError: ({ entry, error }) => ({
+          storageKey: entry.id,
+          success: false,
+          error: String(error),
+          storedResult: {
+            _collectorId: entry.collectorId,
             error: String(error),
-            result: {
-              _collectorId: collectorEntry.collectorId,
-              error: String(error),
-            },
-          };
-        }
-      });
+          },
+        }),
+      },
+    });
 
-      const settledResults = await Promise.allSettled(collectorPromises);
+    const status = outcome.hasCollectorError ? "unhealthy" : "healthy";
+    const latencyMs = outcome.latencyMs;
 
-      for (const settled of settledResults) {
-        if (settled.status === "rejected") {
-          hasCollectorError = true;
-          if (!errorMessage) errorMessage = String(settled.reason);
-          continue;
-        }
-
-        const result = settled.value;
-        if (result.skipped) continue;
-
-        collectorResults[result.storageKey] = result.result;
-
-        if (!result.success) {
-          hasCollectorError = true;
-          if (!errorMessage) errorMessage = result.error;
-        }
-      }
+    if (!outcome.connected) {
+      // The transport client could not be built: a genuine connection failure,
+      // not an application result. Mirrors the pre-extraction catch-path shape.
+      const message = outcome.errorMessage ?? "Connection failed";
+      return {
+        type: "result",
+        configId: assignment.configId,
+        systemId: assignment.systemId,
+        environmentId: environment?.id ?? null,
+        status: "unhealthy",
+        latencyMs,
+        executedAt: new Date().toISOString(),
+        result: {
+          status: "unhealthy",
+          latencyMs,
+          message,
+          metadata: { connected: false, error: message },
+        },
+      };
     }
 
-    const latencyMs = Math.round(performance.now() - start);
-
-    // 3. Build result — matches local queue-executor structure so
+    // 3. Build result — matches the local queue-executor structure so the
     //    frontend auto-charts and history detail page work identically.
-    const status = hasCollectorError ? "unhealthy" : "healthy";
-    const result: ResultMessage = {
+    return {
       type: "result",
       configId: assignment.configId,
       systemId: assignment.systemId,
@@ -338,44 +321,46 @@ async function executeAssignment(
       result: {
         status,
         latencyMs,
-        message: errorMessage
-          ? `Check failed: ${errorMessage}`
+        message: outcome.errorMessage
+          ? `Check failed: ${outcome.errorMessage}`
           : `Completed in ${latencyMs}ms`,
         metadata: {
           connected: true,
-          connectionTimeMs,
-          collectors: collectorResults,
+          connectionTimeMs: outcome.connectionTimeMs,
+          // Transport sub-phase timings measured HERE, at the satellite - the
+          // core cannot derive the timing of a probe it did not run (and may
+          // have no route to the target), so the satellite surfaces them and
+          // the core persists them as-is. The shared engine already filtered
+          // them to present phases, so both sides store an identical shape.
+          ...(outcome.clientTimings
+            ? { timings: outcome.clientTimings }
+            : {}),
+          collectors: outcome.collectorResults,
         },
       },
     };
-
-    return result;
   } catch (error) {
-    const latencyMs = Math.round(performance.now() - start);
+    // A PRE-run failure (config-secret delivery, or a fail-closed assertion).
+    // The engine itself never throws - it returns an outcome - so reaching here
+    // means the probe never started.
     return {
       type: "result",
       configId: assignment.configId,
       systemId: assignment.systemId,
       environmentId: environment?.id ?? null,
       status: "unhealthy",
-      latencyMs,
+      latencyMs: 0,
       executedAt: new Date().toISOString(),
       result: {
         status: "unhealthy",
-        latencyMs,
+        latencyMs: 0,
         message: String(error),
         metadata: {
-          connected: !!connectedClient,
+          connected: false,
           error: String(error),
         },
       },
     };
-  } finally {
-    try {
-      connectedClient?.close();
-    } catch {
-      // Ignore close errors
-    }
   }
 }
 

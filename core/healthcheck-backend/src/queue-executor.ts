@@ -5,18 +5,14 @@ import {
   type CollectorRegistry,
   type SafeDatabase,
   type BaseStrategyConfig,
-  type ConnectedClient,
-  type TransportClient,
-  type TransportTimings,
   type CollectorRunContext,
   type AdvisoryLockService,
-  renderTemplatableConfig,
   withScopedTransaction,
   healthcheckExecutionHistogram,
   healthcheckPhaseHistogram,
   healthcheckDeferredCounter,
 } from "@checkstack/backend-api";
-import type { RunTimings } from "@checkstack/healthcheck-common";
+import { runHealthCheckCollection } from "@checkstack/healthcheck-execution";
 import { QueueManager } from "@checkstack/queue-api";
 import {
   healthCheckConfigurations,
@@ -43,10 +39,7 @@ export {
   HEALTH_CHECK_QUEUE,
   type HealthCheckJobPayload,
 } from "@checkstack/healthcheck-common";
-import {
-  CatalogApi,
-  type Environment,
-} from "@checkstack/catalog-common";
+import { CatalogApi, type Environment } from "@checkstack/catalog-common";
 import {
   resolveEffectiveEnvironments,
   type EffectiveEnvironment,
@@ -55,7 +48,7 @@ import { buildHealthTransitionNotification } from "./health-notification-content
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { type InferClient, extractErrorMessage} from "@checkstack/common";
+import { type InferClient, extractErrorMessage } from "@checkstack/common";
 import { secretEnvMappingSchema } from "@checkstack/secrets-common";
 import type {
   SecretResolverService,
@@ -155,39 +148,6 @@ async function fetchRecentRunsForSlice(props: {
     latencyMs: r.latencyMs,
     timestamp: r.timestamp,
   }));
-}
-
-/** The known transport timing phase keys, in transport order. */
-const RUN_TIMING_KEYS = [
-  "dnsMs",
-  "connectMs",
-  "tlsMs",
-  "waitMs",
-  "transferMs",
-  "processingMs",
-] as const;
-
-/**
- * Build the run's `metadata.timings` from a connected client's surfaced
- * transport timings, keeping only present, finite, non-negative phases. Returns
- * `undefined` when no usable phase was measured so the field is omitted (old
- * runs and single-phase strategies stay on the coarse fallback in the UI).
- */
-function extractRunTimings(
-  connectedClient: ConnectedClient<TransportClient<never, unknown>> | undefined,
-): RunTimings | undefined {
-  const raw: TransportTimings | undefined = connectedClient?.timings;
-  if (!raw) return undefined;
-  const result: RunTimings = {};
-  let any = false;
-  for (const key of RUN_TIMING_KEYS) {
-    const value = raw[key];
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-      result[key] = value;
-      any = true;
-    }
-  }
-  return any ? result : undefined;
 }
 
 /**
@@ -407,7 +367,11 @@ export async function recomputeSystemRollupHealth(args: {
       // Cache: evict the rollup key + broadcast to the cluster on ANY per-check
       // vector change — a check that flips while the rollup enum stays put still
       // changes the rollup's `checkStatuses`, and a reader gets that vector.
-      await cache?.reconcile({ systemId, previous: previousState, next: newState });
+      await cache?.reconcile({
+        systemId,
+        previous: previousState,
+        next: newState,
+      });
       // Frontend signal: only a rollup-enum transition moves the badge, so a
       // per-check-only change needs no SYSTEM_STATUS_CHANGED refetch signal.
       if (newState.status !== previousState.status) {
@@ -952,7 +916,9 @@ async function executeHealthCheckJob(props: {
     // event-driven rollup consumer; an env-less run mutates the bare entity
     // (which IS the rollup) and so notifies + broadcasts SYSTEM_STATUS_CHANGED
     // directly.
-    const runEnvironments: (EffectiveEnvironment | null)[] = [singleEnvironment];
+    const runEnvironments: (EffectiveEnvironment | null)[] = [
+      singleEnvironment,
+    ];
     const isFannedOut = targetEnvironmentId !== null;
     for (const environment of runEnvironments) {
       const environmentId = environment?.id ?? null;
@@ -997,91 +963,44 @@ async function executeHealthCheckJob(props: {
           : {}),
       };
 
-      // Templating context for the per-env config render pass (§6.3.3).
-      // Carries only environment custom fields + curated check/system
-      // metadata - never secrets. `{{ environment.baseUrl }}` resolves from
-      // the resolved env's verbatim fields; an env-less run gets `{}` so a
-      // reference renders to empty string (strict: false); see the debug log
-      // below.
-      const templateContext = {
-        environment: runContext.environment?.fields ?? {},
-        check: runContext.check,
-        system: runContext.system,
-      };
+      // An env-less run renders any {{ environment.* }} reference to empty
+      // string (the engine's buildTemplateContext maps a missing environment to
+      // {}). Log it once at debug so it is visible without spamming every tick.
       if (!runContext.environment) {
-        // §11.6: render-empty when a run has no environment. An env-less run is
-        // a legitimate, documented configuration (the None assignment mode, or
-        // All-environments with no membership), and it recurs every interval -
-        // so this is `debug`, not `warn`, to avoid spamming the log. When an
-        // empty `{{ environment.* }}` render actually matters, the HTTP
-        // post-render `.url()` check already fails the run with a concrete
-        // "Rendered URL is invalid" error; we do not inspect every field here.
         logger.debug(
           `Health check ${configId} for system ${systemId} ran with no environment; ` +
             `any {{ environment.* }} references render to empty string`,
         );
       }
 
-      // (2) Environment/templating pass (NEW) - renders `{{ environment.* }}`
-      // etc. in `x-templatable` fields. Runs PER ENVIRONMENT, AFTER the secret
-      // resolution (secrets first, templating second - §6.3.4) and BEFORE the
-      // strategy client build, so each env gets its own rendered strategy
-      // config + client. The collector configs are rendered just before each
-      // collector executes (below) so the secretEnv resolution stays first.
-      const renderedStrategyConfig = renderTemplatableConfig({
-        config: strategyConfig,
-        schema: strategy.config.schema,
-        context: templateContext,
-      }) as BaseStrategyConfig;
-
-    // Per-environment isolation: an unexpected failure persisting ONE
-    // environment's run must not abort the sibling environments' runs.
-    // Each iteration's run is independent (§7.2), so we log and continue.
-    try {
-    // Execute health check using createClient pattern with unified hard timeout
-    const start = performance.now();
-    let connectionTimeMs: number | undefined;
-    let connectedClient:
-      | ConnectedClient<TransportClient<never, unknown>>
-      | undefined;
-    const collectors = configRow.collectors ?? [];
-    const collectorResults: Record<string, unknown> = {};
-    let hasCollectorError = false;
-    let errorMessage: string | undefined;
-
-    try {
-      // Platform-level hard timeout wrapping the entire execution sequence
-      await Promise.race([
-        (async () => {
-          // 1. Establish connection. The strategy client build moves INSIDE
-          // the per-env loop (§6.3.3): each env gets its own rendered config +
-          // client, so a single job no longer bakes in one env's rendered
-          // strategy config.
-          connectedClient = await strategy.createClient(renderedStrategyConfig);
-          connectionTimeMs = Math.round(performance.now() - start);
-
-          // 2. Execute collectors in parallel
-          const collectorPromises = collectors.map(async (collectorEntry) => {
-            const registered = collectorRegistry.getCollector(
-              collectorEntry.collectorId,
-            );
-            if (!registered) {
-              logger.warn(
-                `Collector ${collectorEntry.collectorId} not found, skipping`,
-              );
-              return { storageKey: collectorEntry.id, skipped: true };
-            }
-
-            const storageKey = collectorEntry.id;
-
-            try {
-              // Resolve the collector's declared secretEnv for THIS run
-              // (central execution). The collector injects it and masks the
-              // values out of its output. A missing required secret throws
-              // and fails the collector clearly.
-              let secretEnv: Record<string, string> | undefined;
+      // Per-environment isolation: an unexpected failure persisting ONE
+      // environment's run must not abort the sibling environments' runs.
+      // Each iteration's run is independent (§7.2), so we log and continue.
+      try {
+        // Execute through the SHARED engine (@checkstack/healthcheck-execution):
+        // it renders the strategy + collector `x-templatable` fields against this
+        // env/system's context, builds the transport client, runs the collectors,
+        // and closes the client. This is the SAME engine the satellite uses, so
+        // templating, secret/template ordering, and the per-collector fan-out
+        // cannot drift between core and satellite - the drift that hid custom-
+        // field templates on satellite runs. The core's own edges stay here as
+        // hooks: DB-backed secret resolution, migrate-on-read, and the
+        // assertion/ephemeral-strip post-processing.
+        const outcome = await runHealthCheckCollection({
+          strategy,
+          strategyConfig,
+          collectors: configRow.collectors ?? [],
+          runContext,
+          pluginId: configRow.strategyId,
+          logger,
+          timeoutMs: effectiveTimeout,
+          hooks: {
+            getCollector: (entry) =>
+              collectorRegistry.getCollector(entry.collectorId),
+            storageKeyOf: (entry) => entry.id,
+            resolveSecretEnv: async (entry) => {
               const declared = secretEnvMappingSchema.safeParse(
-                (collectorEntry.config as { secretEnv?: unknown }).secretEnv,
+                (entry.config as { secretEnv?: unknown }).secretEnv,
               );
               if (
                 secretResolver &&
@@ -1091,96 +1010,63 @@ async function executeHealthCheckJob(props: {
                 const resolved = await secretResolver.resolveForRun({
                   secretEnv: declared.data,
                 });
-                secretEnv = resolved.env;
+                return resolved.env;
               }
-
-              // Migrate the stored (UNVERSIONED) collector config via
-              // assume-v1-on-read: runs the declared migration chain, then
-              // validates. Migrations are idempotent, so an already-current
-              // config is a no-op. This runs BEFORE templating so the render
-              // pass sees the migrated shape; the secretEnv resolution above
-              // reads the raw `secretEnv` mapping (a constant string field
-              // unaffected by the strategy/collector reshapes), keeping the
-              // migrate -> secret resolve -> render -> execute order intact.
-              // Inflate this entry's secret markers / references (memory
-              // only) before its migrate+validate parse, mirroring the
-              // strategy-config inflation above.
-              let rawCollectorConfig = collectorEntry.config;
+              return;
+            },
+            prepareCollectorConfig: async (entry, registered) => {
+              // Inflate secret markers (memory-only) then migrate-on-read, so the
+              // engine templates + executes the migrated, secret-resolved shape.
+              let rawCollectorConfig = entry.config;
               if (internalSecrets && secretResolver) {
                 const inflated = await inflateConfigSecrets({
                   configurationId: configId,
-                  scope: {
-                    kind: "collector",
-                    entryId: collectorEntry.id,
-                  },
+                  scope: { kind: "collector", entryId: entry.id },
                   schema: registered.collector.config.schema,
-                  config: collectorEntry.config,
+                  config: entry.config,
                   deps: { internalSecrets, secretResolver },
                 });
                 rawCollectorConfig = inflated.config;
               }
-              const migratedCollectorConfig =
-                await registered.collector.config.parseAssumingV1(
-                  rawCollectorConfig,
-                );
-
-              // (2) Environment/templating pass for the collector config -
-              // runs AFTER the secretEnv resolution above (secrets first,
-              // templating second) and renders `{{ environment.* }}` in this
-              // collector's `x-templatable` fields against the per-env context.
-              const renderedCollectorConfig = renderTemplatableConfig({
-                config: migratedCollectorConfig,
-                schema: registered.collector.config.schema,
-                context: templateContext,
-              });
-
-              const collectorResult = await registered.collector.execute({
-                config: renderedCollectorConfig,
-                client: connectedClient!.client,
-                pluginId: configRow.strategyId,
-                runContext,
-                ...(secretEnv ? { secretEnv } : {}),
-              });
-
-              // Check for collector-level error
-              let collectorError: string | undefined;
-              if (collectorResult.error) {
-                collectorError = collectorResult.error;
-              }
-
-              // Evaluate per-collector assertions (plain fields + JSONPath).
-              // ALL outcomes are stored (pass AND fail) so assertions are
-              // analyzable over time, not only visible on failure.
+              // `parseAssumingV1` returns the collector's own (generic
+              // `unknown`) config type; the engine templates it as a record, so
+              // narrow to the object shape every collector config actually is.
+              const parsed = await registered.collector.config.parseAssumingV1(
+                rawCollectorConfig,
+              );
+              return parsed as Record<string, unknown>;
+            },
+            mapResult: ({ entry, registered, collectorResult }) => {
+              const collectorError = collectorResult.error;
               let assertionFailed: string | undefined;
               let assertionOutcomes: AssertionOutcome[] = [];
               if (collectorResult.result) {
                 const evaluation = evaluateCollectorAssertionOutcomes({
-                  assertions: collectorEntry.assertions,
+                  assertions: entry.assertions,
                   result: collectorResult.result as Record<string, unknown>,
                 });
                 assertionFailed = evaluation.firstFailureMessage;
                 assertionOutcomes = evaluation.outcomes;
                 if (assertionFailed) {
                   logger.debug(
-                    `Collector ${storageKey} assertion failed: ${assertionFailed}`,
+                    `Collector ${entry.id} assertion failed: ${assertionFailed}`,
                   );
                 }
               }
-
-              // Strip ephemeral fields before storage
               const strippedResult = stripEphemeralFields(
                 collectorResult.result as Record<string, unknown>,
                 registered.collector.result.schema,
               );
-
               return {
-                storageKey,
-                skipped: false,
-                success: true,
-                collectorError,
-                assertionFailed,
-                result: {
-                  _collectorId: collectorEntry.collectorId,
+                storageKey: entry.id,
+                success: !collectorError && !assertionFailed,
+                error:
+                  collectorError ??
+                  (assertionFailed
+                    ? `Assertion failed: ${assertionFailed}`
+                    : undefined),
+                storedResult: {
+                  _collectorId: entry.collectorId,
                   _assertionFailed: assertionFailed,
                   _collectorError: collectorError,
                   ...(assertionOutcomes.length > 0
@@ -1189,435 +1075,401 @@ async function executeHealthCheckJob(props: {
                   ...strippedResult,
                 },
               };
-            } catch (error) {
-              const errorStr =
-                extractErrorMessage(error);
-              logger.debug(`Collector ${storageKey} failed: ${errorStr}`);
+            },
+            mapError: ({ entry, error }) => {
+              const errorStr = extractErrorMessage(error);
+              logger.debug(`Collector ${entry.id} failed: ${errorStr}`);
               return {
-                storageKey,
-                skipped: false,
+                storageKey: entry.id,
                 success: false,
                 error: errorStr,
-                result: {
-                  _collectorId: collectorEntry.collectorId,
+                storedResult: {
+                  _collectorId: entry.collectorId,
                   _assertionFailed: undefined,
                   _collectorError: errorStr,
                 },
               };
-            }
-          });
-
-          // Wait for all collectors to complete
-          const settledResults = await Promise.allSettled(collectorPromises);
-
-          // Process results from all collectors
-          for (const settled of settledResults) {
-            if (settled.status === "rejected") {
-              // This shouldn't happen since we catch errors above, but handle it
-              hasCollectorError = true;
-              if (!errorMessage) errorMessage = String(settled.reason);
-              continue;
-            }
-
-            const result = settled.value;
-            if (result.skipped) continue;
-
-            // Store the result
-            collectorResults[result.storageKey] = result.result;
-
-            // Track errors
-            if (
-              !result.success ||
-              result.collectorError ||
-              result.assertionFailed
-            ) {
-              hasCollectorError = true;
-              if (!errorMessage) {
-                errorMessage =
-                  result.error ||
-                  result.collectorError ||
-                  (result.assertionFailed
-                    ? `Assertion failed: ${result.assertionFailed}`
-                    : undefined);
-              }
-            }
-          }
-        })(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(`Execution timeout after ${effectiveTimeout}ms`),
-              ),
-            effectiveTimeout,
-          ),
-        ),
-      ]);
-    } catch (error) {
-      const latencyMs = Math.round(performance.now() - start);
-      const caughtError =
-        extractErrorMessage(error);
-
-      // Use a specific error message if available, otherwise use the caught error
-      const finalError = errorMessage || caughtError;
-
-      const result = {
-        status: "unhealthy" as const,
-        latencyMs,
-        message: finalError,
-        metadata: {
-          connected: !!connectedClient,
-          error: finalError,
-        },
-      };
-
-      // Persist the run + aggregate THROUGH the reactive `health` entity:
-      // `apply` does the durable write and returns the freshly-computed view.
-      // The framework snapshots `prev` via `read` BEFORE this insert, so a real
-      // status change emits exactly one correct `ENTITY_CHANGED` (§10.3). The
-      // computed aggregated state is stashed for the transition/notify path.
-      let newState!: AggregatedHealth;
-      await writeHealthEntity({
-        handle: getHealthEntity?.(),
-        entityId: envEntityId,
-        apply: async () => {
-          // In-lock pre-run baseline (see the `previousState` declaration): read
-          // here, inside the serialized critical section, before the insert.
-          previousState = await service.getSystemHealthStatus(
-            systemId,
-            environmentId,
-          );
-          previousStatus = previousState.status;
-          // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
-          // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
-          // which also makes the run and its aggregate commit atomically.
-          await withScopedTransaction(db, async (tx) => {
-            await tx.insert(healthCheckRuns).values({
-              configurationId: configId,
-              systemId,
-              environmentId,
-              status: result.status,
-              latencyMs: result.latencyMs,
-              result: { ...result } as Record<string, unknown>,
-              sourceId: undefined,
-              sourceLabel: "Local",
-            });
-
-            await incrementHourlyAggregate({
-              db: tx,
-              systemId,
-              configurationId: configId,
-              environmentId,
-              status: result.status,
-              latencyMs: result.latencyMs,
-              runTimestamp: new Date(),
-              result: { ...result } as Record<string, unknown>,
-              collectorRegistry,
-              sourceLabel: "Local",
-            });
-          });
-
-          // Env-scoped view: the per-env entity reflects only this env's runs.
-          // Runs as its own batched read AFTER the write commits, so it sees
-          // the just-inserted run.
-          newState = await service.getSystemHealthStatus(systemId, environmentId);
-          return toHealthEntityView(newState);
-        },
-        serialize: serializeEnvWrite,
-        onError: (error) =>
-          logger.warn(
-            `Failed to mirror health entity for ${envEntityId}`,
-            error,
-          ),
-      });
-
-      logger.debug(
-        `Health check ${configId} for system ${systemId} failed: ${finalError}`,
-      );
-
-      // Reconcile this environment's cached status: evict + broadcast to the
-      // cluster ONLY when the per-check vector actually changed (a run that
-      // leaves every check's status unchanged keeps the cache warm instead of
-      // thrashing it every tick). The rollup key is reconciled separately by
-      // the debounced rollup consumer (recomputeSystemRollupHealth), also
-      // vector-gated.
-      await cache.reconcile({
-        systemId,
-        environmentId,
-        previous: previousState,
-        next: newState,
-      });
-
-      await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
-        systemId,
-        systemName,
-        configurationId: configId,
-        configurationName: configRow.configName,
-        status: result.status,
-        latencyMs: result.latencyMs,
-        // Env-scoped fan-out: `environment` is null for the env-less run, so
-        // `?.` yields undefined and those runs broadcast exactly as before.
-        environmentId: environment?.id,
-        environmentName: environment?.name,
-      });
-
-      // `newState.status` cannot be `unknown` here - a run just completed, so
-      // the check has a measurement - but narrowing it keeps that guarantee
-      // explicit rather than asserted with a cast.
-      if (newState.status !== previousStatus && newState.status !== "unknown") {
-        // Record the aggregate transition so the sensing layer has a
-        // reliable "in status since" for every status (Wave 2).
-        await recordStateTransition({
-          db,
-          systemId,
-          configurationId: configId,
-          environmentId,
-          // NULL means "no prior measured status" - the column is nullable for
-          // exactly this first-measurement case, so a system whose checks had
-          // never run records an honest `null -> healthy` rather than
-          // pretending it was healthy all along.
-          fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
-          toStatus: newState.status,
+            },
+          },
         });
 
-        await notifyStateChange({
-          notificationClient,
+        if (outcome.aborted) {
+          // The transport itself failed: the client build threw, or the hard
+          // timeout fired. This is a transport failure, distinct from a completed
+          // run whose collectors reported problems, so it takes the failure
+          // result shape and (deliberately, matching prior behaviour) skips the
+          // checkCompleted hook + SYSTEM_STATUS_CHANGED signal the success path
+          // emits.
+          const finalError = outcome.errorMessage;
+
+          const result = {
+            status: "unhealthy" as const,
+            latencyMs: outcome.latencyMs,
+            message: finalError,
+            metadata: {
+              connected: outcome.connected,
+              error: finalError,
+            },
+          };
+          // Persist the run + aggregate THROUGH the reactive `health` entity:
+          // `apply` does the durable write and returns the freshly-computed view.
+          // The framework snapshots `prev` via `read` BEFORE this insert, so a real
+          // status change emits exactly one correct `ENTITY_CHANGED` (§10.3). The
+          // computed aggregated state is stashed for the transition/notify path.
+          let newState!: AggregatedHealth;
+          await writeHealthEntity({
+            handle: getHealthEntity?.(),
+            entityId: envEntityId,
+            apply: async () => {
+              // In-lock pre-run baseline (see the `previousState` declaration): read
+              // here, inside the serialized critical section, before the insert.
+              previousState = await service.getSystemHealthStatus(
+                systemId,
+                environmentId,
+              );
+              previousStatus = previousState.status;
+              // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+              // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+              // which also makes the run and its aggregate commit atomically.
+              await withScopedTransaction(db, async (tx) => {
+                await tx.insert(healthCheckRuns).values({
+                  configurationId: configId,
+                  systemId,
+                  environmentId,
+                  status: result.status,
+                  latencyMs: result.latencyMs,
+                  result: { ...result } as Record<string, unknown>,
+                  sourceId: undefined,
+                  sourceLabel: "Local",
+                });
+
+                await incrementHourlyAggregate({
+                  db: tx,
+                  systemId,
+                  configurationId: configId,
+                  environmentId,
+                  status: result.status,
+                  latencyMs: result.latencyMs,
+                  runTimestamp: new Date(),
+                  result: { ...result } as Record<string, unknown>,
+                  collectorRegistry,
+                  sourceLabel: "Local",
+                });
+              });
+
+              // Env-scoped view: the per-env entity reflects only this env's runs.
+              // Runs as its own batched read AFTER the write commits, so it sees
+              // the just-inserted run.
+              newState = await service.getSystemHealthStatus(
+                systemId,
+                environmentId,
+              );
+              return toHealthEntityView(newState);
+            },
+            serialize: serializeEnvWrite,
+            onError: (error) =>
+              logger.warn(
+                `Failed to mirror health entity for ${envEntityId}`,
+                error,
+              ),
+          });
+
+          logger.debug(
+            `Health check ${configId} for system ${systemId} failed: ${finalError}`,
+          );
+
+          // Reconcile this environment's cached status: evict + broadcast to the
+          // cluster ONLY when the per-check vector actually changed (a run that
+          // leaves every check's status unchanged keeps the cache warm instead of
+          // thrashing it every tick). The rollup key is reconciled separately by
+          // the debounced rollup consumer (recomputeSystemRollupHealth), also
+          // vector-gated.
+          await cache.reconcile({
+            systemId,
+            environmentId,
+            previous: previousState,
+            next: newState,
+          });
+
+          await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
+            systemId,
+            systemName,
+            configurationId: configId,
+            configurationName: configRow.configName,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            // Env-scoped fan-out: `environment` is null for the env-less run, so
+            // `?.` yields undefined and those runs broadcast exactly as before.
+            environmentId: environment?.id,
+            environmentName: environment?.name,
+          });
+
+          // `newState.status` cannot be `unknown` here - a run just completed, so
+          // the check has a measurement - but narrowing it keeps that guarantee
+          // explicit rather than asserted with a cast.
+          if (
+            newState.status !== previousStatus &&
+            newState.status !== "unknown"
+          ) {
+            // Record the aggregate transition so the sensing layer has a
+            // reliable "in status since" for every status (Wave 2).
+            await recordStateTransition({
+              db,
+              systemId,
+              configurationId: configId,
+              environmentId,
+              // NULL means "no prior measured status" - the column is nullable for
+              // exactly this first-measurement case, so a system whose checks had
+              // never run records an honest `null -> healthy` rather than
+              // pretending it was healthy all along.
+              fromStatus:
+                previousStatus === "unknown" ? undefined : previousStatus,
+              toStatus: newState.status,
+            });
+
+            await notifyStateChange({
+              notificationClient,
+              systemId,
+              systemName,
+              configurationId: configId,
+              configurationName: configRow.configName,
+              // A first measurement is not a transition anyone asked to hear about
+              // when it lands healthy; `notifyStateChange` decides, and it needs a
+              // concrete previous status to compare against.
+              previousStatus:
+                previousStatus === "unknown" ? "healthy" : previousStatus,
+              newStatus: newState.status,
+              environmentId,
+              environmentName: environment?.name,
+              service,
+              catalogClient,
+              maintenanceClient,
+              incidentClient,
+              logger,
+            });
+          }
+
+          // This environment's run is done (failed). Continue to the next
+          // effective environment rather than ending the whole job.
+          continue;
+        }
+
+        // A COMPLETED run: the client built and the collectors ran. Its status is
+        // decided by the collectors - a collector error or failed assertion
+        // downgrades it - exactly as before.
+        const status = outcome.hasCollectorError ? "unhealthy" : "healthy";
+        const totalLatencyMs = outcome.latencyMs;
+
+        // Transport sub-phase timings measured AT THE PROBE and already filtered by
+        // the engine to present phases. The satellite surfaces the same shape for
+        // remote runs, so a run's `metadata.timings` is identical wherever it ran.
+        const timings = outcome.clientTimings;
+
+        // Metrics (OTel no-ops unless enabled): the probe's total wall-clock and its
+        // network sub-phases. The `phase` breakdown tells "slow target" (`wait`
+        // grows) apart from "slow connection" (`connect`/`tls` grow) apart from
+        // platform delay.
+        healthcheckExecutionHistogram().record(totalLatencyMs, { status });
+        if (timings) {
+          for (const [phase, value] of Object.entries(timings)) {
+            if (typeof value === "number" && Number.isFinite(value)) {
+              healthcheckPhaseHistogram().record(value, {
+                phase: phase.replace(/Ms$/, ""),
+              });
+            }
+          }
+        }
+
+        const result = {
+          status: status as "healthy" | "unhealthy",
+          latencyMs: totalLatencyMs,
+          message: outcome.hasCollectorError
+            ? `Check failed: ${outcome.errorMessage}`
+            : `Completed in ${totalLatencyMs}ms`,
+          metadata: {
+            connected: true,
+            connectionTimeMs: outcome.connectionTimeMs,
+            ...(timings ? { timings } : {}),
+            collectors: outcome.collectorResults,
+          },
+        };
+
+        // Persist the run + aggregate THROUGH the reactive `health` entity on
+        // every run (§10.3): `apply` does the durable write (insert + hourly
+        // aggregate) and returns the freshly-computed view. The framework
+        // snapshots `prev` via the COMPUTE-ON-READ accessor BEFORE this insert, so
+        // an unchanged aggregate is a no-op and a real status change drives the
+        // directional/umbrella trigger events via `deriveHealthTriggerEvents` —
+        // exactly one correct `ENTITY_CHANGED` with accurate prev → next.
+        let newState!: AggregatedHealth;
+        await writeHealthEntity({
+          handle: getHealthEntity?.(),
+          entityId: envEntityId,
+          apply: async () => {
+            // In-lock pre-run baseline (see the `previousState` declaration): read
+            // here, inside the serialized critical section, before the insert.
+            previousState = await service.getSystemHealthStatus(
+              systemId,
+              environmentId,
+            );
+            previousStatus = previousState.status;
+            // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+            // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+            // which also makes the run and its aggregate commit atomically.
+            await withScopedTransaction(db, async (tx) => {
+              // Store result (spread to convert structured type to plain record for jsonb)
+              await tx.insert(healthCheckRuns).values({
+                configurationId: configId,
+                systemId,
+                environmentId,
+                status: result.status,
+                latencyMs: result.latencyMs,
+                result: { ...result } as Record<string, unknown>,
+                sourceId: undefined,
+                sourceLabel: "Local",
+              });
+
+              // Trigger incremental hourly aggregation
+              await incrementHourlyAggregate({
+                db: tx,
+                systemId,
+                configurationId: configId,
+                environmentId,
+                status: result.status,
+                latencyMs: result.latencyMs,
+                runTimestamp: new Date(),
+                result: { ...result } as Record<string, unknown>,
+                collectorRegistry,
+                sourceLabel: "Local",
+              });
+            });
+
+            // Env-scoped view: the per-env entity reflects only this env's runs.
+            // Runs as its own batched read AFTER the write commits, so it sees the
+            // just-inserted run.
+            newState = await service.getSystemHealthStatus(
+              systemId,
+              environmentId,
+            );
+            return toHealthEntityView(newState);
+          },
+          serialize: serializeEnvWrite,
+          onError: (error) =>
+            logger.warn(
+              `Failed to mirror health entity for ${envEntityId}`,
+              error,
+            ),
+        });
+
+        logger.debug(
+          `Ran health check ${configId} for system ${systemId}: ${result.status}`,
+        );
+
+        // Reconcile this environment's cached status: evict + broadcast to the
+        // cluster ONLY when the per-check vector actually changed (a steady-state
+        // healthy run keeps the cache warm). The rollup key is reconciled by the
+        // debounced rollup consumer (recomputeSystemRollupHealth), also vector-gated.
+        await cache.reconcile({
+          systemId,
+          environmentId,
+          previous: previousState,
+          next: newState,
+        });
+
+        // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
+        await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
           systemId,
           systemName,
           configurationId: configId,
           configurationName: configRow.configName,
-          // A first measurement is not a transition anyone asked to hear about
-          // when it lands healthy; `notifyStateChange` decides, and it needs a
-          // concrete previous status to compare against.
-          previousStatus:
-            previousStatus === "unknown" ? "healthy" : previousStatus,
-          newStatus: newState.status,
-          environmentId,
+          status: result.status,
+          latencyMs: result.latencyMs,
+          // Env-scoped fan-out: `environment` is null for the env-less run, so
+          // `?.` yields undefined and those runs broadcast exactly as before.
+          environmentId: environment?.id,
           environmentName: environment?.name,
-          service,
-          catalogClient,
-          maintenanceClient,
-          incidentClient,
-          logger,
         });
-      }
 
-      // This environment's run is done (failed). Continue to the next
-      // effective environment rather than ending the whole job.
-      continue;
-    } finally {
-      if (connectedClient) {
-        try {
-          connectedClient.close();
-        } catch (error) {
-          logger.warn(`Failed to close connection: ${error}`);
-        }
-      }
-    }
-
-    // Determine health status based on collector results
-    const status = hasCollectorError ? "unhealthy" : "healthy";
-    const totalLatencyMs = Math.round(performance.now() - start);
-
-    // Lift the strategy's structured transport timings (DNS / connect / TLS /
-    // wait / transfer / processing) into the run metadata when the connected
-    // client surfaced any. Strategies that cannot measure sub-phases leave this
-    // undefined and the frontend falls back to the coarse connection split.
-    const timings = extractRunTimings(connectedClient);
-
-    // Metrics (OTel no-ops unless enabled): the probe's total wall-clock and its
-    // network sub-phases. The `phase` breakdown is what tells "slow target"
-    // (`wait` grows) apart from "slow connection establishment" (`connect`/`tls`
-    // grow under a same-host stampede) apart from platform delay.
-    healthcheckExecutionHistogram().record(totalLatencyMs, { status });
-    if (timings) {
-      for (const [phase, value] of Object.entries(timings)) {
-        if (typeof value === "number" && Number.isFinite(value)) {
-          healthcheckPhaseHistogram().record(value, {
-            phase: phase.replace(/Ms$/, ""),
-          });
-        }
-      }
-    }
-
-    const result = {
-      status: status as "healthy" | "unhealthy",
-      latencyMs: totalLatencyMs,
-      message: hasCollectorError
-        ? `Check failed: ${errorMessage}`
-        : `Completed in ${totalLatencyMs}ms`,
-      metadata: {
-        connected: true,
-        connectionTimeMs,
-        ...(timings ? { timings } : {}),
-        collectors: collectorResults,
-      },
-    };
-
-    // Persist the run + aggregate THROUGH the reactive `health` entity on
-    // every run (§10.3): `apply` does the durable write (insert + hourly
-    // aggregate) and returns the freshly-computed view. The framework
-    // snapshots `prev` via the COMPUTE-ON-READ accessor BEFORE this insert, so
-    // an unchanged aggregate is a no-op and a real status change drives the
-    // directional/umbrella trigger events via `deriveHealthTriggerEvents` —
-    // exactly one correct `ENTITY_CHANGED` with accurate prev → next.
-    let newState!: AggregatedHealth;
-    await writeHealthEntity({
-      handle: getHealthEntity?.(),
-      entityId: envEntityId,
-      apply: async () => {
-        // In-lock pre-run baseline (see the `previousState` declaration): read
-        // here, inside the serialized critical section, before the insert.
-        previousState = await service.getSystemHealthStatus(
+        await emitCheckCompletedHook({
+          getEmitHook,
           systemId,
+          configurationId: configId,
+          status: result.status,
+          latencyMs: result.latencyMs,
+          result:
+            (result.metadata?.collectors as Record<string, unknown>) ??
+            undefined,
           environmentId,
+        });
+
+        // `newState.status` cannot be `unknown` here (a run just completed);
+        // narrowing keeps that explicit instead of asserting it with a cast.
+        if (
+          newState.status !== previousStatus &&
+          newState.status !== "unknown"
+        ) {
+          // Record the aggregate transition so the sensing layer has a
+          // reliable "in status since" for every status (Wave 2).
+          await recordStateTransition({
+            db,
+            systemId,
+            configurationId: configId,
+            environmentId,
+            // `undefined` records NULL - "no prior measured status" - which is what
+            // the recorder already documents for a first-ever transition.
+            fromStatus:
+              previousStatus === "unknown" ? undefined : previousStatus,
+            toStatus: newState.status,
+          });
+
+          await notifyStateChange({
+            notificationClient,
+            systemId,
+            systemName,
+            configurationId: configId,
+            configurationName: configRow.configName,
+            // A first measurement has no previous status to compare against;
+            // `notifyStateChange` needs a concrete one to decide what to send.
+            previousStatus:
+              previousStatus === "unknown" ? "healthy" : previousStatus,
+            newStatus: newState.status,
+            environmentId,
+            environmentName: environment?.name,
+            service,
+            catalogClient,
+            maintenanceClient,
+            incidentClient,
+            logger,
+          });
+
+          // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
+          // status, not a per-env status. When fanned out, the post-loop rollup
+          // write broadcasts it once with the worst-status rollup; emitting it here
+          // per env would send up to N system-level signals/tick carrying per-env
+          // status. Only the env-less run (which IS the rollup — `!isFannedOut`)
+          // broadcasts the system-level signal from inside the loop.
+          if (!isFannedOut) {
+            await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+              systemId,
+              previousStatus,
+              newStatus: newState.status,
+            });
+          }
+
+          // The directional + umbrella system-health hooks were removed in
+          // Phase 4 (§10.3): the `health` entity mirror above is the single
+          // source of truth, and its change deriver fires the
+          // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
+          // trigger events through Stage-1 routing. Nothing to emit here.
+        }
+      } catch (envError) {
+        // Isolate this environment's failure; continue with the next env.
+        logger.error(
+          `Failed to run health check ${configId} for system ${systemId}` +
+            (environmentId ? ` (environment ${environmentId})` : " (env-less)"),
+          envError,
         );
-        previousStatus = previousState.status;
-        // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
-        // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
-        // which also makes the run and its aggregate commit atomically.
-        await withScopedTransaction(db, async (tx) => {
-          // Store result (spread to convert structured type to plain record for jsonb)
-          await tx.insert(healthCheckRuns).values({
-            configurationId: configId,
-            systemId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            result: { ...result } as Record<string, unknown>,
-            sourceId: undefined,
-            sourceLabel: "Local",
-          });
-
-          // Trigger incremental hourly aggregation
-          await incrementHourlyAggregate({
-            db: tx,
-            systemId,
-            configurationId: configId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            runTimestamp: new Date(),
-            result: { ...result } as Record<string, unknown>,
-            collectorRegistry,
-            sourceLabel: "Local",
-          });
-        });
-
-        // Env-scoped view: the per-env entity reflects only this env's runs.
-        // Runs as its own batched read AFTER the write commits, so it sees the
-        // just-inserted run.
-        newState = await service.getSystemHealthStatus(systemId, environmentId);
-        return toHealthEntityView(newState);
-      },
-      serialize: serializeEnvWrite,
-      onError: (error) =>
-        logger.warn(`Failed to mirror health entity for ${envEntityId}`, error),
-    });
-
-    logger.debug(
-      `Ran health check ${configId} for system ${systemId}: ${result.status}`,
-    );
-
-    // Reconcile this environment's cached status: evict + broadcast to the
-    // cluster ONLY when the per-check vector actually changed (a steady-state
-    // healthy run keeps the cache warm). The rollup key is reconciled by the
-    // debounced rollup consumer (recomputeSystemRollupHealth), also vector-gated.
-    await cache.reconcile({
-      systemId,
-      environmentId,
-      previous: previousState,
-      next: newState,
-    });
-
-    // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
-    await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
-      systemId,
-      systemName,
-      configurationId: configId,
-      configurationName: configRow.configName,
-      status: result.status,
-      latencyMs: result.latencyMs,
-      // Env-scoped fan-out: `environment` is null for the env-less run, so
-      // `?.` yields undefined and those runs broadcast exactly as before.
-      environmentId: environment?.id,
-      environmentName: environment?.name,
-    });
-
-    await emitCheckCompletedHook({
-      getEmitHook,
-      systemId,
-      configurationId: configId,
-      status: result.status,
-      latencyMs: result.latencyMs,
-      result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
-      environmentId,
-    });
-
-    // `newState.status` cannot be `unknown` here (a run just completed);
-    // narrowing keeps that explicit instead of asserting it with a cast.
-    if (newState.status !== previousStatus && newState.status !== "unknown") {
-      // Record the aggregate transition so the sensing layer has a
-      // reliable "in status since" for every status (Wave 2).
-      await recordStateTransition({
-        db,
-        systemId,
-        configurationId: configId,
-        environmentId,
-        // `undefined` records NULL - "no prior measured status" - which is what
-        // the recorder already documents for a first-ever transition.
-        fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
-        toStatus: newState.status,
-      });
-
-      await notifyStateChange({
-        notificationClient,
-        systemId,
-        systemName,
-        configurationId: configId,
-        configurationName: configRow.configName,
-        // A first measurement has no previous status to compare against;
-        // `notifyStateChange` needs a concrete one to decide what to send.
-        previousStatus:
-          previousStatus === "unknown" ? "healthy" : previousStatus,
-        newStatus: newState.status,
-        environmentId,
-        environmentName: environment?.name,
-        service,
-        catalogClient,
-        maintenanceClient,
-        incidentClient,
-        logger,
-      });
-
-      // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
-      // status, not a per-env status. When fanned out, the post-loop rollup
-      // write broadcasts it once with the worst-status rollup; emitting it here
-      // per env would send up to N system-level signals/tick carrying per-env
-      // status. Only the env-less run (which IS the rollup — `!isFannedOut`)
-      // broadcasts the system-level signal from inside the loop.
-      if (!isFannedOut) {
-        await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
-          systemId,
-          previousStatus,
-          newStatus: newState.status,
-        });
       }
-
-      // The directional + umbrella system-health hooks were removed in
-      // Phase 4 (§10.3): the `health` entity mirror above is the single
-      // source of truth, and its change deriver fires the
-      // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
-      // trigger events through Stage-1 routing. Nothing to emit here.
-    }
-    } catch (envError) {
-      // Isolate this environment's failure; continue with the next env.
-      logger.error(
-        `Failed to run health check ${configId} for system ${systemId}` +
-          (environmentId ? ` (environment ${environmentId})` : " (env-less)"),
-        envError,
-      );
-    }
     } // end per-environment fan-out loop (for ... of runEnvironments)
 
     // The system ROLLUP (bare `<systemId>` entity) for a fanned-out env-scoped
@@ -1883,4 +1735,3 @@ export async function setupHealthCheckWorker(props: {
 
   logger.debug("🎯 Health Check Worker subscribed to queue");
 }
-
