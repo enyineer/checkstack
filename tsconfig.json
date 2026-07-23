@@ -184,6 +184,9 @@
       "path": "./core/integration-frontend"
     },
     {
+      "path": "./core/k8s-events-common"
+    },
+    {
       "path": "./core/logstream-backend"
     },
     {
@@ -464,9 +467,6 @@
     },
     {
       "path": "./plugins/k8s-events-backend"
-    },
-    {
-      "path": "./plugins/k8s-events-common"
     },
     {
       "path": "./plugins/notification-backstage-backend"

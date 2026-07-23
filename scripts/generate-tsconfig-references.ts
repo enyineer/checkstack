@@ -18,17 +18,15 @@
  *     package, suitable for `tsgo -b` from the repo root.
  */
 
-import { Glob } from "bun";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
-const CHECK_ONLY = process.argv.includes("--check");
+import {
+  discoverWorkspacePackages,
+  checkstackWorkspaceDeps,
+} from "./workspace-packages";
 
-interface PackageJson {
-  name?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-}
+const CHECK_ONLY = process.argv.includes("--check");
 
 interface TsConfig {
   extends?: string;
@@ -52,49 +50,25 @@ interface DiscoveredPackage {
 const ROOT = process.cwd();
 
 async function discover(): Promise<DiscoveredPackage[]> {
-  const rootPkg = JSON.parse(
-    readFileSync(path.join(ROOT, "package.json"), "utf8"),
-  ) as PackageJson & { workspaces?: string[] };
-  const patterns = rootPkg.workspaces ?? [];
-
-  const out: DiscoveredPackage[] = [];
-  for (const pattern of patterns) {
-    const glob = new Glob(pattern);
-    for await (const match of glob.scan({ cwd: ROOT, onlyFiles: false })) {
-      const absDir = path.join(ROOT, match);
-      const pkgPath = path.join(absDir, "package.json");
-      const tsPath = path.join(absDir, "tsconfig.json");
-      if (!existsSync(pkgPath) || !existsSync(tsPath)) continue;
-
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as PackageJson;
-      if (!pkg.name) continue;
-
-      // Skip packages whose tsconfig is owned by a non-tsgo toolchain
-      // (e.g. Astro for the docs site). Their config references virtual
-      // modules like `astro:content` that only resolve via the tool's own
-      // type-check command, so wiring them into the `tsgo -b` solution
-      // would break CI.
-      const tsRaw = readFileSync(tsPath, "utf8");
-      const extendsMatch = tsRaw.match(/"extends"\s*:\s*"([^"]+)"/);
-      if (extendsMatch && extendsMatch[1].startsWith("astro/")) continue;
-
-      const allDeps = {
-        ...pkg.dependencies,
-        ...pkg.devDependencies,
-      };
-      const workspaceDeps = Object.keys(allDeps).filter((d) =>
-        d.startsWith("@checkstack/"),
-      );
-
-      out.push({
-        absDir,
-        relDir: match,
-        name: pkg.name,
-        workspaceDeps,
-      });
-    }
-  }
-  return out;
+  const packages = await discoverWorkspacePackages(ROOT);
+  return (
+    packages
+      // Project references only make sense for packages with a tsconfig, and
+      // NOT for ones whose tsconfig is owned by a non-tsgo toolchain (e.g. Astro
+      // for the docs site) - those reference virtual modules like `astro:content`
+      // that only resolve via that tool, so wiring them into the `tsgo -b`
+      // solution would break CI.
+      .filter(
+        (p) => p.hasTsconfig && !p.tsconfigExtends?.startsWith("astro/"),
+      )
+      .map((p) => ({
+        absDir: p.absDir,
+        relDir: p.relDir,
+        name: p.name,
+        // References mirror both runtime AND dev workspace deps.
+        workspaceDeps: checkstackWorkspaceDeps(p, { includeDev: true }),
+      }))
+  );
 }
 
 function readJsonc(file: string): TsConfig {

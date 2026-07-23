@@ -1402,6 +1402,19 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/k8s-events-common": {
+      "name": "@checkstack/k8s-events-common",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/telemetry-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/logstream-backend": {
       "name": "@checkstack/logstream-backend",
       "version": "0.4.0",
@@ -3369,19 +3382,6 @@
         "typescript": "^5.7.2",
       },
     },
-    "plugins/k8s-events-common": {
-      "name": "@checkstack/k8s-events-common",
-      "version": "0.1.0",
-      "dependencies": {
-        "@checkstack/common": "workspace:*",
-        "@checkstack/telemetry-common": "workspace:*",
-        "zod": "^4.2.1",
-      },
-      "devDependencies": {
-        "@checkstack/tsconfig": "workspace:*",
-        "typescript": "^5.7.2",
-      },
-    },
     "plugins/notification-backstage-backend": {
       "name": "@checkstack/notification-backstage-backend",
       "version": "0.2.6",
@@ -3914,7 +3914,7 @@
 
     "@checkstack/k8s-events-backend": ["@checkstack/k8s-events-backend@workspace:plugins/k8s-events-backend"],
 
-    "@checkstack/k8s-events-common": ["@checkstack/k8s-events-common@workspace:plugins/k8s-events-common"],
+    "@checkstack/k8s-events-common": ["@checkstack/k8s-events-common@workspace:core/k8s-events-common"],
 
     "@checkstack/logstream-backend": ["@checkstack/logstream-backend@workspace:core/logstream-backend"],
 

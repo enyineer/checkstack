@@ -5,10 +5,10 @@
   ],
   "references": [
     {
-      "path": "../../core/common"
+      "path": "../common"
     },
     {
-      "path": "../../core/telemetry-common"
+      "path": "../telemetry-common"
     }
   ]
 }
