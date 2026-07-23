@@ -209,12 +209,10 @@ describe("maintenance router addUpdate notification", () => {
       notifyForSubscription.mock.calls[0] as unknown[] | undefined
     )?.[0] as { body?: string } | undefined;
     expect(payload?.body).toContain("has been updated");
-    expect(payload?.body).toContain(
-      "\n\n> Patch applied, verifying replicas",
-    );
+    expect(payload?.body).toContain("\n\nPatch applied, verifying replicas");
   });
 
-  it("escapes markdown/HTML in the update text so markup cannot be injected", async () => {
+  it("carries the update text as markdown, unescaped (the reported bug)", async () => {
     const { router, notifyForSubscription } = buildRouter();
     const ctx = teamScopedContext(["m-ok"]);
 
@@ -222,7 +220,7 @@ describe("maintenance router addUpdate notification", () => {
       router.addUpdate,
       {
         maintenanceId: "m-ok",
-        message: "See [here](http://evil) **now** & <script>",
+        message: "See [the page](https://example.com/x) **now**",
         visibility: "public",
       },
       { context: ctx },
@@ -231,11 +229,13 @@ describe("maintenance router addUpdate notification", () => {
     const payload = (
       notifyForSubscription.mock.calls[0] as unknown[] | undefined
     )?.[0] as { body?: string } | undefined;
-    expect(payload?.body).not.toContain("[here](http://evil)");
-    expect(payload?.body).not.toContain("**now**");
-    expect(payload?.body).toContain("\\[here\\]");
-    expect(payload?.body).toContain("&lt;script");
-    expect(payload?.body).toContain("&amp;");
+    // The markdown reaches the body intact so downstream renderers turn it into
+    // a real link/emphasis - it is no longer escaped to raw text. Active-content
+    // safety is the renderer's job (markdownToHtml's allow-list), covered by
+    // core/backend-api/src/markdown.test.ts, not by escaping the body here.
+    expect(payload?.body).toContain("[the page](https://example.com/x)");
+    expect(payload?.body).toContain("**now**");
+    expect(payload?.body).not.toContain("\\[the page\\]");
   });
 
   it("does NOT notify subscribers (and never leaks text) for an internal-only update", async () => {

@@ -193,7 +193,13 @@ describe("notifyAffectedSystems (maintenance)", () => {
   });
 
   describe("update message in body", () => {
-    it("appends the escaped update message as a blockquote", async () => {
+    const bodyOf = () =>
+      (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [{ body?: string }]
+      )[0]?.body ?? "";
+
+    it("appends the update message as its own markdown block", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -205,17 +211,10 @@ describe("notifyAffectedSystems (maintenance)", () => {
         updateMessage: "Patch applied, verifying replicas.",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      expect(call?.body).toContain(
-        "\n\n> Patch applied, verifying replicas",
-      );
+      expect(bodyOf()).toContain("\n\nPatch applied, verifying replicas.");
     });
 
-    it("truncates an over-long message to a bounded length", async () => {
-      const longMessage = "a".repeat(1000);
+    it("PRESERVES authored markdown so a link renders (the reported bug)", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -224,20 +223,32 @@ describe("notifyAffectedSystems (maintenance)", () => {
         maintenanceTitle: "DB Upgrade",
         systemIds: ["sys-1"],
         action: "updated",
-        updateMessage: longMessage,
+        updateMessage: "See [the details](https://example.com/m/1) here",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
-      expect(blockquoteLine.endsWith("...")).toBe(true);
-      // 500 chars + the "..." indicator.
-      expect(blockquoteLine.length).toBeLessThanOrEqual(503);
+      const body = bodyOf();
+      expect(body).toContain("[the details](https://example.com/m/1)");
+      expect(body).not.toContain("\\[the details\\]");
     });
 
-    it("omits the blockquote entirely when no message is provided", async () => {
+    it("truncates an over-long message to a bounded length", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "DB Upgrade",
+        systemIds: ["sys-1"],
+        action: "updated",
+        updateMessage: "a".repeat(1000),
+      });
+
+      const block = bodyOf().split("\n\n").at(-1) ?? "";
+      expect(block.endsWith("...")).toBe(true);
+      expect(block.length).toBeLessThanOrEqual(503);
+    });
+
+    it("appends nothing when no message is provided", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -248,11 +259,7 @@ describe("notifyAffectedSystems (maintenance)", () => {
         action: "created",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      expect(call?.body).not.toContain("\n\n>");
+      expect(bodyOf().includes("\n\n")).toBe(false);
     });
   });
 

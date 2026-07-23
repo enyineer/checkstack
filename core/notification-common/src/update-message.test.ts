@@ -12,31 +12,50 @@ describe("sanitizeUpdateMessage", () => {
     expect(sanitizeUpdateMessage("   \n\t  ")).toBeUndefined();
   });
 
-  it("collapses whitespace/newlines to a single line", () => {
-    expect(sanitizeUpdateMessage("line one\n\nline two\ninjected")).toBe(
-      "line one line two injected",
+  it("PRESERVES authored markdown so it renders (the reported bug)", () => {
+    // A link authored in an update used to arrive escaped - `\[text\]\(url\)` -
+    // and render as raw text. It must survive intact so downstream renderers
+    // turn it into a real link.
+    const md = "See [the fix](https://example.com/incident/abc-123) for details.";
+    expect(sanitizeUpdateMessage(md)).toBe(md);
+  });
+
+  it("leaves emphasis, code, and list markup untouched", () => {
+    expect(sanitizeUpdateMessage("**bold** and `code`")).toBe(
+      "**bold** and `code`",
+    );
+    expect(sanitizeUpdateMessage("- one\n- two")).toBe("- one\n- two");
+  });
+
+  it("preserves newlines so paragraphs and lists survive", () => {
+    expect(sanitizeUpdateMessage("para one\n\npara two")).toBe(
+      "para one\n\npara two",
     );
   });
 
-  it("strips non-whitespace control characters (ESC/NUL/BEL/DEL)", () => {
-    const out = sanitizeUpdateMessage("before\u001B\u0000\u0007\u007Fafter");
-    expect(out).toBe("beforeafter");
-    expect(/[\u0000-\u001F\u007F-\u009F]/u.test(out ?? "")).toBe(false);
+  it("normalizes CRLF and lone CR to LF", () => {
+    expect(sanitizeUpdateMessage("a\r\nb\rc")).toBe("a\nb\nc");
   });
 
-  it("escapes markdown control characters", () => {
-    const out = sanitizeUpdateMessage("See [here](http://evil) **now** `code`");
-    expect(out).not.toContain("[here](http://evil)");
-    expect(out).not.toContain("**now**");
-    expect(out).toContain("\\[here\\]");
-    expect(out).toContain("\\*\\*now\\*\\*");
+  it("collapses 3+ blank lines to a single blank line", () => {
+    expect(sanitizeUpdateMessage("top\n\n\n\n\nbottom")).toBe("top\n\nbottom");
   });
 
-  it("HTML-entity-encodes < and & so markup cannot be injected", () => {
-    const out = sanitizeUpdateMessage("watch <img onerror=x> & <script>");
-    expect(out).not.toContain("<");
-    expect(out).toContain("&lt;img");
-    expect(out).toContain("&amp;");
+  it("strips non-whitespace control chars but keeps tab and newline", () => {
+    // ESC/NUL/BEL/DEL between the words are removed; tab + newline survive.
+    const out = sanitizeUpdateMessage("before\u001B\u0000\u0007\u007Fafter\tx\ny");
+    expect(out).toBe("beforeafter\tx\ny");
+    // No C0/C1 controls other than tab (0x09) and newline (0x0A) remain.
+    expect(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/u.test(out ?? "")).toBe(
+      false,
+    );
+  });
+
+  it("does NOT HTML-escape < or & (the email renderer sanitizes instead)", () => {
+    // Kept as authored markdown; markdownToHtml's allow-list is what strips a
+    // real <script>, so escaping here would only mangle legitimate text.
+    const out = sanitizeUpdateMessage("a < b && c");
+    expect(out).toBe("a < b && c");
   });
 
   it("truncates an over-long message and appends an indicator", () => {
@@ -47,9 +66,15 @@ describe("sanitizeUpdateMessage", () => {
 });
 
 describe("buildUpdateMessageSuffix", () => {
-  it("wraps a usable message in a leading blockquote suffix", () => {
-    expect(buildUpdateMessageSuffix({ message: "hello world" })).toBe(
-      "\n\n> hello world",
+  it("appends a usable message as its own markdown block", () => {
+    expect(buildUpdateMessageSuffix({ message: "hello **world**" })).toBe(
+      "\n\nhello **world**",
+    );
+  });
+
+  it("preserves multi-line structure in the block", () => {
+    expect(buildUpdateMessageSuffix({ message: "line one\nline two" })).toBe(
+      "\n\nline one\nline two",
     );
   });
 

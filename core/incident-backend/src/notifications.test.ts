@@ -318,7 +318,13 @@ describe("notifyAffectedSystems", () => {
   });
 
   describe("update message in body", () => {
-    it("appends the escaped update message as a blockquote", async () => {
+    const bodyOf = () =>
+      (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [{ body?: string }]
+      )[0]?.body ?? "";
+
+    it("appends the update message as its own markdown block", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -331,16 +337,12 @@ describe("notifyAffectedSystems", () => {
         updateMessage: "Rolled back the bad deploy, monitoring recovery.",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      expect(call?.body).toContain(
-        "\n\n> Rolled back the bad deploy, monitoring recovery",
+      expect(bodyOf()).toContain(
+        "\n\nRolled back the bad deploy, monitoring recovery.",
       );
     });
 
-    it("escapes markdown control characters in the message", async () => {
+    it("PRESERVES authored markdown so a link renders (the reported bug)", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -350,18 +352,13 @@ describe("notifyAffectedSystems", () => {
         systemIds: ["sys-1"],
         action: "updated",
         severity: "minor",
-        updateMessage: "See [here](http://evil) **now** `code`",
+        updateMessage: "See [the status page](https://example.com/s/1) **now**",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      // No unescaped link/bold/code syntax survives into the body.
-      expect(call?.body).not.toContain("[here](http://evil)");
-      expect(call?.body).not.toContain("**now**");
-      expect(call?.body).toContain("\\[here\\]");
-      expect(call?.body).toContain("\\*\\*now\\*\\*");
+      const body = bodyOf();
+      expect(body).toContain("[the status page](https://example.com/s/1)");
+      expect(body).toContain("**now**");
+      expect(body).not.toContain("\\[the status page\\]");
     });
 
     it("strips non-whitespace control characters (ESC/NUL/BEL/DEL)", async () => {
@@ -377,19 +374,12 @@ describe("notifyAffectedSystems", () => {
         updateMessage: "before\u001B\u0000\u0007\u007Fafter",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
-      expect(blockquoteLine).toBe("beforeafter");
-      // No control characters survive into the excerpt.
-      expect(/[\u0000-\u001F\u007F-\u009F]/u.test(blockquoteLine)).toBe(
-        false,
-      );
+      const body = bodyOf();
+      expect(body).toContain("\n\nbeforeafter");
+      expect(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/u.test(body.split("\n\n").at(-1) ?? "")).toBe(false);
     });
 
-    it("escapes HTML-significant < and & so markup cannot be injected", async () => {
+    it("preserves multi-line structure instead of collapsing to one line", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -399,43 +389,13 @@ describe("notifyAffectedSystems", () => {
         systemIds: ["sys-1"],
         action: "updated",
         severity: "minor",
-        updateMessage: "watch <img onerror=x> & <script>",
+        updateMessage: "- rolled back\n- monitoring",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
-      expect(blockquoteLine).not.toContain("<");
-      expect(blockquoteLine).toContain("&lt;img");
-      expect(blockquoteLine).toContain("&amp;");
-    });
-
-    it("collapses newlines so the message cannot break out of the blockquote", async () => {
-      await notifyAffectedSystems({
-        catalogClient: mockCatalogClient as never,
-        notificationClient: mockNotificationClient as never,
-        logger: mockLogger as never,
-        incidentId: "inc-1",
-        incidentTitle: "API Outage",
-        systemIds: ["sys-1"],
-        action: "updated",
-        severity: "minor",
-        updateMessage: "line one\n\nline two\ninjected",
-      });
-
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
-      expect(blockquoteLine).not.toContain("\n");
-      expect(blockquoteLine).toBe("line one line two injected");
+      expect(bodyOf()).toContain("\n\n- rolled back\n- monitoring");
     });
 
     it("truncates an over-long message to a bounded length", async () => {
-      const longMessage = "a".repeat(1000);
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -445,20 +405,15 @@ describe("notifyAffectedSystems", () => {
         systemIds: ["sys-1"],
         action: "updated",
         severity: "minor",
-        updateMessage: longMessage,
+        updateMessage: "a".repeat(1000),
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
-      expect(blockquoteLine.endsWith("...")).toBe(true);
-      // 500 chars + the "..." indicator.
-      expect(blockquoteLine.length).toBeLessThanOrEqual(503);
+      const block = bodyOf().split("\n\n").at(-1) ?? "";
+      expect(block.endsWith("...")).toBe(true);
+      expect(block.length).toBeLessThanOrEqual(503);
     });
 
-    it("omits the blockquote entirely for a blank/whitespace message", async () => {
+    it("appends no extra block for a blank/whitespace message", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -471,14 +426,11 @@ describe("notifyAffectedSystems", () => {
         updateMessage: "   \n  ",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      expect(call?.body).not.toContain("\n\n>");
+      // No suffix -> the body is a single paragraph with no block separator.
+      expect(bodyOf().includes("\n\n")).toBe(false);
     });
 
-    it("omits the blockquote when no message is provided", async () => {
+    it("appends nothing when no message is provided", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
         notificationClient: mockNotificationClient as never,
@@ -490,11 +442,7 @@ describe("notifyAffectedSystems", () => {
         severity: "minor",
       });
 
-      const call = (
-        mockNotificationClient.notifyForSubscription.mock
-          .calls[0] as unknown as [{ body?: string }]
-      )[0];
-      expect(call?.body).not.toContain("\n\n>");
+      expect(bodyOf().includes("\n\n")).toBe(false);
     });
   });
 

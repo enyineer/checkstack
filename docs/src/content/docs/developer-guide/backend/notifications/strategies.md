@@ -459,6 +459,37 @@ const bodyText = markdownToPlainText(notification.body);
 const mrkdwn = markdownToSlackMrkdwn(notification.body);
 ```
 
+### Embedding a user-authored update message
+
+Incidents and maintenances append their latest free-text update to the
+notification body. That text is **authored markdown** and must render as
+markdown - a link the author wrote should arrive as a link, not as the raw
+`[text](url)` source. Build the suffix with the shared helper so both domains
+behave identically:
+
+```typescript
+import { buildUpdateMessageSuffix } from "@checkstack/notification-common";
+
+const body =
+  `Incident **"${title}"** has been ${actionText}.` +
+  buildUpdateMessageSuffix({ message: latestUpdate });
+```
+
+`buildUpdateMessageSuffix` (backed by `sanitizeUpdateMessage`) normalizes the
+message - strips non-whitespace control characters, collapses runs of blank
+lines, bounds the length - and appends it as its **own markdown block**,
+preserving the author's formatting and line structure. It deliberately does
+**not** escape the markdown.
+
+> [!IMPORTANT]
+> Safety comes from the **renderer**, not from escaping the body. The only
+> strategy that emits HTML is SMTP via `markdownToHtml`, whose allow-list drops
+> active content; every other strategy renders markdown / mrkdwn / an adaptive
+> card or flattens to plain text, none of which execute HTML. So never escape
+> user text at the source to "defend" your strategy - render the body through
+> the conversion utilities above and it is already safe. A strategy that injects
+> `notification.body` into raw, unsanitized HTML is the bug to fix.
+
 ### Action Rendering
 
 The `action` field provides a semantic call-to-action:
