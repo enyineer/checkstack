@@ -1,6 +1,7 @@
 import {
   setupHealthCheckWorker,
   recomputeSystemRollupHealth,
+  persistRunAndReact,
 } from "./queue-executor";
 import { reconcileHealthCheckJobs } from "./schedule-reconciler";
 import { setupRetentionJob } from "./retention-job";
@@ -592,6 +593,28 @@ export default createBackendPlugin({
               logger,
             });
           },
+          // Bind the service deps ONCE so an ingested satellite result drives
+          // the exact same post-run path (`persistRunAndReact`) as a local run:
+          // reactive entity write, cache reconcile, signals, automation hooks,
+          // transition, and notification. The router only supplies the per-run
+          // fields, so the two callers cannot drift.
+          reactToSatelliteRun: (run) =>
+            persistRunAndReact({
+              db: database,
+              service,
+              cache,
+              signalService,
+              notificationClient,
+              catalogClient,
+              maintenanceClient,
+              incidentClient,
+              getHealthEntity: () => healthEntity,
+              getEmitHook: () => storedEmitHook,
+              collectorRegistry,
+              advisoryLock,
+              logger,
+              ...run,
+            }),
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 

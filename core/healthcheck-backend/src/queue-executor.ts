@@ -581,6 +581,239 @@ async function notifyStateChange(props: {
 }
 
 /**
+ * Persist ONE completed health-check run (for one system + environment +
+ * source) and drive EVERYTHING that must react to it, in the correct order:
+ * the reactive `health` entity write (which does the durable run insert +
+ * hourly-aggregate increment and fires the authoritative `ENTITY_CHANGED`),
+ * the cache reconcile, the realtime run signal, the checkCompleted/checkFailed
+ * automation hooks, and - on a real status transition - the transition record,
+ * the subscriber notification, and (for an env-less run) the system-status
+ * signal.
+ *
+ * This is the SINGLE post-run path. A local run (the queue executor) and a
+ * SATELLITE run (ingested over RPC) both call it, so a satellite-detected
+ * outage fires the same notifications, automations, transitions, and signals a
+ * local one does - previously ingest only inserted the row, so satellite runs
+ * were silent. Keeping it in one function is what stops that from drifting
+ * again; the only difference between the two callers is the `sourceId` /
+ * `sourceLabel` / `runTimestamp` of the run, passed in.
+ */
+export async function persistRunAndReact(params: {
+  db: Db;
+  service: HealthCheckService;
+  cache: HealthCheckCache;
+  signalService: SignalService;
+  notificationClient: NotificationClient;
+  catalogClient: CatalogClient;
+  maintenanceClient: MaintenanceClient;
+  incidentClient: IncidentClient;
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  getEmitHook: () => EmitHookFn | undefined;
+  collectorRegistry: CollectorRegistry;
+  advisoryLock: AdvisoryLockService;
+  logger: Logger;
+  systemId: string;
+  systemName: string;
+  configId: string;
+  configName?: string;
+  /** `null` is the env-less slice, which IS the system rollup. */
+  environmentId: string | null;
+  environmentName?: string;
+  status: HealthCheckStatus;
+  latencyMs?: number;
+  /** The full run result record persisted to `health_check_runs.result`. */
+  result: Record<string, unknown>;
+  /** `undefined` = local core; a satellite id otherwise. */
+  sourceId?: string;
+  sourceLabel: string;
+  /** Timestamp used for the hourly aggregate bucket (the run's execution time). */
+  runTimestamp: Date;
+}): Promise<void> {
+  const {
+    db,
+    service,
+    cache,
+    signalService,
+    notificationClient,
+    catalogClient,
+    maintenanceClient,
+    incidentClient,
+    getHealthEntity,
+    getEmitHook,
+    collectorRegistry,
+    advisoryLock,
+    logger,
+    systemId,
+    systemName,
+    configId,
+    configName,
+    environmentId,
+    environmentName,
+    status,
+    latencyMs,
+    result,
+    sourceId,
+    sourceLabel,
+    runTimestamp,
+  } = params;
+
+  const envEntityId = encodeHealthEntityId({ systemId, environmentId });
+  const serializeEnvWrite = createHealthEntitySerializer({ advisoryLock })(
+    envEntityId,
+  );
+  // An env-less run IS the system rollup, so it broadcasts the system-level
+  // signal directly; a fanned-out env run leaves the rollup to the debounced
+  // rollup consumer (driven by this write's ENTITY_CHANGED).
+  const isFannedOut = environmentId !== null;
+
+  let previousState!: AggregatedHealth;
+  let previousStatus!: SystemHealthStatus;
+  let newState!: AggregatedHealth;
+  await writeHealthEntity({
+    handle: getHealthEntity?.(),
+    entityId: envEntityId,
+    apply: async () => {
+      // In-lock pre-run baseline: read inside the serialized critical section,
+      // before the insert, so a concurrent same-slice run cannot commit between
+      // the baseline read and this insert and make the cache gate miss a change.
+      previousState = await service.getSystemHealthStatus(
+        systemId,
+        environmentId,
+      );
+      previousStatus = previousState.status;
+      // Batch the run INSERT + aggregate SELECT/UPSERT under ONE scoped
+      // transaction so they commit atomically.
+      await withScopedTransaction(db, async (tx) => {
+        await tx.insert(healthCheckRuns).values({
+          configurationId: configId,
+          systemId,
+          environmentId,
+          status,
+          latencyMs,
+          result,
+          sourceId,
+          sourceLabel,
+        });
+        await incrementHourlyAggregate({
+          db: tx,
+          systemId,
+          configurationId: configId,
+          environmentId,
+          status,
+          latencyMs,
+          runTimestamp,
+          result,
+          collectorRegistry,
+          sourceLabel,
+        });
+      });
+      newState = await service.getSystemHealthStatus(systemId, environmentId);
+      return toHealthEntityView(newState);
+    },
+    serialize: serializeEnvWrite,
+    onError: (error) =>
+      logger.warn(`Failed to mirror health entity for ${envEntityId}`, error),
+  });
+
+  logger.debug(
+    `Ran health check ${configId} for system ${systemId}: ${status}`,
+  );
+
+  await cache.reconcile({
+    systemId,
+    environmentId,
+    previous: previousState,
+    next: newState,
+  });
+
+  await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
+    systemId,
+    systemName,
+    configurationId: configId,
+    // The realtime signal names the check; fall back to its id when the name
+    // could not be resolved (best-effort, as elsewhere).
+    configurationName: configName ?? configId,
+    status,
+    latencyMs,
+    environmentId: environmentId ?? undefined,
+    environmentName,
+  });
+
+  await emitCheckCompletedHook({
+    getEmitHook,
+    systemId,
+    configurationId: configId,
+    status,
+    latencyMs,
+    result:
+      (result.metadata as { collectors?: Record<string, unknown> } | undefined)
+        ?.collectors ?? undefined,
+    environmentId,
+  });
+
+  // `newState.status` cannot be `unknown` here (a run just completed).
+  if (newState.status !== previousStatus && newState.status !== "unknown") {
+    await recordStateTransition({
+      db,
+      systemId,
+      configurationId: configId,
+      environmentId,
+      fromStatus: previousStatus === "unknown" ? undefined : previousStatus,
+      toStatus: newState.status,
+    });
+
+    await notifyStateChange({
+      notificationClient,
+      systemId,
+      systemName,
+      configurationId: configId,
+      configurationName: configName,
+      previousStatus: previousStatus === "unknown" ? "healthy" : previousStatus,
+      newStatus: newState.status,
+      environmentId,
+      environmentName,
+      service,
+      catalogClient,
+      maintenanceClient,
+      incidentClient,
+      logger,
+    });
+
+    if (!isFannedOut) {
+      await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+        systemId,
+        previousStatus,
+        newStatus: newState.status,
+      });
+    }
+  }
+}
+
+/**
+ * The per-run portion of {@link persistRunAndReact}: everything that varies per
+ * run, WITHOUT the service dependencies (which the plugin binds once via a
+ * closure). The plugin hands the router a reactor of this shape so a satellite
+ * result drives the exact same post-run path as a local run - the deps are
+ * captured once, so the two callers cannot pass a different set and drift.
+ */
+export type HealthRunReaction = Omit<
+  Parameters<typeof persistRunAndReact>[0],
+  | "db"
+  | "service"
+  | "cache"
+  | "signalService"
+  | "notificationClient"
+  | "catalogClient"
+  | "maintenanceClient"
+  | "incidentClient"
+  | "getHealthEntity"
+  | "getEmitHook"
+  | "collectorRegistry"
+  | "advisoryLock"
+  | "logger"
+>;
+
+/**
  * Execute a health check job
  */
 async function executeHealthCheckJob(props: {
@@ -919,7 +1152,9 @@ async function executeHealthCheckJob(props: {
     const runEnvironments: (EffectiveEnvironment | null)[] = [
       singleEnvironment,
     ];
-    const isFannedOut = targetEnvironmentId !== null;
+    // Whether this run fans out to a concrete environment is now derived inside
+    // `persistRunAndReact` (an env-less run IS the rollup); nothing in the loop
+    // body needs it directly.
     for (const environment of runEnvironments) {
       const environmentId = environment?.id ?? null;
       // The env-qualified entity id this run mutates. For the env-less run
@@ -1031,9 +1266,10 @@ async function executeHealthCheckJob(props: {
               // `parseAssumingV1` returns the collector's own (generic
               // `unknown`) config type; the engine templates it as a record, so
               // narrow to the object shape every collector config actually is.
-              const parsed = await registered.collector.config.parseAssumingV1(
-                rawCollectorConfig,
-              );
+              const parsed =
+                await registered.collector.config.parseAssumingV1(
+                  rawCollectorConfig,
+                );
               return parsed as Record<string, unknown>;
             },
             mapResult: ({ entry, registered, collectorResult }) => {
@@ -1294,174 +1530,39 @@ async function executeHealthCheckJob(props: {
           },
         };
 
-        // Persist the run + aggregate THROUGH the reactive `health` entity on
-        // every run (§10.3): `apply` does the durable write (insert + hourly
-        // aggregate) and returns the freshly-computed view. The framework
-        // snapshots `prev` via the COMPUTE-ON-READ accessor BEFORE this insert, so
-        // an unchanged aggregate is a no-op and a real status change drives the
-        // directional/umbrella trigger events via `deriveHealthTriggerEvents` —
-        // exactly one correct `ENTITY_CHANGED` with accurate prev → next.
-        let newState!: AggregatedHealth;
-        await writeHealthEntity({
-          handle: getHealthEntity?.(),
-          entityId: envEntityId,
-          apply: async () => {
-            // In-lock pre-run baseline (see the `previousState` declaration): read
-            // here, inside the serialized critical section, before the insert.
-            previousState = await service.getSystemHealthStatus(
-              systemId,
-              environmentId,
-            );
-            previousStatus = previousState.status;
-            // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
-            // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
-            // which also makes the run and its aggregate commit atomically.
-            await withScopedTransaction(db, async (tx) => {
-              // Store result (spread to convert structured type to plain record for jsonb)
-              await tx.insert(healthCheckRuns).values({
-                configurationId: configId,
-                systemId,
-                environmentId,
-                status: result.status,
-                latencyMs: result.latencyMs,
-                result: { ...result } as Record<string, unknown>,
-                sourceId: undefined,
-                sourceLabel: "Local",
-              });
-
-              // Trigger incremental hourly aggregation
-              await incrementHourlyAggregate({
-                db: tx,
-                systemId,
-                configurationId: configId,
-                environmentId,
-                status: result.status,
-                latencyMs: result.latencyMs,
-                runTimestamp: new Date(),
-                result: { ...result } as Record<string, unknown>,
-                collectorRegistry,
-                sourceLabel: "Local",
-              });
-            });
-
-            // Env-scoped view: the per-env entity reflects only this env's runs.
-            // Runs as its own batched read AFTER the write commits, so it sees the
-            // just-inserted run.
-            newState = await service.getSystemHealthStatus(
-              systemId,
-              environmentId,
-            );
-            return toHealthEntityView(newState);
-          },
-          serialize: serializeEnvWrite,
-          onError: (error) =>
-            logger.warn(
-              `Failed to mirror health entity for ${envEntityId}`,
-              error,
-            ),
-        });
-
-        logger.debug(
-          `Ran health check ${configId} for system ${systemId}: ${result.status}`,
-        );
-
-        // Reconcile this environment's cached status: evict + broadcast to the
-        // cluster ONLY when the per-check vector actually changed (a steady-state
-        // healthy run keeps the cache warm). The rollup key is reconciled by the
-        // debounced rollup consumer (recomputeSystemRollupHealth), also vector-gated.
-        await cache.reconcile({
-          systemId,
-          environmentId,
-          previous: previousState,
-          next: newState,
-        });
-
-        // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
-        await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
+        // Persist this run and drive everything that reacts to it - the reactive
+        // entity write, cache reconcile, realtime signal, automation hooks,
+        // transition record, and subscriber notification - through the ONE
+        // shared post-run path. Satellite-result ingest calls the same function,
+        // so a satellite-detected change reacts identically and the two paths
+        // cannot drift.
+        await persistRunAndReact({
+          db,
+          service,
+          cache,
+          signalService,
+          notificationClient,
+          catalogClient,
+          maintenanceClient,
+          incidentClient,
+          getHealthEntity,
+          getEmitHook,
+          collectorRegistry,
+          advisoryLock,
+          logger,
           systemId,
           systemName,
-          configurationId: configId,
-          configurationName: configRow.configName,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          // Env-scoped fan-out: `environment` is null for the env-less run, so
-          // `?.` yields undefined and those runs broadcast exactly as before.
-          environmentId: environment?.id,
-          environmentName: environment?.name,
-        });
-
-        await emitCheckCompletedHook({
-          getEmitHook,
-          systemId,
-          configurationId: configId,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          result:
-            (result.metadata?.collectors as Record<string, unknown>) ??
-            undefined,
+          configId,
+          configName: configRow.configName,
           environmentId,
+          environmentName: environment?.name,
+          status: result.status,
+          latencyMs: result.latencyMs,
+          result: { ...result },
+          sourceId: undefined,
+          sourceLabel: "Local",
+          runTimestamp: new Date(),
         });
-
-        // `newState.status` cannot be `unknown` here (a run just completed);
-        // narrowing keeps that explicit instead of asserting it with a cast.
-        if (
-          newState.status !== previousStatus &&
-          newState.status !== "unknown"
-        ) {
-          // Record the aggregate transition so the sensing layer has a
-          // reliable "in status since" for every status (Wave 2).
-          await recordStateTransition({
-            db,
-            systemId,
-            configurationId: configId,
-            environmentId,
-            // `undefined` records NULL - "no prior measured status" - which is what
-            // the recorder already documents for a first-ever transition.
-            fromStatus:
-              previousStatus === "unknown" ? undefined : previousStatus,
-            toStatus: newState.status,
-          });
-
-          await notifyStateChange({
-            notificationClient,
-            systemId,
-            systemName,
-            configurationId: configId,
-            configurationName: configRow.configName,
-            // A first measurement has no previous status to compare against;
-            // `notifyStateChange` needs a concrete one to decide what to send.
-            previousStatus:
-              previousStatus === "unknown" ? "healthy" : previousStatus,
-            newStatus: newState.status,
-            environmentId,
-            environmentName: environment?.name,
-            service,
-            catalogClient,
-            maintenanceClient,
-            incidentClient,
-            logger,
-          });
-
-          // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
-          // status, not a per-env status. When fanned out, the post-loop rollup
-          // write broadcasts it once with the worst-status rollup; emitting it here
-          // per env would send up to N system-level signals/tick carrying per-env
-          // status. Only the env-less run (which IS the rollup — `!isFannedOut`)
-          // broadcasts the system-level signal from inside the loop.
-          if (!isFannedOut) {
-            await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
-              systemId,
-              previousStatus,
-              newStatus: newState.status,
-            });
-          }
-
-          // The directional + umbrella system-health hooks were removed in
-          // Phase 4 (§10.3): the `health` entity mirror above is the single
-          // source of truth, and its change deriver fires the
-          // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
-          // trigger events through Stage-1 routing. Nothing to emit here.
-        }
       } catch (envError) {
         // Isolate this environment's failure; continue with the next env.
         logger.error(

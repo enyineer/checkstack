@@ -3015,38 +3015,35 @@ export class HealthCheckService {
    * HTTP bodies) are needed for JSONPath assertions and are stripped right
    * after evaluation, matching what the local executor stores.
    */
-  async ingestSatelliteResult(props: {
+  async processSatelliteResult(props: {
     configId: string;
-    systemId: string;
     status: HealthCheckStatus;
-    latencyMs?: number;
     result?: HealthCheckRunResult;
-    executedAt: string;
-    sourceId: string;
-    sourceLabel: string;
-    /**
-     * The environment this run executed for. Absent/null stores the run
-     * env-less - what a satellite older than per-environment fan-out sends,
-     * and what an assignment with no environments legitimately produces.
-     */
-    environmentId?: string | null;
-  }) {
-    const {
-      configId,
-      systemId,
-      latencyMs,
-      result,
-      sourceId,
-      sourceLabel,
-      environmentId,
-    } =
-      props;
+  }): Promise<{
+    status: HealthCheckStatus;
+    resultRecord: Record<string, unknown>;
+    /** The check's display name, resolved for the subscriber notification. */
+    configName?: string;
+  }> {
+    const { configId, result } = props;
 
     const resultRecord = result
       ? ({ ...result } as Record<string, unknown>)
       : {};
 
     let status = props.status;
+
+    // Resolve the config once: its NAME (for the notification the shared
+    // post-run path sends) and its collector entries (for assertion eval).
+    const [configRow] = await this.db
+      .select({
+        name: healthCheckConfigurations.name,
+        collectors: healthCheckConfigurations.collectors,
+      })
+      .from(healthCheckConfigurations)
+      .where(eq(healthCheckConfigurations.id, configId));
+    const configName = configRow?.name;
+
     const metadata = resultRecord.metadata as
       | Record<string, unknown>
       | undefined;
@@ -3054,10 +3051,6 @@ export class HealthCheckService {
       | Record<string, Record<string, unknown>>
       | undefined;
     if (collectorsMeta && Object.keys(collectorsMeta).length > 0) {
-      const [configRow] = await this.db
-        .select({ collectors: healthCheckConfigurations.collectors })
-        .from(healthCheckConfigurations)
-        .where(eq(healthCheckConfigurations.id, configId));
       const entries: CollectorConfigEntry[] = configRow?.collectors ?? [];
 
       let firstFailure: string | undefined;
@@ -3110,42 +3103,61 @@ export class HealthCheckService {
       }
     }
 
-    // Atomic: the run row and the hourly-aggregate increment it feeds must
-    // commit together. Without the transaction a failure on the (non-idempotent
-    // `runCount + 1`) aggregate left a committed run that the aggregate never
-    // counted - or, on the reverse ordering, an aggregate with no backing run.
-    // NOTE: this guarantees run/aggregate consistency, but does NOT make a
-    // *duplicate satellite delivery* (a re-POST after a committed write)
-    // idempotent - that requires a dedupe key on the high-volume runs table and
-    // is tracked as a separate follow-up.
+    return { status, resultRecord, configName };
+  }
+
+  /**
+   * Insert a processed satellite run + its hourly aggregate WITHOUT the
+   * reactive/notify path. This is the fallback ONLY for a host that did not
+   * wire the shared post-run reactor (e.g. a test harness); the real host
+   * routes satellite results through `persistRunAndReact` so they react exactly
+   * like a local run. Kept insert-only (a strict subset of the shared path) so
+   * it cannot drift into a second, divergent notify path.
+   */
+  async insertSatelliteRun(props: {
+    configId: string;
+    systemId: string;
+    environmentId: string | null;
+    status: HealthCheckStatus;
+    latencyMs?: number;
+    result: Record<string, unknown>;
+    sourceId: string;
+    sourceLabel: string;
+    executedAt: string;
+  }): Promise<void> {
+    const {
+      configId,
+      systemId,
+      environmentId,
+      status,
+      latencyMs,
+      result,
+      sourceId,
+      sourceLabel,
+      executedAt,
+    } = props;
     await this.db.transaction(async (tx) => {
       await tx.insert(healthCheckRuns).values({
         configurationId: configId,
         systemId,
         status,
         latencyMs,
-        result: resultRecord,
+        result,
         sourceId,
         sourceLabel,
-        // The environment the satellite ran for. `null` when the satellite is
-        // older than per-environment fan-out, or the assignment genuinely has
-        // no environments - the same env-less slice the local executor writes
-        // in that case.
-        environmentId: environmentId ?? null,
+        environmentId,
       });
-
-      // Trigger incremental hourly aggregation — same as local executor
       await incrementHourlyAggregate({
         db: tx,
         systemId,
         configurationId: configId,
         status,
         latencyMs,
-        runTimestamp: new Date(props.executedAt),
-        result: resultRecord,
+        runTimestamp: new Date(executedAt),
+        result,
         collectorRegistry: this.collectorRegistry,
         sourceLabel,
-        environmentId: environmentId ?? null,
+        environmentId,
       });
     });
   }
