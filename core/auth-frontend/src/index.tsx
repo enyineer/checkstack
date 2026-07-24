@@ -33,7 +33,7 @@ import {
   authRoutes,
   pluginMetadata,
 } from "@checkstack/auth-common";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, isAccessRuleSatisfied } from "@checkstack/common";
 import {
   CatalogSystemActionsSlot,
   CatalogSystemBulkActionsSlot,
@@ -225,16 +225,20 @@ export const authPlugin = createFrontendPlugin({
       },
     },
     {
-      // Standalone team management — gated on teams.read so team managers can
-      // reach it without the admin rules the Auth Settings page requires.
+      // Standalone team management — reachable by a global `teams.read` holder OR
+      // any user who is a member/manager of at least one team. `getTeams`
+      // self-scopes, so a team manager with no global rule opens it to manage
+      // their own team(s) without the admin rules the Auth Settings page
+      // requires. A user in no team (and no global rule) does NOT see it.
       route: authRoutes.routes.teams,
       element: <TeamsPage />,
-      accessRule: authAccess.teams.read,
       nav: {
         group: "Settings",
         icon: Users2,
         label: "Teams",
-        accessRule: authAccess.teams.read,
+        isVisible: ({ accessRules, isInAnyTeam }) =>
+          isInAnyTeam ||
+          isAccessRuleSatisfied(accessRules, authAccess.teams.read),
       },
     },
     {

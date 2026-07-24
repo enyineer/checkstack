@@ -20,13 +20,21 @@ export const useAccessRules = () => {
 
   // `isAuthenticated` lets callers additionally gate logged-in-only UI (e.g.
   // Notification Settings) that needs a real user rather than a specific rule.
+  // `isInAnyTeam` gates surfaces (the Teams page/nav) that a team member or
+  // manager should reach even without a global team rule.
   if (sessionPending) {
-    return { accessRules: [], loading: true, isAuthenticated: false };
+    return {
+      accessRules: [],
+      loading: true,
+      isAuthenticated: false,
+      isInAnyTeam: false,
+    };
   }
 
   return {
     accessRules: data?.accessRules ?? [],
     loading: isLoading,
     isAuthenticated: !!session?.user,
+    isInAnyTeam: data?.isInAnyTeam ?? false,
   };
 };

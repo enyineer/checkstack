@@ -55,7 +55,7 @@ interface NavGroup {
 
 /** Build the access-filtered, grouped, ordered nav model from the route registry. */
 function useNavGroups(): NavGroup[] {
-  const { accessRules, isAuthenticated } = useAccessRules();
+  const { accessRules, isAuthenticated, isInAnyTeam } = useAccessRules();
   // Team-derived capability set: lets management entries (incidents, catalog
   // management, etc.) appear for a team-scoped user who holds no global rule but
   // whose team can create/manage the type. Global-rule users don't need it.
@@ -75,8 +75,9 @@ function useNavGroups(): NavGroup[] {
         isAuthenticated,
         groupOrder: GROUP_ORDER,
         manageableTypes: new Set(manageableTypeList),
+        isInAnyTeam,
       }) as NavGroup[],
-    [routes, accessRules, isAuthenticated, manageableTypeList],
+    [routes, accessRules, isAuthenticated, manageableTypeList, isInAnyTeam],
   );
 }
 

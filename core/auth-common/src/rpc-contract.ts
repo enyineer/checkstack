@@ -192,7 +192,15 @@ export const authContract = {
     operationType: "query",
     userType: "public",
     access: [],
-  }).output(z.object({ accessRules: z.array(z.string()) })),
+  }).output(
+    z.object({
+      accessRules: z.array(z.string()),
+      // Whether the caller is a member OR manager of at least one team. Lets the
+      // frontend reveal the (self-scoping) Teams page/nav to a team-scoped user
+      // who holds no global `auth.teams.read` rule. Anonymous callers get false.
+      isInAnyTeam: z.boolean(),
+    }),
+  ),
 
   getCurrentUserProfile: proc({
     operationType: "query",
@@ -238,7 +246,7 @@ export const authContract = {
   searchUsers: proc({
     operationType: "query",
     userType: "user",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ query: z.string() }))
     .output(
@@ -257,7 +265,7 @@ export const authContract = {
   resolveResourceNames: proc({
     operationType: "query",
     userType: "user",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(
       z.object({
@@ -654,7 +662,7 @@ export const authContract = {
   getTeams: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   }).output(
     z.array(
       z.object({
@@ -670,7 +678,7 @@ export const authContract = {
   getTeam: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ teamId: z.string() }))
     .output(
@@ -705,7 +713,7 @@ export const authContract = {
   updateTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .route({ method: "PATCH" })
     .input(
@@ -736,7 +744,7 @@ export const authContract = {
   addUserToTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -744,7 +752,7 @@ export const authContract = {
   removeUserFromTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
@@ -753,7 +761,7 @@ export const authContract = {
   addTeamManager: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -761,7 +769,7 @@ export const authContract = {
   removeTeamManager: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
@@ -779,7 +787,7 @@ export const authContract = {
   listObjectRelations: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ objectType: z.string(), objectId: z.string() }))
     .output(
@@ -801,7 +809,7 @@ export const authContract = {
   listObjectRelationsBulk: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(
       z.object({
@@ -894,7 +902,7 @@ export const authContract = {
   listSubjectRelations: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ teamId: z.string() }))
     .output(
@@ -914,7 +922,7 @@ export const authContract = {
   getResourceKinds: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   }).output(
     z.object({
       kinds: z.array(
@@ -972,7 +980,7 @@ export const authContract = {
   listTeamCreateGrants: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
   })
     .input(z.object({ teamId: z.string() }))
     .output(z.object({ resourceTypes: z.array(z.string()) })),

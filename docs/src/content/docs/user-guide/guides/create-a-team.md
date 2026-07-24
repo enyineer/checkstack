@@ -9,7 +9,7 @@ For the full access model, read [Teams and access](/checkstack/user-guide/concep
 
 ## 1. Open the teams admin page
 
-Open **Configuration -> Teams** from the sidebar. This is a standalone page gated on `auth.teams.read`, separate from the admin Auth Settings page - so team managers can reach it without platform-admin access (creating and deleting teams still requires an admin, but managing an existing team's members and managers does not).
+Open **Configuration -> Teams** from the sidebar. This is a standalone page separate from the admin Auth Settings page - so team managers can reach it without platform-admin access. It is shown to anyone holding `auth.teams.read` and to anyone who is a member or manager of at least one team, and lists the teams you can see (every team if you hold `auth.teams.read`, otherwise just the ones you belong to or manage). Creating and deleting teams still requires an admin, but managing an existing team's members and managers does not.
 
 The page lists existing teams with member count and manager flag. Click **Create Team**.
 

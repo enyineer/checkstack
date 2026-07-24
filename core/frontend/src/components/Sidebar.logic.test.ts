@@ -98,6 +98,59 @@ describe("selectNavGroups", () => {
     ).toEqual(["/notification"]);
   });
 
+  test("isVisible receives isInAnyTeam (Teams: global read OR any team)", () => {
+    // Mirrors the Teams entry: shown to a global reader OR a member/manager of
+    // any team; hidden from a user who is neither.
+    const teams = route("/teams", {
+      isVisible: ({ accessRules, isInAnyTeam }) =>
+        isInAnyTeam || accessRules.includes("auth.teams.read"),
+    });
+    // Neither global read nor any team => hidden.
+    expect(
+      selectNavGroups({
+        routes: [teams],
+        accessRules: [],
+        isAuthenticated: true,
+        groupOrder: GROUP_ORDER,
+        isInAnyTeam: false,
+      }),
+    ).toEqual([]);
+    // In a team (no global rule) => shown.
+    expect(
+      selectNavGroups({
+        routes: [teams],
+        accessRules: [],
+        isAuthenticated: true,
+        groupOrder: GROUP_ORDER,
+        isInAnyTeam: true,
+      })[0]?.items.map((r) => r.path),
+    ).toEqual(["/teams"]);
+    // Global reader, in no team => still shown.
+    expect(
+      selectNavGroups({
+        routes: [teams],
+        accessRules: ["auth.teams.read"],
+        isAuthenticated: true,
+        groupOrder: GROUP_ORDER,
+        isInAnyTeam: false,
+      })[0]?.items.map((r) => r.path),
+    ).toEqual(["/teams"]);
+  });
+
+  test("isInAnyTeam defaults to false when not passed", () => {
+    const teams = route("/teams", {
+      isVisible: ({ isInAnyTeam }) => isInAnyTeam,
+    });
+    expect(
+      selectNavGroups({
+        routes: [teams],
+        accessRules: [],
+        isAuthenticated: true,
+        groupOrder: GROUP_ORDER,
+      }),
+    ).toEqual([]);
+  });
+
   test("shows a manageCapability entry when the team set has its objectType, without the global rule", () => {
     const objectType = resourceType({ pluginId: "p" }, "thing");
     const groups = selectNavGroups({
