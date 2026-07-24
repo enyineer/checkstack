@@ -1342,6 +1342,172 @@ describe("Teams and Resource Access Control", () => {
   });
 
   // ==========================================================================
+  // TEAM-ACCESS DELEGATION AUTHZ (writeRelation / removeRelation /
+  // setObjectPublic / canManageObjectAccess). A caller may edit an object's team
+  // access only if they can MANAGE that object: a global teams.manage admin, the
+  // object's own `<type>.manage` rule (on a non-private object), or membership of
+  // a team with an editor/owner grant on it. A viewer-only team CANNOT elevate.
+  // ==========================================================================
+  describe("team-access delegation authz", () => {
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+
+    // For a NON-admin caller, canEditObjectAccess issues two selects:
+    //   1. userTeam (the caller's membership), 2. the object's relation tuples.
+    const seedAuthz = ({
+      memberTeams,
+      objectTuples,
+    }: {
+      memberTeams: Array<{ teamId: string }>;
+      objectTuples: Array<{
+        relation: string;
+        subjectType: string;
+        subjectId: string;
+      }>;
+    }) => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(memberTeams)),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(objectTuples)),
+      }));
+      return mockDb;
+    };
+
+    const grant = (subjectId: string, relation: string) => ({
+      relation,
+      subjectType: "team",
+      subjectId,
+    });
+
+    const writeInput = {
+      objectType: "catalog.system",
+      objectId: "sys-1",
+      teamId: "team-2",
+      relation: "editor" as const,
+    };
+
+    it("lets a MEMBER of a team that MANAGES the object grant access", async () => {
+      // Caller is in team-1, which holds an editor (manage) grant on the object.
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "editor")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled(); // setTeamRelation ran
+    });
+
+    it("FORBIDS a member of a VIEWER-ONLY team (no privilege elevation)", async () => {
+      // team-1 can only READ the object, so its members must not be able to grant
+      // manage - to themselves or anyone else.
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "viewer")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).writeRelation,
+          { ...writeInput, teamId: "team-1" },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("FORBIDS a caller with no grant and no global rule", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(makeRouter(mockDb).writeRelation, writeInput, { context })
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("lets a holder of the object's `<type>.manage` rule edit a PUBLIC object", async () => {
+      // No grants + no private marker => public, so the resource-manage global
+      // rule authorizes editing its team access.
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({
+        user: { ...mockScopedUser, accessRules: ["catalog.system.manage"] },
+      });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled();
+    });
+
+    it("still lets a global teams.manage admin edit (short-circuits per-object authz)", async () => {
+      // `*` satisfies teams.manage; no authz selects are issued.
+      const mockDb = createMockDb();
+      const context = createMockRpcContext({ user: mockAdminUser });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled();
+    });
+
+    it("removeRelation enforces the same delegation authz", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).removeRelation,
+          { objectType: "catalog.system", objectId: "sys-1", teamId: "team-1" },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.delete).not.toHaveBeenCalled();
+    });
+
+    it("setObjectPublic enforces the same delegation authz", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).setObjectPublic,
+          { objectType: "catalog.system", objectId: "sys-1", isPublic: false },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+    });
+
+    it("canManageObjectAccess returns true for a managing member", async () => {
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "editor")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).canManageObjectAccess,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it("canManageObjectAccess returns false for a viewer-only member", async () => {
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "viewer")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).canManageObjectAccess,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  // ==========================================================================
   // RESOURCE-TYPE VALIDATION (Finding 6) — reject grants for unregistered types.
   // Validation now lives on writeRelation / setObjectPublic / setCreateGrant via
   // the unchanged assertKnownResourceType.

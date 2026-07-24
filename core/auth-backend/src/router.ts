@@ -2098,8 +2098,72 @@ export const createAuthRouter = (
     },
   );
 
-  const writeRelation = os.writeRelation.handler(async ({ input }) => {
+  // Delegation authz for editing a resource's TEAM ACCESS (writeRelation /
+  // removeRelation / setObjectPublic). The caller must be able to MANAGE the
+  // specific (objectType, objectId): a global `auth.teams.manage` admin, OR
+  // someone who can manage this exact object per the ReBAC engine - the object's
+  // own `<type>.manage` global rule (on a non-private object), or membership of a
+  // team holding an editor/owner grant on it. A viewer-only team, or a caller
+  // with no grant and no global rule, is READ-ONLY and cannot elevate its own or
+  // another team's access. Privacy is respected by construction: `tupleStore.check`
+  // closes the global path for a team-private object, so a global resource-manager
+  // who is not on a granted team cannot reach a private object (only a
+  // teams.manage admin or a granted team can).
+  const canEditObjectAccess = async ({
+    user,
+    objectType,
+    objectId,
+  }: {
+    user: AuthUser | undefined;
+    objectType: string;
+    objectId: string;
+  }): Promise<boolean> => {
+    if (user?.type === "service") return true;
+    // Global access-control admin may edit any object's team access.
+    if (
+      isAccessRuleSatisfied(user?.accessRules ?? [], authAccess.teams.manage)
+    ) {
+      return true;
+    }
+    // Otherwise the caller must be able to MANAGE this exact object. The object's
+    // global manage rule is `${objectType}.manage` by the RLAC keying convention
+    // (resourceType `${pluginId}.${resource}` <-> rule id `${resource}.manage`).
+    const rules = user?.accessRules ?? [];
+    const hasResourceManage =
+      rules.includes("*") || rules.includes(`${objectType}.manage`);
+    const userTeamIds =
+      user && (user.type === "user" || user.type === "application")
+        ? await resolveUserTeamIds(user.id, user.type)
+        : [];
+    return tupleStore.check({
+      objectType,
+      objectId,
+      userTeamIds,
+      action: "manage",
+      hasGlobalAccess: hasResourceManage,
+    });
+  };
+
+  const assertCanEditObjectAccess = async (args: {
+    user: AuthUser | undefined;
+    objectType: string;
+    objectId: string;
+  }): Promise<void> => {
+    if (!(await canEditObjectAccess(args))) {
+      throw new ORPCError("FORBIDDEN", {
+        message:
+          "You need manage access to this resource to change its team access.",
+      });
+    }
+  };
+
+  const writeRelation = os.writeRelation.handler(async ({ input, context }) => {
     assertKnownResourceType(input.objectType);
+    await assertCanEditObjectAccess({
+      user: context.user,
+      objectType: input.objectType,
+      objectId: input.objectId,
+    });
     await tupleStore.setTeamRelation({
       objectType: input.objectType,
       objectId: input.objectId,
@@ -2108,22 +2172,46 @@ export const createAuthRouter = (
     });
   });
 
-  const removeRelation = os.removeRelation.handler(async ({ input }) => {
-    await tupleStore.removeTeamFromObject({
-      objectType: input.objectType,
-      objectId: input.objectId,
-      teamId: input.teamId,
-    });
-  });
+  const removeRelation = os.removeRelation.handler(
+    async ({ input, context }) => {
+      await assertCanEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      });
+      await tupleStore.removeTeamFromObject({
+        objectType: input.objectType,
+        objectId: input.objectId,
+        teamId: input.teamId,
+      });
+    },
+  );
 
-  const setObjectPublic = os.setObjectPublic.handler(async ({ input }) => {
-    assertKnownResourceType(input.objectType);
-    await tupleStore.setObjectPublic({
-      objectType: input.objectType,
-      objectId: input.objectId,
-      isPublic: input.isPublic,
-    });
-  });
+  const setObjectPublic = os.setObjectPublic.handler(
+    async ({ input, context }) => {
+      assertKnownResourceType(input.objectType);
+      await assertCanEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      });
+      await tupleStore.setObjectPublic({
+        objectType: input.objectType,
+        objectId: input.objectId,
+        isPublic: input.isPublic,
+      });
+    },
+  );
+
+  const canManageObjectAccess = os.canManageObjectAccess.handler(
+    async ({ input, context }) => ({
+      allowed: await canEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      }),
+    }),
+  );
 
   // S2S engine endpoints (called by the auth middleware).
   const check = os.check.handler(async ({ input }) => {
@@ -2673,6 +2761,7 @@ export const createAuthRouter = (
     writeRelation,
     removeRelation,
     setObjectPublic,
+    canManageObjectAccess,
     check,
     listAccessibleObjectIds,
     deleteObjectRelations,

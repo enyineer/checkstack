@@ -837,10 +837,17 @@ export const authContract = {
 
   // Set a team's access relation on an object (replaces its existing relation
   // there). Replaces setResourceTeamAccess.
+  // Grant/downgrade a team's access on an object. Delegation authz: the caller
+  // must be able to MANAGE this specific object (a global `auth.teams.manage`
+  // admin, the object's own `<type>.manage` rule on a non-private object, or
+  // membership of a team with an editor/owner grant on it). `access: []` - the
+  // handler enforces the per-object verdict, so a resource-manager without the
+  // global teams rule isn't rejected by the middleware. A viewer-only team
+  // cannot reach this and so cannot elevate its own or another team's access.
   writeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [],
   })
     .input(
       z.object({
@@ -852,12 +859,12 @@ export const authContract = {
     )
     .output(z.void()),
 
-  // Remove all of a team's access relations on an object. Replaces
-  // removeResourceTeamAccess.
+  // Remove all of a team's access relations on an object. Same per-object
+  // delegation authz as writeRelation (handler-enforced).
   removeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [],
   })
     .route({ method: "DELETE" })
     .input(
@@ -869,11 +876,12 @@ export const authContract = {
     )
     .output(z.void()),
 
-  // Toggle the public marker (privacy). Replaces setResourceAccessSettings.
+  // Toggle the public marker (privacy). Same per-object delegation authz as
+  // writeRelation (handler-enforced).
   setObjectPublic: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [],
   })
     .input(
       z.object({
@@ -883,6 +891,18 @@ export const authContract = {
       }),
     )
     .output(z.void()),
+
+  // Whether the CALLER may edit this object's team access (add/remove teams,
+  // toggle manage/privacy). Runs the SAME delegation authz as the write
+  // procedures so the editor shows write controls exactly when a write would be
+  // accepted - no frontend/backend drift. access: [] - handler computes it.
+  canManageObjectAccess: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(z.object({ objectType: z.string(), objectId: z.string() }))
+    .output(z.object({ allowed: z.boolean() })),
 
   // The teams the CALLER belongs to. No access rule: a caller may always read
   // their own memberships. Used by the create-form team-ownership picker.
