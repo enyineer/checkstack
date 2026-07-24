@@ -1,5 +1,6 @@
 ---
 "@checkstack/satellite": patch
+"@checkstack/k8s-events-common": patch
 ---
 
 Fix satellite crash-loop on startup (ENOENT reading `@checkstack/k8s-events-common`)
