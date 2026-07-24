@@ -117,7 +117,7 @@ function pruneCyclesToDag(
   // committed tsconfigs reflect, failing `--check` non-deterministically. Sort
   // BOTH orders lexicographically so the pruned set is identical everywhere.
   const childrenOf = (node: string): Iterator<string> =>
-    [...(edges.get(node) ?? new Set<string>())].sort().values();
+    [...(edges.get(node) ?? new Set<string>())].toSorted().values();
 
   // Iterative DFS with explicit stack to avoid blowing the call stack on
   // large graphs (we have ~115 packages but cycles can be deep).
@@ -147,7 +147,7 @@ function pruneCyclesToDag(
     }
   }
 
-  for (const node of [...edges.keys()].sort()) {
+  for (const node of [...edges.keys()].toSorted()) {
     if (state.get(node) !== DONE) visit(node);
   }
   return { edges, pruned };
