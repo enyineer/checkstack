@@ -295,10 +295,13 @@ test.describe("automations", () => {
     await expect(
       page.getByRole("heading", { name: `${AUTOMATION_NAME} - runs` }),
     ).toBeVisible({ timeout: 20_000 });
-    // No runs have happened, so the filtered-empty state shows.
+    // No runs have happened, so an empty state renders. Which one depends on
+    // whether a filter is active: the unfiltered "No runs yet" or, when a facet
+    // is applied, "No runs match this filter". Accept either (the test asserts
+    // an empty state renders, not which), and allow the runs query to load.
     await expect(
-      page.getByText("No runs match this filter"),
-    ).toBeVisible();
+      page.getByText(/No runs yet|No runs match this filter/),
+    ).toBeVisible({ timeout: 20_000 });
     // The back-to-automation affordance is present.
     await expect(
       page.getByRole("link", { name: "Back to automation" }),
