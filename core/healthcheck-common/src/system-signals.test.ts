@@ -56,6 +56,20 @@ describe("deriveHealthcheckSignals", () => {
     expect(deriveHealthcheckSignals({ statuses })).toEqual({});
   });
 
+  it("omits unknown (unmeasured) systems - regression for the false dashboard 'Degraded'", () => {
+    // A system with no checks (or none run yet) is `unknown`. It must NOT emit a
+    // signal: previously only `healthy` was skipped, so `unknown` fell through
+    // to a warn-tone "Degraded" signal and showed as a dashboard problem.
+    const statuses: HealthcheckSignalStatuses = {
+      s1: {
+        status: "unknown",
+        evaluatedAt: new Date(),
+        checkStatuses: [],
+      },
+    };
+    expect(deriveHealthcheckSignals({ statuses })).toEqual({});
+  });
+
   it("emits an error-tone Unhealthy signal linking to the failing check history", () => {
     const statuses: HealthcheckSignalStatuses = {
       s1: {

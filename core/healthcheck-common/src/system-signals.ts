@@ -44,7 +44,18 @@ export function deriveHealthcheckSignals({
   const result: SystemSignalsMap = {};
 
   for (const [systemId, status] of Object.entries(statuses)) {
-    if (!status || status.status === "healthy") continue;
+    // Only degraded/unhealthy systems produce a signal. `healthy` AND `unknown`
+    // are omitted: an unmeasured system (no checks, or none run yet) is "no
+    // signal", not a fault - emitting it would fall through to the "Degraded"
+    // label/tone below and surface a check-less system as a dashboard problem
+    // (the false "Degraded" this guards against).
+    if (
+      !status ||
+      status.status === "healthy" ||
+      status.status === "unknown"
+    ) {
+      continue;
+    }
 
     const failingCheck = status.checkStatuses.find(
       (c) => c.status !== "healthy",
