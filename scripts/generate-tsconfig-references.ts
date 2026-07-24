@@ -110,11 +110,20 @@ function pruneCyclesToDag(
   const state = new Map<string, number>();
   const pruned: { from: string; to: string }[] = [];
 
+  // DETERMINISM: which back-edge breaks a cycle depends on the DFS visitation
+  // order (both the start-node order and the child order). Those otherwise
+  // follow package DISCOVERY order, which differs between environments (local
+  // vs CI) - so the same graph could prune a DIFFERENT edge in CI than the
+  // committed tsconfigs reflect, failing `--check` non-deterministically. Sort
+  // BOTH orders lexicographically so the pruned set is identical everywhere.
+  const childrenOf = (node: string): Iterator<string> =>
+    [...(edges.get(node) ?? new Set<string>())].sort().values();
+
   // Iterative DFS with explicit stack to avoid blowing the call stack on
   // large graphs (we have ~115 packages but cycles can be deep).
   function visit(start: string) {
     const stack: { node: string; iter: Iterator<string> }[] = [
-      { node: start, iter: (edges.get(start) ?? new Set()).values() },
+      { node: start, iter: childrenOf(start) },
     ];
     state.set(start, VISITING);
     while (stack.length > 0) {
@@ -133,15 +142,12 @@ function pruneCyclesToDag(
         pruned.push({ from: top.node, to: child });
       } else if (s !== DONE) {
         state.set(child, VISITING);
-        stack.push({
-          node: child,
-          iter: (edges.get(child) ?? new Set()).values(),
-        });
+        stack.push({ node: child, iter: childrenOf(child) });
       }
     }
   }
 
-  for (const node of edges.keys()) {
+  for (const node of [...edges.keys()].sort()) {
     if (state.get(node) !== DONE) visit(node);
   }
   return { edges, pruned };
