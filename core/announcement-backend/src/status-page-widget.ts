@@ -30,6 +30,12 @@ const announcements: WidgetTypeDefinition = {
   description: "Currently active public announcements.",
   category: "Content",
   binding: "none",
+  // The announcement renderer ships in the announcement FRONTEND plugin, not the
+  // status-page bundle, so the minimal custom-domain public bundle (which loads
+  // no plugins) must be told to load it as a renderer remote - otherwise the
+  // announcement block silently renders nothing on the public page. Built-in
+  // widgets omit this; announcements are plugin-owned, so they must declare it.
+  rendererRemote: "@checkstack/announcement-frontend",
   configSchema: AnnouncementsWidgetConfigSchema,
   dtoSchema: AnnouncementsWidgetDtoSchema,
   boundResources: () => [],

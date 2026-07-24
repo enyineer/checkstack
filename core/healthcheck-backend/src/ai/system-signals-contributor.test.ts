@@ -23,6 +23,7 @@ const unhealthyStatuses: HealthcheckSignalStatuses = {
         runsConsidered: 5,
         sliceCount: 1,
         failingSliceCount: 1,
+        slices: [],
       },
     ],
   },

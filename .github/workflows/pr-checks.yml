@@ -497,16 +497,22 @@ jobs:
           lfs: true
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/bun-install
-      - name: Build frontend + docs
+      - name: Build frontend + public remotes + docs
         run: |
           bun run --filter @checkstack/frontend build
+          # Core frontend plugins that ship a public MF remote (announcement),
+          # so the e2e backend can serve them under /assets/plugins/<name>/ to
+          # the lean public status-page bundle. Without this the public bundle's
+          # loadRemote 404s and the announcement block renders nothing.
+          bun run build:public-remotes
           bun run --filter @checkstack/docs build
-      - name: Upload build (frontend + docs dist)
+      - name: Upload build (frontend + public remotes + docs dist)
         uses: actions/upload-artifact@v7
         with:
           name: e2e-build
           path: |
             core/frontend/dist
+            core/announcement-frontend/dist
             docs/dist
           if-no-files-found: error
           retention-days: 1

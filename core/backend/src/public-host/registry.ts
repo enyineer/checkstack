@@ -17,6 +17,33 @@ export function normalizeHost(raw: string | null | undefined): string | null {
   return host.length > 0 ? host : null;
 }
 
+/**
+ * The effective CLIENT host for public-surface routing, honoring the edge's
+ * forwarding headers. An edge proxy that terminates TLS commonly rewrites the
+ * upstream `Host` header to the internal service address and puts the ORIGINAL
+ * browser host in `X-Forwarded-Host`. This resolver prefers `X-Forwarded-Host`
+ * (first hop) and falls back to `Host`, so a custom domain still resolves to its
+ * status page behind such a proxy.
+ *
+ * This MUST match how the backend derives `requestOrigin` (which already honors
+ * `X-Forwarded-Host`): if routing used the raw `Host` while origin used the
+ * forwarded host, a request behind a Host-rewriting proxy would resolve to the
+ * INTERNAL host for routing (no public match -> the admin bundle is served) even
+ * though the browser is on the custom domain. That mismatch made custom domains
+ * load the admin app in production while every test - which sends `Host`
+ * directly, with no proxy in front - passed.
+ *
+ * `header` is the request's header getter (e.g. Hono's `c.req.header`), taken as
+ * a function so the resolver is pure and unit-testable without a live request.
+ */
+export function resolveRequestHost(
+  header: (name: string) => string | null | undefined,
+): string | null {
+  const forwarded = header("x-forwarded-host");
+  const firstHop = forwarded?.split(",")[0]?.trim();
+  return normalizeHost(firstHop || header("host"));
+}
+
 interface CacheEntry {
   value: PublicHostMatch | null;
   expiresAt: number;

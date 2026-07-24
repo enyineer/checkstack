@@ -14,6 +14,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/healthcheck-execution": "workspace:*",
     "@checkstack/ingest-utils": "workspace:*",
     "@checkstack/k8s-events-common": "workspace:*",
     "@checkstack/logstream-common": "workspace:*",

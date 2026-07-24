@@ -279,4 +279,53 @@ describe("evaluateHealthStatus", () => {
       );
     });
   });
+  describe("interleaved streams (why callers must slice per environment AND source)", () => {
+    // This documents the MECHANISM behind a reported bug: a system whose local
+    // check passed and whose satellite check failed every time read HEALTHY.
+    // The evaluator is deliberately stream-agnostic - it assumes the runs it is
+    // handed come from ONE stream - so mixing two locations' runs into one call
+    // silently destroys the signal. `getSystemHealthStatus` must therefore
+    // evaluate one (environment, source) slice per call; these tests fail loudly
+    // if anyone re-collapses that slicing.
+    const thresholds: ConsecutiveThresholds = {
+      mode: "consecutive",
+      healthy: { minSuccessCount: 2 },
+      degraded: { minFailureCount: 2 },
+      unhealthy: { minFailureCount: 3 },
+    };
+
+    test("a permanently failing stream is MASKED when interleaved with a healthy one", () => {
+      // Local healthy alternating with satellite unhealthy: the streak breaks on
+      // every run, so neither threshold is ever met and evaluation falls through
+      // to its healthy default - even though one location has never succeeded.
+      const interleaved = createRuns([
+        "healthy",
+        "unhealthy",
+        "healthy",
+        "unhealthy",
+        "healthy",
+        "unhealthy",
+      ]);
+      expect(evaluateHealthStatus({ runs: interleaved, thresholds })).toBe(
+        "healthy",
+      );
+    });
+
+    test("the same runs, sliced per source, report the failing location", () => {
+      // The fix: hand the evaluator one stream at a time.
+      expect(
+        evaluateHealthStatus({
+          runs: createRuns(["healthy", "healthy", "healthy"]),
+          thresholds,
+        }),
+      ).toBe("healthy");
+      expect(
+        evaluateHealthStatus({
+          runs: createRuns(["unhealthy", "unhealthy", "unhealthy"]),
+          thresholds,
+        }),
+      ).toBe("unhealthy");
+      // Worst-wins across the two slices then carries the check to unhealthy.
+    });
+  });
 });

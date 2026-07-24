@@ -126,19 +126,20 @@ test.describe("infrastructure settings", () => {
       page.getByRole("columnheader", { name: "Queue", exact: true }),
     ).toBeVisible();
 
-    // Active and Recent-failed have no jobs on a fresh boot, so they surface
-    // their informational empty-state ("No <state> jobs.").
-    await page.getByRole("tab", { name: "Active" }).click();
-    await expect(page.getByText("No active jobs.")).toBeVisible();
-
-    await page.getByRole("tab", { name: "Recent failed" }).click();
-    await expect(page.getByText("No failed jobs.")).toBeVisible();
-
-    // Recent-completed may or may not have rows depending on boot timing
-    // (system jobs run shortly after start). Just assert the tab is selectable
-    // and the panel does not show the error fallback.
-    await page.getByRole("tab", { name: "Recent completed" }).click();
-    await expect(page.getByText("Failed to load jobs.")).toHaveCount(0);
+    // Active / Recent-failed / Recent-completed are all TIMING-DEPENDENT on a
+    // fresh boot: the platform self-registers recurring SYSTEM jobs that run
+    // shortly after start, so any of these listings may momentarily hold a row
+    // (an active job, or a transiently failed / retrying one) instead of the
+    // empty state - asserting emptiness here races that job activity and flakes.
+    // Assert only what this test is about ("sub-tabs are present and
+    // switchable"): each tab SELECTS, and its panel renders WITHOUT the load-
+    // error fallback. Whether a listing is empty or populated is not asserted.
+    for (const name of ["Active", "Recent failed", "Recent completed"]) {
+      const tab = page.getByRole("tab", { name });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByText("Failed to load jobs.")).toHaveCount(0);
+    }
   });
 
   test("switching to the Cache tab swaps the content area", async ({

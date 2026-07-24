@@ -4,10 +4,12 @@
  *
  * These derive the visual classification (status-triad tone, formatted
  * figures) shown by the cards and tables. They live here so the branch
- * logic can be unit-tested without rendering React or importing
- * `@checkstack/ui`, mirroring `slo-frontend`'s `sloDisplay.logic.ts`.
+ * logic can be unit-tested without rendering React, mirroring `slo-frontend`'s
+ * `sloDisplay.logic.ts`.
  */
 
+import {
+  neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 import type { Notification } from "@checkstack/notification-common";
 
 /** The colorblind-safe status-triad stem a surface maps onto. */
@@ -21,31 +23,17 @@ export interface ToneStyle {
 }
 
 /**
- * Tone -> class sets. Spelled out as full literal strings (not interpolated)
- * so Tailwind's JIT keeps them, driven by the colorblind-safe status triad.
- * `neutral` is the recede tone for read/disabled rows.
+ * Tone -> class sets, taken from the shared `pillToneStyles` table for the
+ * triad. `neutral` is the recede tone for read/disabled rows.
  */
 export const toneStyles: Record<StatusTone, ToneStyle> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  neutral: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  // `neutral` is NOT a status tone - it is the absence of one - so the shared
+  // table has no entry for it. These are the muted classes the shared
+  // `StatusPill` uses for `tone="neutral"`, plus a border-toned accent stripe.
+  neutral: neutralToneStyle,
 };
 
 /** Human label shown on a notification importance pill, by importance. */

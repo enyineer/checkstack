@@ -63,3 +63,32 @@ export function groupAutomations({
 
   return groups;
 }
+
+/**
+ * Narrow a flat automation list by a free-text query, matched against the name
+ * and the group label - the two things the list actually shows above the fold.
+ *
+ * Search lives here rather than on the table because the list renders ONE table
+ * per group: a table-owned search box would filter its own group only, so a
+ * query could never surface a match sitting in a collapsed group. Filtering
+ * before `groupAutomations` also makes empty groups disappear, so the result
+ * reads as "here is what matched" instead of a wall of empty accordions.
+ *
+ * An empty or whitespace-only query returns the SAME array reference, so an
+ * idle search box costs no re-grouping.
+ */
+export function filterAutomationsByQuery({
+  automations,
+  query,
+}: {
+  automations: Automation[];
+  query: string;
+}): Automation[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return automations;
+  return automations.filter((automation) =>
+    `${automation.name} ${automation.group ?? ""}`
+      .toLowerCase()
+      .includes(needle),
+  );
+}

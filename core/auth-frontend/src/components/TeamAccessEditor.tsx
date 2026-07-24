@@ -27,12 +27,8 @@ import {
   Lock,
   AlertCircle,
 } from "lucide-react";
-import {
-  useApi,
-  usePluginClient,
-  accessApiRef,
-} from "@checkstack/frontend-api";
-import { AuthApi, authAccess } from "@checkstack/auth-common";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { AuthApi } from "@checkstack/auth-common";
 import { deriveTeamAccessSummary } from "../lib/deriveTeamAccessSummary";
 
 interface TeamAccess {
@@ -80,13 +76,8 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   compact = false,
   onChange,
 }) => {
-  const accessApi = useApi(accessApiRef);
   const authClient = usePluginClient(AuthApi);
   const toast = useToast();
-
-  const { allowed: canManageTeams } = accessApi.useAccess(
-    authAccess.teams.manage,
-  );
 
   const [expanded, setExpanded] = useState(initialExpanded);
   const [selectedTeamId, setSelectedTeamId] = useState("");
@@ -109,6 +100,18 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     isLoading: teamsLoading,
     isError: teamsError,
   } = authClient.getTeams.useQuery({}, { enabled: expanded && !!resourceId });
+
+  // Whether THIS caller may EDIT the object's team access. Runs the same
+  // delegation authz as the write procedures (global teams-admin, the object's
+  // own manage rule, or membership of a team that manages this object), so the
+  // write controls appear exactly when a write would be accepted - a read-only
+  // viewer sees the grants but no add/remove/Manage/Private controls, and cannot
+  // elevate. The backend re-checks on every write, so this is UX only.
+  const { data: editVerdict } = authClient.canManageObjectAccess.useQuery(
+    { objectType: resourceType, objectId: resourceId },
+    { enabled: expanded && !!resourceId },
+  );
+  const canEdit = editVerdict?.allowed ?? false;
 
   const loading = relationsLoading || teamsLoading;
   // An access-control surface MUST distinguish "failed to load" from "no
@@ -302,14 +305,14 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
       <Toggle
         checked={teamOnly}
         onCheckedChange={handleUpdateSettings}
-        disabled={!canManageTeams || noTeamsYet || (noManagerYet && !teamOnly)}
+        disabled={!canEdit || noTeamsYet || (noManagerYet && !teamOnly)}
         aria-label="Private (hide from everyone else)"
       />
     </div>
   );
 
   // Shared add-team row.
-  const addRow = canManageTeams && (
+  const addRow = canEdit && (
     <div className="flex gap-2">
       <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
         <SelectTrigger className="flex-1" aria-label="Add a team that can change this">
@@ -365,13 +368,13 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             onCheckedChange={(checked) =>
               handleUpdateAccess(access.teamId, !!checked)
             }
-            disabled={!canManageTeams}
+            disabled={!canEdit}
             aria-label={`${access.teamName} can change this`}
           />
           <Settings className="h-3 w-3" />
           Manage
         </label>
-        {canManageTeams && (
+        {canEdit && (
           <Button
             type="button"
             variant="ghost"

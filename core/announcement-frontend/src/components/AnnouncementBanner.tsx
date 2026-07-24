@@ -20,6 +20,8 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { severityToTone } from "./announcementStatus.logic";
+import { toneStyles } from "./StatusPill";
 
 const DISMISSED_STORAGE_KEY = "checkstack-dismissed-announcements";
 
@@ -41,7 +43,10 @@ function SeverityIcon({ severity }: { severity: Announcement["severity"] }) {
 }
 
 /**
- * Returns Tailwind class names for the severity-based banner styling.
+ * Returns Tailwind class names for the severity-based banner styling, derived
+ * from the SAME severity-to-tone mapping the pills and dashboard cards use, so
+ * the banner can never drift from them (it previously carried its own switch
+ * and rendered info-severity announcements in the neutral grey `unknown` hue).
  */
 function getSeverityStyles(severity: Announcement["severity"]): {
   bg: string;
@@ -49,32 +54,13 @@ function getSeverityStyles(severity: Announcement["severity"]): {
   border: string;
   dismissHover: string;
 } {
-  switch (severity) {
-    case "critical": {
-      return {
-        bg: "bg-status-down/10",
-        text: "text-status-down",
-        border: "border-status-down/20",
-        dismissHover: "hover:bg-status-down/20",
-      };
-    }
-    case "warning": {
-      return {
-        bg: "bg-status-warn/10",
-        text: "text-status-warn",
-        border: "border-status-warn/20",
-        dismissHover: "hover:bg-status-warn/20",
-      };
-    }
-    default: {
-      return {
-        bg: "bg-status-unknown/10",
-        text: "text-status-unknown",
-        border: "border-status-unknown/20",
-        dismissHover: "hover:bg-status-unknown/20",
-      };
-    }
-  }
+  const styles = toneStyles[severityToTone(severity)];
+  return {
+    bg: styles.tint,
+    text: styles.text,
+    border: styles.border,
+    dismissHover: styles.tintHover,
+  };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { extractErrorMessage } from "@checkstack/common";
@@ -17,8 +18,8 @@ import {
   deriveOverallStatus,
   type CustomDomainInfo,
   BUILTIN_WIDGET_IDS,
-  IncidentsDtoSchema,
-  MaintenanceDtoSchema,
+  IncidentDtoItemSchema,
+  MaintenanceDtoItemSchema,
   type IncidentDtoItem,
   type MaintenanceDtoItem,
 } from "@checkstack/status-page-common";
@@ -503,19 +504,17 @@ export class StatusPageService {
    * against the widget's DTO schema, so only allow-listed fields are emitted; a
    * resolver error degrades that one block to `data: null`, never the page.
    */
-  async resolvePublished(input: {
-    slug: string;
-    isAuthenticated: boolean;
-  }): Promise<PublishedStatusPage | null> {
-    const [row] = await this.deps.db
-      .select()
-      .from(statusPages)
-      .where(eq(statusPages.slug, input.slug))
-      .limit(1);
-    if (!row || row.publishedLayout === null) return null;
-    const visibility = rowVisibility(row);
-    if (visibility === "authenticated" && !input.isAuthenticated) return null;
-
+  /**
+   * Load a PUBLISHED page row (applying the same publish + visibility gate as
+   * the public surface) and build the per-resolve widget context. Shared by
+   * `resolvePublished` and the per-item detail resolvers so the ctx (memo,
+   * trusted rpc client, published-environment scope) is built ONE way and can
+   * never drift. Returns null when no page matches / is unpublished / the
+   * visibility excludes the caller.
+   */
+  private loadPublishedForResolve(
+    row: StatusPageRow,
+  ): { ctx: WidgetResolveContext } {
     // Per-resolve memo so a page with many widgets shares expensive reads (e.g.
     // the full catalog) instead of re-fetching per widget on every public hit.
     const memo = new Map<string, Promise<unknown>>();
@@ -533,6 +532,32 @@ export class StatusPageService {
       // page shows and what it offers for subscription agree by construction.
       publishedEnvironmentIds: effectivePublishedEnvironmentIds(row),
     };
+    return { ctx };
+  }
+
+  private async loadPublishedRow(input: {
+    slug: string;
+    isAuthenticated: boolean;
+  }): Promise<StatusPageRow | null> {
+    const [row] = await this.deps.db
+      .select()
+      .from(statusPages)
+      .where(eq(statusPages.slug, input.slug))
+      .limit(1);
+    if (!row || row.publishedLayout === null) return null;
+    const visibility = rowVisibility(row);
+    if (visibility === "authenticated" && !input.isAuthenticated) return null;
+    return row;
+  }
+
+  async resolvePublished(input: {
+    slug: string;
+    isAuthenticated: boolean;
+  }): Promise<PublishedStatusPage | null> {
+    const row = await this.loadPublishedRow(input);
+    if (!row || row.publishedLayout === null) return null;
+
+    const { ctx } = this.loadPublishedForResolve(row);
 
     // Renderer remotes this page needs (third-party widgets only; built-ins are
     // bundled). Deduped by widget type so the public bundle loads each once.
@@ -602,52 +627,84 @@ export class StatusPageService {
   }
 
   /**
-   * Public-safe detail for a single incident on a published page. GATED against
-   * enumeration / IDOR: the incident is returned ONLY if the page for `slug`
-   * actually surfaces it through an incidents widget. We reuse `resolvePublished`
-   * (same published + visibility checks) and return the widget's own
-   * already-allow-listed DTO item, so no internal field (`createdBy`, ...) can
-   * leak and status-page-backend never reaches into the incident domain. Returns
-   * null when the page does not exist / is not visible / does not expose the id.
+   * Public-safe FULL detail for a single item (incident / maintenance) on a
+   * published page, for the dedicated detail page. GATED against enumeration /
+   * IDOR the same way the block is: we iterate ONLY the published layout's
+   * blocks of `widgetTypeId` and call each matching widget's `resolveDetail`,
+   * which itself scope-checks the id against the block's live bound systems and
+   * returns null for anything the block does not surface. So a detail page can
+   * never reveal an item the page's own widget would not show. Unlike the block
+   * (which caps the update timeline to `maxUpdates` and omits the long-form
+   * description), `resolveDetail` returns the item with ALL its public updates
+   * and its description - the whole point of the detail page (Items 4/5/6). The
+   * returned value is the widget's own already-allow-listed DTO item, so no
+   * internal field can leak. Returns null when the page does not exist / is not
+   * visible / no block surfaces the id / the widget has no detail resolver.
    */
+  private async resolvePublishedDetail<T>(input: {
+    slug: string;
+    id: string;
+    isAuthenticated: boolean;
+    widgetTypeId: string;
+    itemSchema: z.ZodType<T>;
+  }): Promise<T | null> {
+    const row = await this.loadPublishedRow({
+      slug: input.slug,
+      isAuthenticated: input.isAuthenticated,
+    });
+    if (!row || row.publishedLayout === null) return null;
+    const { ctx } = this.loadPublishedForResolve(row);
+    for (const block of row.publishedLayout) {
+      if (block.type !== input.widgetTypeId) continue;
+      const widget = this.deps.registry.get(block.type);
+      if (!widget?.resolveDetail) continue;
+      let raw: unknown;
+      try {
+        raw = await widget.resolveDetail({
+          id: input.id,
+          config: block.config,
+          ctx,
+        });
+      } catch (error) {
+        this.deps.logger.warn("Status page detail widget failed to resolve", {
+          slug: row.slug,
+          blockType: block.type,
+          error: extractErrorMessage(error),
+        });
+        continue;
+      }
+      if (raw === null) continue;
+      // Validate against the widget's OWN item shape so the detail path fails
+      // closed exactly like `resolvePublished` does for the block DTO.
+      const parsed = input.itemSchema.safeParse(raw);
+      if (parsed.success) return parsed.data;
+    }
+    return null;
+  }
+
+  /** Public-safe FULL detail for a single incident. See resolvePublishedDetail. */
   async resolvePublishedIncident(input: {
     slug: string;
     id: string;
     isAuthenticated: boolean;
   }): Promise<IncidentDtoItem | null> {
-    const page = await this.resolvePublished({
-      slug: input.slug,
-      isAuthenticated: input.isAuthenticated,
+    return this.resolvePublishedDetail({
+      ...input,
+      widgetTypeId: BUILTIN_WIDGET_IDS.incidents,
+      itemSchema: IncidentDtoItemSchema,
     });
-    if (!page) return null;
-    for (const block of page.blocks) {
-      if (block.type !== BUILTIN_WIDGET_IDS.incidents) continue;
-      const parsed = IncidentsDtoSchema.safeParse(block.data);
-      if (!parsed.success) continue;
-      const match = parsed.data.incidents.find((i) => i.id === input.id);
-      if (match) return match;
-    }
-    return null;
   }
 
-  /** Public-safe detail for a single maintenance. See resolvePublishedIncident. */
+  /** Public-safe FULL detail for a single maintenance. See resolvePublishedDetail. */
   async resolvePublishedMaintenance(input: {
     slug: string;
     id: string;
     isAuthenticated: boolean;
   }): Promise<MaintenanceDtoItem | null> {
-    const page = await this.resolvePublished({
-      slug: input.slug,
-      isAuthenticated: input.isAuthenticated,
+    return this.resolvePublishedDetail({
+      ...input,
+      widgetTypeId: BUILTIN_WIDGET_IDS.maintenance,
+      itemSchema: MaintenanceDtoItemSchema,
     });
-    if (!page) return null;
-    for (const block of page.blocks) {
-      if (block.type !== BUILTIN_WIDGET_IDS.maintenance) continue;
-      const parsed = MaintenanceDtoSchema.safeParse(block.data);
-      if (!parsed.success) continue;
-      const match = parsed.data.maintenances.find((m) => m.id === input.id);
-      if (match) return match;
-    }
-    return null;
   }
 }

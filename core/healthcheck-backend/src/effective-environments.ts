@@ -62,3 +62,37 @@ export function resolveEffectiveEnvironments({
     .filter((env) => wanted.has(env.id))
     .map((env) => toEffective(env));
 }
+
+/**
+ * Narrow an assignment's effective environments to those a SPECIFIC satellite
+ * should run.
+ *
+ * A satellite's selector can only ever narrow, never widen: the assignment
+ * decides which environments exist for this check, and the satellite decides
+ * which of those it is responsible for. That ordering is what lets a prod
+ * satellite run only prod without being able to reach environments the
+ * assignment itself excluded.
+ *
+ * - `undefined` / `null` => every environment the assignment resolved to. This
+ *   is the default for an unscoped satellite, so existing assignments keep
+ *   behaving exactly as they did.
+ * - `[]`                 => opt out: one env-less run on this satellite.
+ * - non-empty            => exactly those ids, intersected with `effective`;
+ *   an id the assignment does not cover silently drops.
+ *
+ * Order follows `effective`, so fan-out order stays deterministic.
+ */
+export function resolveSatelliteEnvironments({
+  effective,
+  satelliteEnvironmentIds,
+}: {
+  effective: EffectiveEnvironment[];
+  satelliteEnvironmentIds: string[] | null | undefined;
+}): EffectiveEnvironment[] {
+  if (satelliteEnvironmentIds === null || satelliteEnvironmentIds === undefined) {
+    return effective;
+  }
+  if (satelliteEnvironmentIds.length === 0) return [];
+  const wanted = new Set(satelliteEnvironmentIds);
+  return effective.filter((env) => wanted.has(env.id));
+}

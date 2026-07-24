@@ -28,7 +28,12 @@ export interface RunHistoryListProps {
   loading: boolean;
   /** Dim rows while a refetch is in flight (stale-while-revalidate). */
   isStale: boolean;
-  environmentLabels?: EnvironmentLabel[];
+  /**
+   * EVERY environment in the instance. Required for the same reason as on
+   * `HealthCheckRunsTable`: an id missing from this list is rendered as
+   * "Removed environment", which is only true if the full list was supplied.
+   */
+  environmentLabels: EnvironmentLabel[];
   emptyMessage: string;
   /** Height classes for the scroll container. */
   className?: string;
@@ -95,7 +100,7 @@ export const RunHistoryList: React.FC<RunHistoryListProps> = ({
   className,
 }) => {
   const envNameById = new Map(
-    (environmentLabels ?? []).map((e) => [e.id, e.name]),
+    environmentLabels.map((e) => [e.id, e.name]),
   );
 
   const firstRunId = rows.find((r) => r.kind === "run")?.run.id;

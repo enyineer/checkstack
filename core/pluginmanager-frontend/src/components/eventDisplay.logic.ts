@@ -1,3 +1,4 @@
+import { pillToneStyles } from "@checkstack/ui";
 import type { InstallEventStatus } from "@checkstack/pluginmanager-common";
 
 /**
@@ -15,25 +16,13 @@ export interface EventToneClasses {
 }
 
 /**
- * Per-tone class sets for the event status pill, dot, and accent stripe.
- * Spelled out as full literal strings so Tailwind's JIT keeps them.
+ * Per-tone class sets for the event status pill, dot, and accent stripe, taken
+ * from the shared `pillToneStyles` table rather than a private copy.
  */
 export const EVENT_TONE_STYLES: Record<EventTone, EventToneClasses> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
+  ok: pillToneStyles.ok,
+  down: pillToneStyles.down,
+  unknown: pillToneStyles.unknown,
 };
 
 /**

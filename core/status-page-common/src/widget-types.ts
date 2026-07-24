@@ -214,6 +214,11 @@ export const IncidentDtoItemSchema = z.object({
   startedAt: z.string(),
   /** When the incident was resolved (present only for resolved incidents). */
   resolvedAt: z.string().optional(),
+  /**
+   * Long-form public description. Emitted by the DETAIL resolver for the
+   * individual incident page; the block widget omits it to stay lean.
+   */
+  description: z.string().optional(),
   updates: z.array(PublicUpdateSchema),
 });
 export type IncidentDtoItem = z.infer<typeof IncidentDtoItemSchema>;
@@ -228,6 +233,11 @@ export const MaintenanceDtoItemSchema = z.object({
   startAt: z.string(),
   endAt: z.string(),
   systems: z.array(z.string()),
+  /**
+   * What the maintenance involves. Emitted by the DETAIL resolver for the
+   * individual maintenance page; the block widget omits it to stay lean.
+   */
+  description: z.string().optional(),
   updates: z.array(PublicUpdateSchema),
 });
 export type MaintenanceDtoItem = z.infer<typeof MaintenanceDtoItemSchema>;

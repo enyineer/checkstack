@@ -7,13 +7,11 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
-import type {
-  MaintenanceWithSystems,
-  MaintenanceStatus,
-} from "@checkstack/maintenance-common";
+import type { MaintenanceWithSystems } from "@checkstack/maintenance-common";
 import {
   maintenanceAccess,
   maintenanceResourceTypes,
+  MaintenanceStatusEnum,
   pluginMetadata as maintenancePluginMetadata,
 } from "@checkstack/maintenance-common";
 import { Tip } from "@checkstack/tips-frontend";
@@ -24,14 +22,12 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacetOption,
   RowActions,
   RowAction,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
   Checkbox,
   useToast,
   ConfirmationModal,
@@ -56,6 +52,7 @@ import {
   getMaintenanceStatusTone,
   getMaintenanceToneAccentClass,
   maintenanceStatusRank,
+  presentMaintenanceStatus,
 } from "../utils/badges";
 import {
   canComplete,
@@ -65,6 +62,19 @@ import {
   pruneSelection,
   summarizeBulkOutcome,
 } from "./maintenanceConfig.logic";
+
+/**
+ * Maintenance lifecycle status. Labels come from the same presenter the status
+ * badges use, so the dropdown and the rows can never disagree about what a
+ * status is called. Options mirror `MaintenanceStatusEnum`, which is what the
+ * list query filters on.
+ */
+const MAINTENANCE_STATUS_FACET_ID = "status";
+const MAINTENANCE_STATUS_OPTIONS: readonly DataTableFacetOption[] =
+  MaintenanceStatusEnum.options.map((status) => ({
+    value: status,
+    label: presentMaintenanceStatus(status).label,
+  }));
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -87,12 +97,22 @@ const MaintenanceConfigPageContent: React.FC = () => {
       parentType: catalogResourceTypes.system,
     });
 
-  const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">(
-    "all",
-  );
+  // Server-side filtering (both feed the list query's input), so the table
+  // declares no facets - the shared bar drives the query. The status facet is
+  // URL-backed, so a link to "the in-progress maintenances" reopens filtered.
+  const filters = useDataTableFilters({
+    facetIds: [MAINTENANCE_STATUS_FACET_ID],
+  });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: MAINTENANCE_STATUS_FACET_ID,
+    schema: MaintenanceStatusEnum,
+  });
 
   // Completed maintenances are hidden by default (the list endpoint excludes
   // them unless `includeCompleted` is set); this toggle opts them back in.
+  // NOT a facet: a facet NARROWS, and this WIDENS the list, so modelling it as
+  // one would invert its meaning. It rides in the bar's `children` slot.
   const [showCompleted, setShowCompleted] = useState(false);
 
   // Editor state
@@ -115,7 +135,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
   // Fetch maintenances with useQuery
   const maintenancesQuery = maintenanceClient.listMaintenances.useQuery(
-    statusFilter === "all"
+    statusFilter === undefined
       ? { includeCompleted: showCompleted }
       : { status: statusFilter, includeCompleted: showCompleted },
   );
@@ -321,6 +341,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
       id: "title",
       header: "Title",
       sortValue: (maintenance) => maintenance.title,
+      // Both lines the cell renders, so a search matches what you can see.
+      searchValue: (maintenance) =>
+        `${maintenance.title} ${maintenance.description ?? ""}`,
       cell: (maintenance) => (
         <div className="relative pl-3">
           <span
@@ -345,6 +368,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
       id: "status",
       header: "Status",
       sortValue: (maintenance) => maintenanceStatusRank[maintenance.status],
+      filterValue: (maintenance) => maintenance.status,
+      filterOptions: MAINTENANCE_STATUS_OPTIONS,
+      filterAnyLabel: "All statuses",
       cell: (maintenance) => getMaintenanceStatusBadge(maintenance.status),
     },
     {
@@ -439,33 +465,6 @@ const MaintenanceConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
-        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-            className="rounded border-border"
-          />
-          Show completed
-        </label>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as MaintenanceStatus | "all")}
-        >
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
       {loading ? (
         <div className="flex justify-center p-12">
           <LoadingSpinner />
@@ -528,12 +527,36 @@ const MaintenanceConfigPageContent: React.FC = () => {
             data={maintenances}
             columns={columns}
             getRowId={(maintenance) => maintenance.id}
-            searchable={false}
+            // The Status column declares its own filter, so the control sits in
+            // the table's bar rather than floating above the card.
+            filters={filters.state}
+            onFiltersChange={filters.setState}
+            onClearFilters={filters.clear}
+            // "Show completed" is not a facet: a facet NARROWS, and this WIDENS
+            // the list to include rows the endpoint excludes by default. It
+            // still belongs BESIDE the status control, not pushed to the far
+            // side of the row where `toolbar` puts its actions.
+            filterExtras={
+              <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+                <Checkbox
+                  checked={showCompleted}
+                  onCheckedChange={(checked) =>
+                    setShowCompleted(checked === true)
+                  }
+                />
+                Show completed
+              </label>
+            }
+            searchPlaceholder="Search maintenances..."
             getRowProps={(maintenance) => ({
               selected: selectedIds.has(maintenance.id),
               className: "hover:bg-surface-inset",
             })}
+            // The list arrives already narrowed by the server, so an empty
+            // `data` means either "none exist" or "none match". Suppressing
+            // `emptyState` while a filter is active is what tells them apart.
             emptyState={
+              filters.active ? undefined : (
               <EmptyState
                 icon={<Wrench className="size-10" />}
                 title="No planned maintenances"
@@ -550,6 +573,19 @@ const MaintenanceConfigPageContent: React.FC = () => {
                       Schedule maintenance
                     </Button>
                   ) : undefined
+                }
+              />
+              )
+            }
+            noResultsState={
+              <EmptyState
+                icon={<Wrench className="size-10" />}
+                title="No maintenances match your filters"
+                description="Nothing in this list matches the current status filter. Completed maintenances are hidden unless you ask for them."
+                actions={
+                  <Button variant="outline" onClick={filters.clear}>
+                    Clear filters
+                  </Button>
                 }
               />
             }

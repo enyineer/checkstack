@@ -142,9 +142,140 @@ accessible name and default tooltip; `title` overrides the tooltip (e.g. a lock
 reason). Never drop a `variant="destructive"` filled button into an actions
 column - that is exactly the inconsistency `RowAction` exists to prevent.
 
+## Filtering
+
+A facet is a "narrow by one dimension" control - status, severity, type, team. The table renders them beside the search box, applies them, and offers a Clear affordance once anything is constrained.
+
+### Filterable columns (the default)
+
+Filtering joins sorting and searching on the column contract: providing `filterValue` is what makes a column filterable, with no separate boolean flag.
+
+```tsx
+{
+  id: "severity",
+  header: "Severity",
+  cell: (a) => <SeverityBadge severity={a.severity} />,
+  sortValue: (a) => severityRank[a.severity],
+  filterValue: (a) => a.severity,          // <- the column is now filterable
+  filterOptions: SEVERITY_OPTIONS,         // omit to derive from the data
+  filterKind: "pills",                     // optional; defaults to a select
+}
+```
+
+Declare it here rather than in a standalone facet whenever a single column owns the dimension. The column already reads the row for `sortValue` and renders it in `cell`, so the value is stated ONCE and the badge, the sort and the filter cannot drift apart.
+
+This colocates the DECLARATION, not the rendering. Every filter - column-derived or standalone - renders in one shared bar above the table, in column order; a column's control does not appear at its header. That is deliberate: a single row is one place to scan, it is the only thing that works for filters no column owns, and it collapses onto a narrow viewport without crowding the sort affordances.
+
+`filterOptions` is optional. Omit it and the options are **derived from the distinct values present in `data`**, sorted and labelled by the raw value. Declare it when:
+
+- the raw values are not what a person should read (`authenticated` -> "Authenticated only"),
+- the order carries meaning (severity by impact - deriving sorts alphabetically into critical / info / warning), or
+- an option must stay on offer even when no row currently has it.
+
+Options are always derived from the **full** `data`, never from what is currently visible. Reading them off the filtered rows would let selecting one option delete every other option, stranding you with no way back.
+
+Use `filterLabel` when the column's `header` is an icon or an element rather than a string, since the header is otherwise the control's label.
+
+### Facets no column owns
+
+The standalone `facets` prop stays for a dimension no single column can express - one matching several values per row, or shared across two row types:
+
+```tsx
+<DataTable data={systems} columns={columns} getRowId={(s) => s.id} facets={[groupFacet]} />
+```
+
+Column-derived facets render first, in column order, followed by these. Everything is ANDed with the free-text search.
+
+An `id` doubles as the URL parameter name, so keep it short and URL-safe. A row whose value matches no offered option is simply never shown while that facet is constrained, and a facet the table does not declare is ignored - so a stale link degrades to "less filtered" rather than to an empty table nobody can explain.
+
+Do NOT pre-filter `data` yourself and hand the table the survivors. `emptyState` fires when `data` is empty and `noResultsState` when the filters empty it, and upstream filtering collapses that distinction: "nothing here yet" starts rendering as "nothing matches".
+
+### Pills, and when to tone them
+
+`kind: "pills"` renders a segmented row instead of a dropdown - right for two or three short options worth seeing at a glance, wrong for a dozen. An option may carry a `tone` from the shared status set, applied only while that option is selected:
+
+```ts
+{
+  id: "status",
+  label: "Status",
+  kind: "pills",
+  options: [
+    { value: "healthy", label: "Healthy", tone: "ok" },
+    { value: "failing", label: "Failing", tone: "down" },
+  ],
+}
+```
+
+Reserve `tone` for a dimension that genuinely IS a status. On a health surface green and red are the product's vocabulary, and a selected "Failing" that looks identical to a selected "Healthy" throws that away. Leave it unset for everything else - a neutral selected state is right for "enabled/disabled", and colouring those dilutes the tones that mean something. Tone is presentation only; it never affects matching.
+
+### Disabling a facet
+
+A dimension whose data source is not installed yet keeps its control, disabled, with a reason:
+
+```ts
+{
+  id: "health",
+  label: "Health",
+  options: HEALTH_OPTIONS,
+  disabled: !healthEnabled,
+  disabledReason: "Health filtering becomes available once a health source is installed",
+  value: (system) => resolveHealth(system),
+}
+```
+
+Prefer this to dropping the facet from the array. A present-but-unavailable control says the capability exists and what would unlock it; an absent one says nothing. Disabling also keeps the parameter declared, so a selection arriving on a shared link is preserved - and it still constrains, because disabling stops the operator *changing* the selection, not the selection itself.
+
+### Facets the table cannot apply
+
+A surface sometimes owns a control the facet model cannot apply: a row that belongs to several groups or carries several tags has no single `value`, and one bar may filter two different row types at once (the catalog's toolbar narrows both systems and groups). Such a surface passes `DataTableFacetControl`s - a facet without the row accessor - and keeps its own matching:
+
+```tsx
+const controls: DataTableFacetControl[] = [
+  { id: "group", label: "Group", anyLabel: "All groups", options: groupOptions },
+  { id: "tag", label: "Tag", anyLabel: "All tags", options: tagOptions },
+];
+
+<DataTableFilterBar
+  filters={filters.state}
+  onFiltersChange={filters.setState}
+  onClear={filters.clear}
+  facets={controls}
+/>;
+```
+
+Read the selections back with `parsedFacetValue` (or `filters.debounced.facets`) and apply them in your own `.logic.ts` matcher. A `DataTableFacet<TData>` *is* a control, so a table's facets keep working with the bar unchanged. Reach for this only when the accessor genuinely cannot be written - a single-valued dimension belongs in `facets`, applied by the table.
+
+### Where the filter state lives
+
+By default the table owns the state internally, which is right for a simple list. Reach for `useDataTableFilters` when the state has to be **observable**:
+
+```tsx
+const filters = useDataTableFilters({ facetIds: ["status", "severity"] });
+
+<DataTable
+  data={rows}
+  columns={columns}
+  getRowId={(r) => r.id}
+  facets={facets}
+  filters={filters.state}
+  onFiltersChange={filters.setState}
+  onClearFilters={filters.clear}
+/>;
+```
+
+The hook persists to the URL, so a filtered view is shareable, survives a reload, and comes back intact after following a row into its detail page. It also hands the page `filters.active`, which is what you need to gate a control that a filtered view makes ambiguous - reorder arrows, for instance, whose neighbour may be hidden.
+
+Pass `paramPrefix` when a page has two filtered tables, so they do not fight over `q`. Use `filters.debounced` when *you* run the filtering (a server-side query input, or a list that is not a `DataTable`); a plain table wants `filters.state`, since it debounces internally.
+
+For a list surface that is not a table at all, render `DataTableFilterBar` directly with the same state, so a card grid filters identically to a table. Its `children` slot takes controls that belong in that row but are not row filters - a density toggle, a date range - so they stay beside the filters instead of forming a second bar.
+
 ## Surface and toolbar
 
-The table is wrapped in an opaque, bordered `bg-card` panel by default, so it stays readable over any page background. Pass `surface={false}` to opt out. Use `toolbar` for actions that sit beside the search box (an "Add" button, domain filters such as status tabs or an environment picker that the free-text search cannot express).
+The table is wrapped in an opaque, bordered `bg-card` panel by default, so it stays readable over any page background. Pass `surface={false}` when it is nested inside a page's own opaque Card - that both drops the panel-in-panel and insets the filter bar with a separating rule, so a full-bleed table's controls are not flush against the card's edges.
+
+Use `toolbar` for ACTIONS beside the filters - an "Add" button, an export. It is right-aligned, away from the controls.
+
+Use `filterExtras` for a CONTROL that belongs with the filters but is not a facet: a date range, a density toggle, or a boolean that WIDENS the list ("Show resolved") and so cannot be a facet, since a facet narrows. It renders inside the filter row, next to the facets. Putting such a control in `toolbar` strands it at the far edge of the page, reading as unrelated to the filters it belongs with.
 
 > [!NOTE]
-> Keep domain filters (status tabs, environment pickers) as `toolbar` content and let `DataTable` own only the free-text search. For empty and no-results states, reuse `ListEmptyState` / `EmptyState` - see [List states](/checkstack/developer-guide/frontend/list-states/).
+> Reach for `facets` before `toolbar` for any "narrow the rows" control. Hand-rolled filter bars are what this API replaced: they had drifted into six different renderings of the same select and three different "show everything" sentinels. For empty and no-results states, reuse `ListEmptyState` / `EmptyState` - see [List states](/checkstack/developer-guide/frontend/list-states/).

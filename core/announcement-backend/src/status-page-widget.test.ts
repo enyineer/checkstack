@@ -103,4 +103,13 @@ describe("announcements widget resolver", () => {
   test("binds no resources (instance-wide)", () => {
     expect(capture().boundResources({ limit: 5 })).toEqual([]);
   });
+
+  // The announcement renderer ships in the announcement FRONTEND plugin, not the
+  // status-page bundle. The minimal custom-domain public bundle loads no plugins,
+  // so unless the widget declares its renderer remote the announcement block
+  // renders NOTHING on a custom-domain status page (the reported bug). This locks
+  // the declaration in so the block cannot silently regress to blank again.
+  test("declares its frontend renderer remote for the custom-domain bundle", () => {
+    expect(capture().rendererRemote).toBe("@checkstack/announcement-frontend");
+  });
 });

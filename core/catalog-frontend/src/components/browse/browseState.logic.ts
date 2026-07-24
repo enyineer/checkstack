@@ -1,15 +1,23 @@
 import { z } from "zod";
+import { parsedFacetValue, type DataTableFilterState } from "@checkstack/ui";
 
 /**
- * Browse-view URL/view state — DOM-free serialise/parse logic for the catalog
- * browse page. All browse state (search query, filters, density, which groups
- * are open) is ephemeral UI state held in URL params so a shared link reopens
- * the same view. This module owns the single source of truth for the param
- * names and their defaults; the React hook (`useCatalogBrowseState`) is a thin
- * wrapper over these pure functions.
+ * Browse-view URL/view state — DOM-free parse/serialise logic for the catalog
+ * browse page.
+ *
+ * The search box and the group/health/tag filters are now owned by the shared
+ * `useDataTableFilters` hook, which round-trips them through the URL under the
+ * facet ids declared here. What stays catalog-specific is the state the facet
+ * model has no concept of: row `density` and which group sections are open. This
+ * module owns the param names for BOTH halves, so the whole URL contract of a
+ * shared browse link is still readable in one place.
  */
 
-/** URL param keys used by the browse view. Centralised to avoid typos. */
+/**
+ * URL param keys used by the browse view. Centralised to avoid typos, and
+ * FROZEN: these names appear in links people have already shared, so a rename
+ * silently breaks every one of them.
+ */
 export const BROWSE_PARAM = {
   query: "q",
   group: "group",
@@ -20,12 +28,23 @@ export const BROWSE_PARAM = {
 } as const;
 
 /**
- * Health filter values. Phase 2 ships "counts only" (no health data), so the
- * filter is parsed and round-tripped but only `"all"` is actionable until the
- * Phase 4 health slot lands. Modelling it now keeps the URL contract stable.
+ * The facet ids handed to `useDataTableFilters`. A facet id doubles as its URL
+ * parameter name, which is what keeps the migrated toolbar link-compatible with
+ * the hand-rolled one it replaced. (`BROWSE_PARAM.query` matching the shared
+ * hook's own `q` is guarded by a test.)
+ */
+export const catalogFacetIds = [
+  BROWSE_PARAM.group,
+  BROWSE_PARAM.health,
+  BROWSE_PARAM.tag,
+] as const;
+
+/**
+ * Health filter values. The "show everything" case is the ABSENCE of a value
+ * (the shared `any` sentinel), not a member of this enum, so the schema lists
+ * only real statuses and a system's health can be compared to it directly.
  */
 export const HealthFilterSchema = z.enum([
-  "all",
   "healthy",
   "degraded",
   "unhealthy",
@@ -37,16 +56,20 @@ export type HealthFilter = z.infer<typeof HealthFilterSchema>;
 export const DensitySchema = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof DensitySchema>;
 
-/** The fully-parsed browse view state. */
-export interface BrowseState {
+/** The row filters, read back out of the shared facet state as domain values. */
+export interface CatalogFilters {
   /** Free-text search over system + group name and description. */
   query: string;
-  /** Narrow to a single group id, or `null` for "all groups". */
+  /** Narrow to a single group id (or {@link UNGROUPED_ID}), `null` for all. */
   group: string | null;
-  /** Health filter (Phase 4); always `"all"` is meaningful in Phase 2. */
-  health: HealthFilter;
+  /** Narrow to one reported health status, `null` for all. */
+  health: HealthFilter | null;
   /** Metadata tag/value filter token, or `null` for none. */
   tag: string | null;
+}
+
+/** The catalog-specific view state, which no facet can express. */
+export interface CatalogViewState {
   /** Row density. */
   density: Density;
   /**
@@ -57,14 +80,27 @@ export interface BrowseState {
   open: Record<string, boolean>;
 }
 
-/** Default state when no params are present. */
-export const DEFAULT_BROWSE_STATE: BrowseState = {
+/** Everything the browse model needs: the filters plus the view state. */
+export interface BrowseState extends CatalogFilters, CatalogViewState {}
+
+/** The unconstrained filters. */
+export const NO_CATALOG_FILTERS: CatalogFilters = {
   query: "",
   group: null,
-  health: "all",
+  health: null,
   tag: null,
+};
+
+/** Default view state when no params are present. */
+export const DEFAULT_VIEW_STATE: CatalogViewState = {
   density: "comfortable",
   open: {},
+};
+
+/** Default state when no params are present. */
+export const DEFAULT_BROWSE_STATE: BrowseState = {
+  ...NO_CATALOG_FILTERS,
+  ...DEFAULT_VIEW_STATE,
 };
 
 /**
@@ -75,31 +111,51 @@ export const DEFAULT_BROWSE_STATE: BrowseState = {
 export const UNGROUPED_ID = "__ungrouped__";
 
 /**
- * Parse browse state from a `URLSearchParams`-like reader. Invalid or absent
- * values fall back to defaults so a hand-edited URL never throws.
+ * Read the shared facet state back as catalog domain values.
+ *
+ * Facet selections are stringly-typed (they round-trip through the URL and
+ * through `<Select>`), so health is PARSED rather than cast: a hand-edited or
+ * stale link yields `null` — unconstrained — instead of a filter no system can
+ * ever match. Group and tag are opaque ids/tokens with no schema to check; a
+ * value naming something that no longer exists simply matches nothing, which is
+ * the honest answer for "the group I linked to was deleted".
  */
-export function parseBrowseState(params: {
-  get: (key: string) => string | null;
-}): BrowseState {
-  const query = params.get(BROWSE_PARAM.query) ?? "";
-  const group = params.get(BROWSE_PARAM.group);
-  const tag = params.get(BROWSE_PARAM.tag);
-
-  const healthRaw = params.get(BROWSE_PARAM.health);
-  const health = HealthFilterSchema.safeParse(healthRaw);
-
-  const densityRaw = params.get(BROWSE_PARAM.density);
-  const density = DensitySchema.safeParse(densityRaw);
-
-  const openRaw = params.get(BROWSE_PARAM.open);
-
+export function toCatalogFilters(state: DataTableFilterState): CatalogFilters {
   return {
-    query,
-    group: group && group.length > 0 ? group : null,
-    health: health.success ? health.data : DEFAULT_BROWSE_STATE.health,
-    tag: tag && tag.length > 0 ? tag : null,
-    density: density.success ? density.data : DEFAULT_BROWSE_STATE.density,
-    open: parseOpenParam(openRaw),
+    query: state.query,
+    group: state.facets[BROWSE_PARAM.group] ?? null,
+    health:
+      parsedFacetValue({
+        filters: state,
+        facetId: BROWSE_PARAM.health,
+        schema: HealthFilterSchema,
+      }) ?? null,
+    tag: state.facets[BROWSE_PARAM.tag] ?? null,
+  };
+}
+
+/** Does anything narrow the entity lists? Drives the filtered-empty states. */
+export function hasCatalogFilters(filters: CatalogFilters): boolean {
+  return (
+    filters.query.trim().length > 0 ||
+    filters.group !== null ||
+    filters.health !== null ||
+    filters.tag !== null
+  );
+}
+
+/**
+ * Parse the catalog's own view state from a `URLSearchParams`-like reader.
+ * Invalid or absent values fall back to defaults so a hand-edited URL never
+ * throws.
+ */
+export function parseViewState(params: {
+  get: (key: string) => string | null;
+}): CatalogViewState {
+  const density = DensitySchema.safeParse(params.get(BROWSE_PARAM.density));
+  return {
+    density: density.success ? density.data : DEFAULT_VIEW_STATE.density,
+    open: parseOpenParam(params.get(BROWSE_PARAM.open)),
   };
 }
 
@@ -138,21 +194,17 @@ export function serializeOpenParam(open: Record<string, boolean>): string {
 }
 
 /**
- * Compute the param mutations to apply for a given browse state. Returns a map
- * of param key → value where an empty string means "delete this param" (so the
- * URL stays clean and a default state produces no params at all). The React
- * hook applies these against the live `URLSearchParams`.
+ * Compute the param mutations for a view state. Returns a map of param key →
+ * value where an empty string means "delete this param" (so a default view
+ * produces no params at all). Same convention as the shared filter hook's
+ * serialiser, since both write into the same `URLSearchParams`.
  */
-export function serializeBrowseState(state: BrowseState): Record<string, string> {
-  const openSerialized = serializeOpenParam(state.open);
+export function serializeViewState(
+  state: CatalogViewState,
+): Record<string, string> {
   return {
-    [BROWSE_PARAM.query]: state.query,
-    [BROWSE_PARAM.group]: state.group ?? "",
-    [BROWSE_PARAM.health]:
-      state.health === DEFAULT_BROWSE_STATE.health ? "" : state.health,
-    [BROWSE_PARAM.tag]: state.tag ?? "",
     [BROWSE_PARAM.density]:
-      state.density === DEFAULT_BROWSE_STATE.density ? "" : state.density,
-    [BROWSE_PARAM.open]: openSerialized,
+      state.density === DEFAULT_VIEW_STATE.density ? "" : state.density,
+    [BROWSE_PARAM.open]: serializeOpenParam(state.open),
   };
 }

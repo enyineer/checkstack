@@ -73,21 +73,22 @@ Every team-related action maps to an access rule (granted via a role) and, for s
 
 | Action | What you need |
 |--------|---------------|
-| View teams, members, and "who can change this" on a resource | `auth.teams.read` |
+| View ALL teams (and "who can change this" on any resource) | `auth.teams.read` |
+| View your OWN team(s) and their members | be a member or manager of the team (no global rule needed) |
 | Create a team | `auth.teams.manage` (admin) |
 | Delete a team | `auth.teams.manage` (admin) |
-| Rename / edit a team's details | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
-| Add / remove team members | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
-| Promote / demote team managers | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
-| Grant or revoke a team's access to a resource (the **Team access** editor, **Scope to team**) | `auth.teams.manage` (admin) |
-| Make a resource **team-only** (private) | `auth.teams.manage` |
+| Rename / edit a team's details | be a manager of that team (or `auth.teams.manage`) |
+| Add / remove team members | be a manager of that team (or `auth.teams.manage`) |
+| Promote / demote team managers | be a manager of that team (or `auth.teams.manage`) |
+| Grant or revoke a team's access to a resource (the **Team access** editor, **Scope to team**) | **manage** on that resource: `auth.teams.manage` (admin), the resource's own `<plugin>.<resource>.manage` rule, or membership of a team that already **manages** (editor/owner) that resource. A team that only **reads** it, or has no grant, is read-only and cannot elevate. The first grant on an otherwise-unscoped resource still needs one of the global rules. |
+| Make a resource **team-only** (private) | Same **manage-on-the-resource** rule as granting access |
 | Allow a team to **create** a resource type (create-capability) | `auth.teams.manage` |
 | Create a resource **owned by a team** | one of: the global `<plugin>.<resource>.manage` rule; membership of a team that has a create-capability grant for that type; a create-capability grant on a **sibling** type (e.g. a team that may create Systems may also create catalog Groups and Environments); or (incidents/maintenances) manage access to the target system |
 
 Key takeaways:
 
-- **Team managers** are about running a team (members + managers), not about handing out resource access. Granting a team access to a system, or the right to create a resource type, is an admin (`auth.teams.manage`) action.
-- **Reading** is broad: anyone with `auth.teams.read` can see teams and what manages a resource. Read of the resources themselves stays global unless the resource is marked team-only. Catalog **Groups** and **Environments** follow this: everyone still sees them (they are shared organizing labels), but creating, renaming, and deleting them is team-scoped.
+- **Team managers** are about running a team (members + managers). Handing out a team's access to a *specific* resource is delegated to whoever can **manage that resource**: a global `auth.teams.manage` admin, a holder of the resource's own manage rule, or a member of a team that already manages it. So a team that manages a system can add or remove other teams on that system and choose whether they manage it, without platform-admin - but a read-only team cannot, and cannot elevate itself. Granting a team the standing right to **create** a resource type is still an admin (`auth.teams.manage`) action.
+- **Reading** is scoped, not all-or-nothing: `auth.teams.read` lets you see *every* team and what manages any resource, but even without it a team member or manager always sees *their own* team(s) and can open the Teams page to run them. Read of the resources themselves stays global unless the resource is marked team-only. Catalog **Groups** and **Environments** follow this: everyone still sees them (they are shared organizing labels), but creating, renaming, and deleting them is team-scoped.
 - **Creating** a team-owned resource has four independent paths (global manage, a per-type create grant, a sibling-type create grant, or managing the parent system) - a user needs only one of them. The sibling path is what lets a team that can create Systems also create the Groups and Environments those systems belong to, without a separate grant.
 
 ## How resource access is enforced
@@ -115,7 +116,7 @@ A few patterns that show up often:
 |-------------|-------------------|
 | **Configuration -> Auth Settings -> Users** | Add users (credential auth), assign roles, deactivate. (Admin.) |
 | **Configuration -> Auth Settings -> Roles** | Create and edit roles, manage their access-rule lists. (Admin.) |
-| **Configuration -> Teams** | A standalone page (gated on `auth.teams.read`, **not** part of admin Auth Settings): create teams (admin), manage a team's members and managers (a team's own managers can do this), search the directory to add members, and (admin) review/edit/revoke/add the team's resource grants **by name**. |
+| **Configuration -> Teams** | A standalone page (**not** part of admin Auth Settings), shown to `auth.teams.read` holders and to anyone who is a member or manager of at least one team: it lists the teams you can see - every team with `auth.teams.read`, otherwise just the ones you belong to or manage. Create teams (admin), manage a team's members and managers (a team's own managers can do this), search the directory to add members, and (admin) review/edit/revoke/add the team's resource grants **by name**. |
 | **Configuration -> Auth Settings -> Applications** | Issue API keys, assign them roles and team memberships. (Admin.) |
 | **Resource detail -> Who can change this** | See who can change a resource (and the people by name), and (admin) grant a team access to it. The same editor appears on systems, health-check configurations, incidents, and maintenances. |
 

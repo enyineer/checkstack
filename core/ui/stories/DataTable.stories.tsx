@@ -1,11 +1,22 @@
 import { useState, type ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { DataTable, type DataTableColumn } from "../src/components/DataTable";
+import {
+  DataTable,
+  DataTableFilterBar,
+  EMPTY_TABLE_FILTERS,
+  isFacetConstrained,
+  selectedFacetValue,
+  type DataTableColumn,
+  type DataTableFacet,
+  type DataTableFacetControl,
+  type DataTableFilterState,
+} from "../src/components/DataTable";
 import { Badge } from "../src/components/Badge";
 import { Button } from "../src/components/Button";
 import { Card } from "../src/components/Card";
 import { Checkbox } from "../src/components/Checkbox";
 import { ListEmptyState } from "../src/components/ListEmptyState";
+import { Tabs } from "../src/components/Tabs";
 
 const meta: Meta = {
   title: "Components/Data/DataTable",
@@ -191,6 +202,203 @@ export const NoResults: Story = {
           <ListEmptyState
             resource="services"
             description="No services match your search."
+          />
+        }
+      />
+    </div>
+  ),
+};
+
+/**
+ * Facets are declarative: give each one an id, a label, its options and the
+ * accessor that reads a row's value. The table renders the selects beside the
+ * search box, applies them, and offers Clear once anything is constrained.
+ *
+ * This state is table-owned. Pair with `useDataTableFilters` (URL-backed) when a
+ * filtered view should be shareable, or when the page needs to know what is
+ * hidden - to gate a reorder control, say.
+ */
+const serviceFacets: DataTableFacet<Service>[] = [
+  {
+    id: "status",
+    label: "Status",
+    options: [
+      { value: "healthy", label: "Healthy" },
+      { value: "degraded", label: "Degraded" },
+      { value: "down", label: "Down" },
+    ],
+    value: (s) => s.status,
+  },
+  {
+    id: "team",
+    label: "Team",
+    options: [
+      { value: "Platform", label: "Platform" },
+      { value: "Payments", label: "Payments" },
+      { value: "Discovery", label: "Discovery" },
+      { value: "Growth", label: "Growth" },
+    ],
+    value: (s) => s.team,
+  },
+];
+
+export const WithFacets: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <DataTable
+        data={services}
+        columns={baseColumns}
+        getRowId={(s) => s.id}
+        facets={serviceFacets}
+        searchPlaceholder="Search services..."
+        noResultsState={
+          <ListEmptyState
+            resource="services"
+            description="No services match your filters."
+          />
+        }
+      />
+    </div>
+  ),
+};
+
+/**
+ * Nested inside a page's own opaque Card. `surface={false}` drops the table's
+ * panel (no panel-in-panel) AND insets the filter bar with a separating rule, so
+ * a full-bleed table's controls are not flush against the card's edges.
+ */
+export const FacetsInsideACard: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <Card className="p-0">
+        <div className="border-b border-border p-4 font-semibold">Services</div>
+        <DataTable
+          data={services}
+          columns={baseColumns}
+          getRowId={(s) => s.id}
+          facets={serviceFacets}
+          surface={false}
+          searchPlaceholder="Search services..."
+        />
+      </Card>
+    </div>
+  ),
+};
+
+/**
+ * The bar on its own, for a list surface that is not a table - a card grid, a
+ * grouped browse view - so it filters identically to one.
+ *
+ * These facets are `DataTableFacetControl`s: controls with no row accessor,
+ * because this surface's matching is multi-valued (a service carries several
+ * tags) and spans two row types. The surface reads the selections back and
+ * applies them itself. `Health` is disabled to show a dimension whose data
+ * source is not installed - present, with a reason, rather than absent.
+ * `children` carries the density toggle, which is a view control, not a filter.
+ */
+const browseControls: DataTableFacetControl[] = [
+  {
+    id: "team",
+    label: "Team",
+    anyLabel: "All teams",
+    options: [
+      { value: "Platform", label: "Platform" },
+      { value: "Payments", label: "Payments" },
+    ],
+  },
+  {
+    id: "health",
+    label: "Health",
+    anyLabel: "All health",
+    disabled: true,
+    disabledReason:
+      "Health filtering becomes available once a health source is installed",
+    options: [
+      { value: "healthy", label: "Healthy" },
+      { value: "degraded", label: "Degraded" },
+    ],
+  },
+];
+
+export const StandaloneFilterBar: Story = {
+  render: function StandaloneFilterBarStory(): ReactElement {
+    const [filters, setFilters] = useState<DataTableFilterState>(
+      EMPTY_TABLE_FILTERS,
+    );
+    const team = selectedFacetValue(filters, "team");
+    const visible = services.filter(
+      (service) =>
+        (!isFacetConstrained(team) || service.team === team) &&
+        service.name.toLowerCase().includes(filters.query.toLowerCase()),
+    );
+    return (
+      <div className="max-w-4xl space-y-3">
+        <DataTableFilterBar
+          filters={filters}
+          onFiltersChange={setFilters}
+          facets={browseControls}
+          searchPlaceholder="Search services"
+          onClear={() => setFilters(EMPTY_TABLE_FILTERS)}
+        >
+          <Tabs
+            items={[
+              { id: "comfortable", label: "Comfortable" },
+              { id: "compact", label: "Compact" },
+            ]}
+            activeTab="comfortable"
+            onTabChange={() => {}}
+            className="md:w-auto"
+          />
+        </DataTableFilterBar>
+        <div className="flex flex-col gap-2">
+          {visible.map((service) => (
+            <Card key={service.id} className="p-3">
+              <p className="font-medium">{service.name}</p>
+              <p className="text-sm text-muted-foreground">{service.team}</p>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  },
+};
+
+/**
+ * The preferred shape: the column that RENDERS a value also declares how to
+ * filter it, so the cell, the sort and the filter cannot drift. `status` omits
+ * `filterOptions` and has them derived from the data; `team` declares its own to
+ * control the labels.
+ */
+const filterableColumns: DataTableColumn<Service>[] = [
+  ...baseColumns.slice(0, 2),
+  {
+    id: "status",
+    header: "Status",
+    cell: (s) => <Badge variant={statusVariant[s.status]}>{s.status}</Badge>,
+    sortValue: (s) => s.status,
+    filterValue: (s) => s.status,
+    filterKind: "pills",
+  },
+  {
+    id: "latency",
+    header: "Latency",
+    cell: (s) => `${s.latencyMs} ms`,
+    sortValue: (s) => s.latencyMs,
+  },
+];
+
+export const FilterableColumns: Story = {
+  render: () => (
+    <div className="max-w-4xl">
+      <DataTable
+        data={services}
+        columns={filterableColumns}
+        getRowId={(s) => s.id}
+        searchPlaceholder="Search services..."
+        noResultsState={
+          <ListEmptyState
+            resource="services"
+            description="No services match your filters."
           />
         }
       />

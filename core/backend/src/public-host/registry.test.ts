@@ -1,7 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { PluginMetadata } from "@checkstack/common";
 import type { PublicHostMatch } from "@checkstack/backend-api";
-import { createPublicHostRegistry, normalizeHost } from "./registry";
+import {
+  createPublicHostRegistry,
+  normalizeHost,
+  resolveRequestHost,
+} from "./registry";
 
 const META: PluginMetadata = { pluginId: "test" } as PluginMetadata;
 
@@ -24,6 +28,33 @@ describe("normalizeHost", () => {
     expect(normalizeHost("")).toBeNull();
     expect(normalizeHost("   ")).toBeNull();
     expect(normalizeHost("[::1]:3000")).toBeNull();
+  });
+});
+
+describe("resolveRequestHost", () => {
+  const from = (headers: Record<string, string>) =>
+    resolveRequestHost((n) => headers[n.toLowerCase()]);
+
+  it("prefers X-Forwarded-Host over the (rewritten) Host header", () => {
+    // The reported bug: an edge proxy rewrites Host to the internal upstream and
+    // forwards the browser host. Routing must use the forwarded host.
+    expect(
+      from({ host: "checkstack-web.internal.svc", "x-forwarded-host": "status.acme.com" }),
+    ).toBe("status.acme.com");
+  });
+
+  it("uses the first hop of a comma-list X-Forwarded-Host", () => {
+    expect(
+      from({ host: "internal", "x-forwarded-host": "status.acme.com, edge-1" }),
+    ).toBe("status.acme.com");
+  });
+
+  it("falls back to Host when there is no X-Forwarded-Host", () => {
+    expect(from({ host: "Status.ACME.com:443" })).toBe("status.acme.com");
+  });
+
+  it("returns null when neither header is present", () => {
+    expect(from({})).toBeNull();
   });
 });
 

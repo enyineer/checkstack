@@ -1,22 +1,12 @@
-import { useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  usePluginClient,
-  type SlotContext,
-} from "@checkstack/frontend-api";
-import {
-  SystemSignalsSlot,
-  type SystemSignalsMap,
-} from "@checkstack/catalog-common";
+import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import { SystemSignalsSlot } from "@checkstack/catalog-common";
 import {
   TracestreamApi,
   tracestreamAccess,
+  pluginMetadata,
 } from "@checkstack/tracestream-common";
-import {
-  chunkSystemIdsForStatusLookup,
-  mergeLinkedStreamStatuses,
-  type LinkedStreamStatus,
-} from "@checkstack/telemetry-common";
+import { useLinkedStreamSignals } from "@checkstack/telemetry-frontend";
+import type { LinkedStreamStatus } from "@checkstack/telemetry-common";
 import {
   TRACESTREAM_SIGNAL_SOURCE_ID,
   deriveTraceStreamSignals,
@@ -25,18 +15,22 @@ import {
 type Props = SlotContext<typeof SystemSignalsSlot>;
 
 /**
- * Reports linked trace streams' recent error spikes as dashboard signals.
- * Bulk-fetches the linked-stream statuses for ALL overview systems and emits one
- * signal per affected stream, deep-linking to that stream. Headless filler for
+ * Adapter onto the shared deriver. Declared at module scope so it is
+ * referentially stable across renders (the hook memoizes on it).
+ */
+const deriveSignals = (matches: readonly LinkedStreamStatus[]) =>
+  deriveTraceStreamSignals({ matches, accessRule: tracestreamAccess.read });
+
+/**
+ * Reports linked trace streams' recent error spikes as dashboard signals,
+ * deep-linking to the affected stream. Headless filler for
  * {@link SystemSignalsSlot}.
  *
- * The dashboard passes EVERY visible system in one slot context, which can
- * exceed the status lookup's per-call cap (`MAX_SYSTEMS_PER_STATUS_LOOKUP`), so
- * the ids are chunked (`chunkSystemIdsForStatusLookup`) and the chunk results
- * merged by stream (`mergeLinkedStreamStatuses`) - otherwise a large deployment
- * would fail input validation and silently drop every signal. The
- * status->signal transform lives in the pure `deriveTraceStreamSignals` deriver
- * so it stays unit-tested and drift-free.
+ * The fetch/chunk/merge/report machinery - including the gate that keeps the
+ * authenticated-only status lookup from firing for an anonymous dashboard
+ * visitor - lives in the shared `useLinkedStreamSignals` hook, so all three
+ * stream plugins behave identically. The status->signal transform lives in the
+ * pure `deriveTraceStreamSignals` deriver so it stays unit-tested.
  */
 export function TraceSignalsFiller({
   systemIds,
@@ -45,43 +39,15 @@ export function TraceSignalsFiller({
 }: Props) {
   const client = usePluginClient(TracestreamApi);
 
-  const chunks = useMemo(
-    () => chunkSystemIdsForStatusLookup(systemIds),
-    [systemIds],
-  );
-
-  const { data: matches, isLoading } = useQuery<LinkedStreamStatus[]>({
-    queryKey: ["tracestream", "linkedStreamStatuses", systemIds],
-    enabled: systemIds.length > 0,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const results = await Promise.all(
-        chunks.map((chunk) =>
-          client.listLinkedStreamStatuses.call({ systemIds: chunk }),
-        ),
-      );
-      return mergeLinkedStreamStatuses(results);
-    },
+  useLinkedStreamSignals({
+    pluginId: pluginMetadata.pluginId,
+    sourceId: TRACESTREAM_SIGNAL_SOURCE_ID,
+    systemIds,
+    fetchStatuses: (args) => client.listLinkedStreamStatuses.call(args),
+    deriveSignals,
+    onSignals,
+    onLoadingChange,
   });
-
-  const signals = useMemo<SystemSignalsMap>(() => {
-    if (!matches) return {};
-    return deriveTraceStreamSignals({
-      matches,
-      accessRule: tracestreamAccess.read,
-    });
-  }, [matches]);
-
-  useEffect(() => {
-    onSignals(TRACESTREAM_SIGNAL_SOURCE_ID, signals);
-  }, [signals, onSignals]);
-
-  // Report load state so the dashboard holds its overview skeleton until this
-  // (and every other source) has settled, instead of flashing "all healthy".
-  useEffect(() => {
-    if (systemIds.length === 0) return;
-    onLoadingChange(TRACESTREAM_SIGNAL_SOURCE_ID, isLoading);
-  }, [isLoading, systemIds.length, onLoadingChange]);
 
   return null;
 }

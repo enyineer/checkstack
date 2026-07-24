@@ -1,6 +1,6 @@
 import React from "react";
-import { cn } from "@checkstack/ui";
-import { toneStyles, type StatusTone } from "./healthcheckDisplay.logic";
+import { StatusPill } from "@checkstack/ui";
+import type { StatusTone } from "./healthcheckDisplay.logic";
 
 interface HealthStatusPillProps {
   tone: StatusTone;
@@ -9,27 +9,16 @@ interface HealthStatusPillProps {
 }
 
 /**
- * Multi-encoded status pill shared across the healthcheck surfaces: hue + a
- * leading dot + the text label, driven by the colorblind-safe status triad.
- * Mirrors the premium pill on the SLO objective card so status never reads by
- * color alone.
+ * The health-check status pill: this package's `tone` + `label` shape over the
+ * shared pill in `@checkstack/ui`. Kept as a named component because it is used
+ * across five healthcheck surfaces; only the chrome moved.
  */
 export const HealthStatusPill: React.FC<HealthStatusPillProps> = ({
   tone,
   label,
   className,
-}) => {
-  const styles = toneStyles[tone];
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        styles.pill,
-        className,
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
-      {label}
-    </span>
-  );
-};
+}) => (
+  <StatusPill tone={tone} className={className}>
+    {label}
+  </StatusPill>
+);

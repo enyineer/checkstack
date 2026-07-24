@@ -115,11 +115,20 @@ After the first run, open the system's health check drawer:
 
 - The runs table shows one row per environment per tick. The **Environment** column identifies which environment each row belongs to.
 - Run history groups by environment so you can compare staging and production latency and failure rates independently.
-- The system overview shows one row per **(check, environment)** for a fanned-out check. A row that is degraded or unhealthy shows when it was **last healthy** (for example "Healthy until 2h ago"), so you can see at a glance since when that environment has been failing without opening the drawer.
+- The system overview shows one row per **slice** - one environment as probed from one location. A row that is degraded or unhealthy shows when it was **last healthy** (for example "Healthy until 2h ago"), so you can see at a glance since when that slice has been failing without opening the drawer.
+
+### Checks probed from more than one location
+
+A check can run from the core and from one or more satellites (see [Satellites](/checkstack/user-guide/concepts/satellites/)). Each location is evaluated **on its own**, and the worst result decides the check's status - the same way environments work.
+
+This matters because the two are genuinely different situations: a service that is reachable from your core but not from a satellite in another region is not healthy, it is unreachable for the people that satellite speaks for.
+
+- The system overview names the location on each row (for example **EU West**) as soon as a check runs from more than one place, so you can tell which location is failing. A check that only ever runs on the core shows no location - there is nothing to disambiguate.
+- Removing a satellite from a check retires its slice: the history stays, but it moves under **Old checks** and stops counting toward the check's status.
 
 ### How the fan-out is counted on the dashboard
 
-The dashboard problem card counts **environment slices**, not checks. A single check that fans out to three environments where one environment is failing reads **"1 of 3 checks failing"**, not "1 of 1". A system with a three-environment check plus a single-environment check, with one environment failing, reads **"1 of 4 checks failing"**. An env-less check counts as one slice, so a system with no environments reads exactly as before.
+The dashboard problem card counts **slices**, not checks. A single check that fans out to three environments where one environment is failing reads **"1 of 3 checks failing"**, not "1 of 1". A system with a three-environment check plus a single-environment check, with one environment failing, reads **"1 of 4 checks failing"**. Locations multiply the same way: one environment probed from the core and one satellite is two slices. A check with no environments that runs only on the core counts as one slice, so a system with no environments reads exactly as before.
 
 ### One notification per environment outage
 

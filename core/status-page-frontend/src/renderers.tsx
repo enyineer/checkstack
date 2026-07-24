@@ -7,7 +7,11 @@ import {
   HelpCircle,
   CalendarCheck,
 } from "lucide-react";
-import { Markdown, MarkdownBlock, formatPercent } from "@checkstack/ui";
+import { Markdown, MarkdownBlock, formatPercent,
+  StatusPill,
+  pillToneStyles,
+  type StatusPillTone,
+} from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
@@ -31,7 +35,15 @@ import {
   type WidgetRenderer,
   type WidgetRendererMap,
 } from "./renderer-map";
-import { severityPillClass, severityStripeClass } from "./utils/severityTone";
+import { severityStripeClass, severityTone } from "./utils/severityTone";
+import {
+  maintenanceStatusLabel,
+  maintenanceStatusTone,
+} from "./utils/maintenanceStatusTone";
+import {
+  incidentStatusLabel,
+  incidentStatusTone,
+} from "./utils/incidentStatusTone";
 
 export {
   mergeWidgetRenderers,
@@ -93,9 +105,12 @@ export const STATUS: Record<PublicStatus, StatusMeta> = {
   },
   maintenance: {
     label: "Maintenance",
-    solid: "bg-status-unknown",
-    soft: "bg-status-unknown/10 text-status-unknown",
-    hero: "bg-status-unknown/10 text-status-unknown ring-status-unknown/20",
+    // Blue `info`, not grey: a system under planned maintenance is neither
+    // broken nor in an unknown state - it is a deliberate, announced window.
+    // Grey read as "we have no idea", which is the opposite of the message.
+    solid: "bg-status-info",
+    soft: "bg-status-info/10 text-status-info",
+    hero: "bg-status-info/10 text-status-info ring-status-info/20",
     Icon: Wrench,
   },
   unknown: {
@@ -107,7 +122,12 @@ export const STATUS: Record<PublicStatus, StatusMeta> = {
   },
 };
 
-const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
+/**
+ * The PUBLIC overall-status pill (operational / degraded / outage). Distinct
+ * from the shared `StatusPill`: it is keyed by the public status enum and draws
+ * from that enum's own visual tokens, not from the internal tone table.
+ */
+const PublicStatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
   const meta = STATUS[status];
   return (
     <span
@@ -233,7 +253,7 @@ const StatusRow: React.FC<{
             <div className="text-[11px] text-muted-foreground">uptime</div>
           </div>
         )}
-        <StatusPill status={status} />
+        <PublicStatusPill status={status} />
       </div>
     </div>
   );
@@ -288,7 +308,7 @@ const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
               {expanded ? "Hide" : "Show"} systems
             </button>
           )}
-          <StatusPill status={parsed.data.status} />
+          <PublicStatusPill status={parsed.data.status} />
         </div>
       }
     >
@@ -391,7 +411,20 @@ const ActiveEventCard: React.FC<{
 
 type Update = { message: string; statusChange?: string; at: string };
 
-const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
+/**
+ * Maps an update's `statusChange` (a raw incident/maintenance status) to its
+ * tone + label, so the timeline colours the status line by domain. Incidents
+ * pass the incident mapping, maintenance the maintenance one.
+ */
+interface StatusChangePresenter {
+  tone: (status: string) => StatusPillTone;
+  label: (status: string) => string;
+}
+
+const UpdatesTimeline: React.FC<{
+  updates: Update[];
+  status: StatusChangePresenter;
+}> = ({ updates, status }) => {
   if (updates.length === 0) return null;
   return (
     <ol className="mt-3 space-y-3 border-l border-border pl-4">
@@ -399,8 +432,13 @@ const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
         <li key={i} className="relative">
           <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
           {u.statusChange && (
-            <span className="mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {u.statusChange}
+            // The status change on its OWN line, COLOURED by its status (the
+            // reported bug rendered it in the muted grey `text-muted-foreground`,
+            // making it hard to tell the status apart from the message).
+            <span
+              className={`mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide ${pillToneStyles[status.tone(u.statusChange)].text}`}
+            >
+              {status.label(u.statusChange)}
             </span>
           )}
           {/* Sanitized markdown (rehype-sanitize inside <Markdown>): this is the
@@ -414,6 +452,16 @@ const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
       ))}
     </ol>
   );
+};
+
+/** Status-change presenters, one per event domain. */
+const INCIDENT_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: incidentStatusTone,
+  label: incidentStatusLabel,
+};
+const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: maintenanceStatusTone,
+  label: maintenanceStatusLabel,
 };
 
 /** Section divider label for the "recently resolved / past" subsection. */
@@ -476,21 +524,25 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                 >
                   <h4 className="font-semibold">{inc.title}</h4>
                 </MaybeLink>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${severityPillClass(inc.severity)}`}
+                {/* Severity carries the hue; the lifecycle is neutral - one
+                    coloured dimension per row (see `status-tone.ts`). */}
+                <StatusPill
+                  tone={severityTone(inc.severity)}
+                  size="sm"
+                  className="capitalize"
                 >
                   {inc.severity}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
+                </StatusPill>
+                <StatusPill tone="neutral" size="sm" className="capitalize">
                   {inc.status}
-                </span>
+                </StatusPill>
               </div>
               {inc.systems.length > 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Affected: {inc.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={inc.updates} />
+              <UpdatesTimeline updates={inc.updates} status={INCIDENT_STATUS_PRESENTER} />
             </ActiveEventCard>
           ))
         )}
@@ -512,6 +564,20 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
+/**
+ * An active maintenance card, striped in its own lifecycle hue. Wraps
+ * {@link ActiveEventCard} purely so the stripe cannot drift from the pill
+ * beside it - both read from `maintenanceStatusTone`.
+ */
+const MaintenanceEventCard: React.FC<{
+  status: string;
+  children: React.ReactNode;
+}> = ({ status, children }) => (
+  <ActiveEventCard stripe={pillToneStyles[maintenanceStatusTone(status)].accent}>
+    {children}
+  </ActiveEventCard>
+);
+
 const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = MaintenanceDtoSchema.safeParse(data);
   const buildHref = React.useContext(StatusDetailLinkContext);
@@ -530,18 +596,22 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
           </p>
         ) : (
           active.map((m) => (
-            <ActiveEventCard key={m.id} stripe="bg-status-unknown">
+            <MaintenanceEventCard key={m.id} status={m.status}>
               <div className="flex flex-wrap items-center gap-2">
-                <Wrench className="size-4 text-status-unknown" />
+                <Wrench
+                  className={`size-4 ${pillToneStyles[maintenanceStatusTone(m.status)].text}`}
+                />
                 <MaybeLink
                   href={hrefFor(m.id)}
                   className="font-semibold hover:text-primary hover:underline"
                 >
                   <h4 className="font-semibold">{m.title}</h4>
                 </MaybeLink>
-                <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
-                  {m.status.replace("_", " ")}
-                </span>
+                {/* Maintenance carries no severity, so its LIFECYCLE gets the
+                    hue - one coloured dimension per row (`status-tone.ts`). */}
+                <StatusPill tone={maintenanceStatusTone(m.status)} size="sm">
+                  {maintenanceStatusLabel(m.status)}
+                </StatusPill>
               </div>
               <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">
                 {formatAt(m.startAt)} – {formatAt(m.endAt)}
@@ -551,8 +621,8 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affecting: {m.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={m.updates} />
-            </ActiveEventCard>
+              <UpdatesTimeline updates={m.updates} status={MAINTENANCE_STATUS_PRESENTER} />
+            </MaintenanceEventCard>
           ))
         )}
         {past.length > 0 && (

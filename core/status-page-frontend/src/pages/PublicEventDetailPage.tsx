@@ -1,6 +1,13 @@
 import React, { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { EmptyState, LoadingSpinner } from "@checkstack/ui";
+import {
+  EmptyState,
+  LoadingSpinner,
+  Markdown,
+  StatusPill,
+  pillToneStyles,
+  type StatusPillTone,
+} from "@checkstack/ui";
 import { ArrowLeft, FileQuestion, Wrench } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
@@ -8,7 +15,15 @@ import {
   statusPublicRoutes,
 } from "@checkstack/status-page-common";
 import { resolveRoute } from "@checkstack/common";
-import { severityPillClass } from "../utils/severityTone";
+import { severityTone } from "../utils/severityTone";
+import {
+  maintenanceStatusLabel,
+  maintenanceStatusTone,
+} from "../utils/maintenanceStatusTone";
+import {
+  incidentStatusLabel,
+  incidentStatusTone,
+} from "../utils/incidentStatusTone";
 
 /**
  * Public incident / maintenance DETAIL pages. Each renders ENTIRELY from a
@@ -45,7 +60,15 @@ const DetailShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 type PublicUpdate = { message: string; statusChange?: string; at: string };
 
-const UpdatesTimeline: React.FC<{ updates: PublicUpdate[] }> = ({ updates }) => {
+interface StatusChangePresenter {
+  tone: (status: string) => StatusPillTone;
+  label: (status: string) => string;
+}
+
+const UpdatesTimeline: React.FC<{
+  updates: PublicUpdate[];
+  status: StatusChangePresenter;
+}> = ({ updates, status }) => {
   if (updates.length === 0) return null;
   return (
     <ol className="mt-5 space-y-4 border-l border-border pl-4">
@@ -53,11 +76,17 @@ const UpdatesTimeline: React.FC<{ updates: PublicUpdate[] }> = ({ updates }) => 
         <li key={i} className="relative">
           <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
           {u.statusChange && (
-            <span className="mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {u.statusChange}
+            // The status change on its own line, COLOURED by its status (was the
+            // muted grey `text-muted-foreground`), with the message underneath.
+            <span
+              className={`mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide ${pillToneStyles[status.tone(u.statusChange)].text}`}
+            >
+              {status.label(u.statusChange)}
             </span>
           )}
-          <p className="text-sm text-foreground">{u.message}</p>
+          {/* Sanitized markdown - render the authored formatting rather than the
+              raw source (the reported bug showed the raw string). */}
+          <Markdown className="text-sm text-foreground">{u.message}</Markdown>
           <p className="text-[11px] tabular-nums text-muted-foreground">
             {formatAt(u.at)}
           </p>
@@ -66,6 +95,21 @@ const UpdatesTimeline: React.FC<{ updates: PublicUpdate[] }> = ({ updates }) => 
     </ol>
   );
 };
+
+const INCIDENT_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: incidentStatusTone,
+  label: incidentStatusLabel,
+};
+const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: maintenanceStatusTone,
+  label: maintenanceStatusLabel,
+};
+
+/** The event's long-form description, rendered as markdown when present. */
+const Description: React.FC<{ description?: string }> = ({ description }) =>
+  description && description.trim().length > 0 ? (
+    <Markdown className="mt-4 text-sm text-foreground">{description}</Markdown>
+  ) : null;
 
 const LoadingShell: React.FC = () => (
   <div className="flex min-h-screen items-center justify-center bg-background">
@@ -112,14 +156,18 @@ export const PublicIncidentDetailView: React.FC<{
       <BackLink href={backHref} />
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-2xl font-bold tracking-tight">{data.title}</h1>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${severityPillClass(data.severity)}`}
+        <StatusPill
+          tone={severityTone(data.severity)}
+          size="sm"
+          className="capitalize"
         >
           {data.severity}
-        </span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
-          {data.status}
-        </span>
+        </StatusPill>
+        {/* The lifecycle status, COLOURED by its status (was a neutral grey
+            pill) so a reader can see the incident's current stage at a glance. */}
+        <StatusPill tone={incidentStatusTone(data.status)} size="sm">
+          {incidentStatusLabel(data.status)}
+        </StatusPill>
       </div>
       <p className="mt-2 text-sm tabular-nums text-muted-foreground">
         Started {formatAt(data.startedAt)}
@@ -130,7 +178,8 @@ export const PublicIncidentDetailView: React.FC<{
           Affected: {data.systems.join(", ")}
         </p>
       )}
-      <UpdatesTimeline updates={data.updates} />
+      <Description description={data.description} />
+      <UpdatesTimeline updates={data.updates} status={INCIDENT_STATUS_PRESENTER} />
     </DetailShell>
   );
 };
@@ -162,11 +211,15 @@ export const PublicMaintenanceDetailView: React.FC<{
     <DetailShell>
       <BackLink href={backHref} />
       <div className="flex flex-wrap items-center gap-2">
-        <Wrench className="size-5 text-status-unknown" />
+        <Wrench
+          className={`size-5 ${pillToneStyles[maintenanceStatusTone(data.status)].text}`}
+        />
         <h1 className="text-2xl font-bold tracking-tight">{data.title}</h1>
-        <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
-          {data.status.replace("_", " ")}
-        </span>
+        {/* Maintenance carries no severity, so its LIFECYCLE gets the hue -
+            one coloured dimension per row (see `status-tone.ts`). */}
+        <StatusPill tone={maintenanceStatusTone(data.status)} size="sm">
+          {maintenanceStatusLabel(data.status)}
+        </StatusPill>
       </div>
       <p className="mt-2 text-sm tabular-nums text-muted-foreground">
         {formatAt(data.startAt)} - {formatAt(data.endAt)}
@@ -176,7 +229,13 @@ export const PublicMaintenanceDetailView: React.FC<{
           Affecting: {data.systems.join(", ")}
         </p>
       )}
-      <UpdatesTimeline updates={data.updates} />
+      {/* What the maintenance involves - previously the page showed only the
+          title, window, and affected systems. */}
+      <Description description={data.description} />
+      <UpdatesTimeline
+        updates={data.updates}
+        status={MAINTENANCE_STATUS_PRESENTER}
+      />
     </DetailShell>
   );
 };

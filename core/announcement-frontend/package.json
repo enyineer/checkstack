@@ -8,9 +8,11 @@
   ],
   "main": "src/index.tsx",
   "checkstack": {
-    "type": "frontend"
+    "type": "frontend",
+    "publicRemote": true
   },
   "scripts": {
+    "build": "vite build",
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
@@ -27,12 +29,17 @@
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
     "react": "19.2.7",
-    "react-router-dom": "^7.16.0"
+    "react-router-dom": "^7.16.0",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@checkstack/scripts": "workspace:*",
+    "@module-federation/vite": "1.16.15",
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.16"
   }
 }

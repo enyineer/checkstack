@@ -97,7 +97,9 @@ describe("HealthCheckService.getSystemHealthStatus - read batching", () => {
 
     const result = await service.getSystemHealthStatus("system-1");
 
-    expect(result.status).toBe("healthy");
+    // `unknown`, not `healthy`: a system with no checks is unmeasured, and this
+    // test is about transaction batching, not about inventing a status.
+    expect(result.status).toBe("unknown");
     expect(result.checkStatuses).toHaveLength(0);
     const transaction = (mockDb as unknown as { transaction: ReturnType<typeof mock> })
       .transaction;

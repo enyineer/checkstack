@@ -8,13 +8,13 @@
       "path": "../../core/common"
     },
     {
+      "path": "../../core/k8s-events-common"
+    },
+    {
       "path": "../../core/telemetry-backend"
     },
     {
       "path": "../../core/telemetry-common"
-    },
-    {
-      "path": "../k8s-events-common"
     }
   ]
 }

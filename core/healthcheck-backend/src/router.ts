@@ -46,6 +46,7 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
 import type { HealthCheckCache } from "./cache";
+import type { HealthRunReaction } from "./queue-executor";
 import {
   applySystemHealthOverrides,
   type SystemHealthOverrideReader,
@@ -104,6 +105,17 @@ export const createHealthCheckRouter = (opts: {
    * Optional so tests / no-incident deployments simply skip the fold.
    */
   incidentHealthOverrideReader?: SystemHealthOverrideReader;
+  /**
+   * Drives the SHARED core post-run path for an ingested satellite result -
+   * the reactive `health` entity write, cache reconcile, realtime signal,
+   * automation hooks, transition record, and subscriber notification - so a
+   * satellite-detected change reacts exactly like a local run. The host binds
+   * the service dependencies once (via a `persistRunAndReact` closure) and
+   * passes this narrowed reactor, so the local and satellite callers cannot
+   * pass different deps and drift. Optional so tests may omit it, in which case
+   * ingest falls back to an insert-only persist.
+   */
+  reactToSatelliteRun?: (run: HealthRunReaction) => Promise<void>;
 }) => {
   const {
     database,
@@ -118,6 +130,7 @@ export const createHealthCheckRouter = (opts: {
     signalService,
     recomputeSystemRollupHealth,
     incidentHealthOverrideReader,
+    reactToSatelliteRun,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -612,6 +625,7 @@ export const createHealthCheckRouter = (opts: {
         enabled: input.body.enabled,
         stateThresholds: input.body.stateThresholds,
         satelliteIds: input.body.satelliteIds,
+        satelliteEnvironmentIds: input.body.satelliteEnvironmentIds,
         environmentIds: input.body.environmentIds,
         includeLocal: input.body.includeLocal,
         notificationPolicy: input.body.notificationPolicy,
@@ -634,6 +648,7 @@ export const createHealthCheckRouter = (opts: {
         enabled: input.enabled,
         stateThresholds: input.stateThresholds,
         satelliteIds: input.satelliteIds,
+        satelliteEnvironmentIds: input.satelliteEnvironmentIds,
         environmentIds: input.environmentIds,
         includeLocal: input.includeLocal,
         notificationPolicy: input.notificationPolicy,
@@ -899,10 +914,56 @@ export const createHealthCheckRouter = (opts: {
 
     ingestSatelliteResult: os.ingestSatelliteResult.handler(
       async ({ input }) => {
-        await service.ingestSatelliteResult(input);
-        // A satellite result writes a new run for this system, so the
-        // cached aggregate status is now stale.
-        await cache.invalidateSystem(input.systemId);
+        // Process the satellite's raw result (evaluate assertions, strip
+        // ephemeral fields, resolve the check name) WITHOUT persisting...
+        const { status, resultRecord, configName } =
+          await service.processSatelliteResult({
+            configId: input.configId,
+            status: input.status,
+            result: input.result,
+          });
+
+        if (reactToSatelliteRun) {
+          // ...then persist + REACT through the SAME core post-run path a local
+          // run uses (reactive entity, cache reconcile, signals, automation
+          // hooks, transition, notification). Previously ingest only inserted
+          // the row, so a satellite-detected outage fired no notifications or
+          // automations - routing it here is what keeps the two from drifting.
+          const system = await catalogClient
+            .getSystem({ systemId: input.systemId })
+            .catch(() => null);
+          await reactToSatelliteRun({
+            systemId: input.systemId,
+            systemName: system?.name ?? input.systemId,
+            configId: input.configId,
+            configName,
+            environmentId: input.environmentId ?? null,
+            // The env NAME is intentionally omitted (no extra catalog
+            // round-trip): the notifier falls back to the system name.
+            status,
+            latencyMs: input.latencyMs,
+            result: resultRecord,
+            sourceId: input.sourceId,
+            sourceLabel: input.sourceLabel,
+            runTimestamp: new Date(input.executedAt),
+          });
+        } else {
+          // No reactor wired (older host / test harness): fall back to a bare
+          // persist + cache refresh so the run is still recorded. The real host
+          // always wires the reactor above.
+          await service.insertSatelliteRun({
+            configId: input.configId,
+            systemId: input.systemId,
+            environmentId: input.environmentId ?? null,
+            status,
+            latencyMs: input.latencyMs,
+            result: resultRecord,
+            sourceId: input.sourceId,
+            sourceLabel: input.sourceLabel,
+            executedAt: input.executedAt,
+          });
+          await cache.invalidateSystem(input.systemId);
+        }
       },
     ),
 

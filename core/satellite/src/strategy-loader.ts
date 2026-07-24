@@ -10,6 +10,7 @@ import type {
 import type { PluginMetadata } from "@checkstack/common";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { isSatelliteLoadedPluginDir } from "./plugin-discovery";
 
 /**
  * Simple in-memory HealthCheckRegistry for the satellite.
@@ -141,12 +142,9 @@ async function loadPluginsFromDir(opts: {
 }> {
   const { pluginsDir, entries, healthCheckRegistry, collectorRegistry, logger } = opts;
 
-  // Include both healthcheck strategy plugins and standalone collector plugins
-  const pluginDirs = entries.filter(
-    (e) =>
-      (e.startsWith("healthcheck-") && e.endsWith("-backend")) ||
-      (e.startsWith("collector-") && e.endsWith("-backend")),
-  );
+  // Include both healthcheck strategy plugins and standalone collector plugins.
+  // The predicate is shared with the image prune so the two never disagree.
+  const pluginDirs = entries.filter((e) => isSatelliteLoadedPluginDir(e));
 
   logger.info(`Discovered ${pluginDirs.length} strategy plugins`);
 

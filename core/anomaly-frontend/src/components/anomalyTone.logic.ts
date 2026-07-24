@@ -1,9 +1,13 @@
 /**
  * Maps anomaly states to the colorblind-safe status triad used across the
  * design system. Confirmed anomalies read as `warn`; suspicious (not yet
- * confirmed) ones read as `unknown`. Spelled out as full literal class strings
- * (not interpolated) so Tailwind's JIT keeps them.
+ * confirmed) ones read as `unknown`. The classes come from the shared
+ * `pillToneStyles` table rather than a private copy, so this surface cannot
+ * drift from the rest of the design system.
  */
+
+import { pillToneStyles } from "@checkstack/ui";
+
 export type AnomalyTone = "warn" | "unknown";
 
 export interface AnomalyToneStyles {
@@ -14,18 +18,8 @@ export interface AnomalyToneStyles {
 }
 
 const TONE_STYLES: Record<AnomalyTone, AnomalyToneStyles> = {
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    text: "text-status-warn",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-    text: "text-status-unknown",
-  },
+  warn: pillToneStyles.warn,
+  unknown: pillToneStyles.unknown,
 };
 
 /** The tone for a single anomaly state string. */

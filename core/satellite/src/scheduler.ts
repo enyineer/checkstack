@@ -1,7 +1,23 @@
-import type { SatelliteAssignment } from "@checkstack/satellite-common";
+import type {
+  SatelliteAssignment,
+  SatelliteEnvironment,
+} from "@checkstack/satellite-common";
+
+/**
+ * One scheduled unit of work: an assignment paired with the ONE environment
+ * this timer runs it for, or `null` for an env-less run.
+ *
+ * The core resolves which environments this satellite is responsible for
+ * (narrowing the assignment's set by the satellite's own scoping), so the
+ * agent simply runs whatever it is handed - it never decides scope itself.
+ */
+export interface ScheduledRun {
+  assignment: SatelliteAssignment;
+  environment: SatelliteEnvironment | null;
+}
 
 interface SchedulerConfig {
-  onExecute: (assignment: SatelliteAssignment) => Promise<void>;
+  onExecute: (run: ScheduledRun) => Promise<void>;
   logger?: {
     info: (msg: string) => void;
     debug: (msg: string) => void;
@@ -26,10 +42,11 @@ export class Scheduler {
    * Update the set of assignments. Reconciles timers with the new set.
    */
   updateAssignments(assignments: SatelliteAssignment[]): void {
-    // Build a set of current assignment keys
-    const newKeys = new Set(
-      assignments.map((a) => this.makeKey(a)),
-    );
+    // One timer per (assignment, environment): a check assigned to three
+    // environments runs three times per interval, each reporting its own
+    // environment, exactly as the core's local executor fans out.
+    const runs = expandRuns(assignments);
+    const newKeys = new Set(runs.map((r) => this.makeKey(r)));
 
     // Stop timers for removed assignments
     for (const [key, timer] of this.timers) {
@@ -40,24 +57,24 @@ export class Scheduler {
       }
     }
 
-    // Start timers for new/updated assignments
-    for (const assignment of assignments) {
-      const key = this.makeKey(assignment);
+    // Start timers for new/updated runs
+    for (const run of runs) {
+      const key = this.makeKey(run);
       if (this.timers.has(key)) {
         // Already running — keep existing timer
         continue;
       }
 
       this.config.logger?.debug(
-        `Starting scheduler for ${key} (every ${assignment.intervalSeconds}s)`,
+        `Starting scheduler for ${key} (every ${run.assignment.intervalSeconds}s)`,
       );
 
       // Execute immediately, then at interval
-      void this.config.onExecute(assignment);
+      void this.config.onExecute(run);
 
       const timer = setInterval(
-        () => void this.config.onExecute(assignment),
-        assignment.intervalSeconds * 1000,
+        () => void this.config.onExecute(run),
+        run.assignment.intervalSeconds * 1000,
       );
       this.timers.set(key, timer);
     }
@@ -81,8 +98,30 @@ export class Scheduler {
     return this.timers.size;
   }
 
-  /** Unique key for an assignment (config+system, since a satellite only runs each once) */
-  private makeKey(assignment: SatelliteAssignment): string {
-    return `${assignment.configId}:${assignment.systemId}`;
+  /**
+   * Unique key per scheduled run. The environment is part of it, so adding or
+   * removing an environment starts/stops exactly that one timer and leaves the
+   * others running.
+   */
+  private makeKey({ assignment, environment }: ScheduledRun): string {
+    return `${assignment.configId}:${assignment.systemId}:${environment?.id ?? "<none>"}`;
   }
+}
+
+/**
+ * Expand assignments into one run per environment.
+ *
+ * An assignment with no environments - an older core that sends none, a system
+ * with none, or a satellite scoped out with `[]` - yields a single env-less
+ * run, which is exactly the pre-fan-out behaviour.
+ */
+export function expandRuns(
+  assignments: SatelliteAssignment[],
+): ScheduledRun[] {
+  return assignments.flatMap((assignment): ScheduledRun[] => {
+    const environments = assignment.environments ?? [];
+    return environments.length === 0
+      ? [{ assignment, environment: null }]
+      : environments.map((environment) => ({ assignment, environment }));
+  });
 }

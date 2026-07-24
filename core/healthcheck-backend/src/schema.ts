@@ -112,6 +112,27 @@ export const systemHealthChecks = pgTable(
      */
     environmentIds: jsonb("environment_ids").$type<string[]>(),
     /**
+     * Per-SATELLITE environment scoping, keyed by satellite id.
+     *
+     * Additive on top of `satelliteIds`, which still answers "which satellites
+     * run this". This answers "and for which environments", so a prod satellite
+     * can run only the prod environment instead of probing every environment
+     * from a network it may have no route to.
+     *
+     * Semantics per entry, mirroring `environmentIds`:
+     * - key ABSENT (or `null`) => that satellite runs every environment the
+     *   assignment resolves to. This is the backfilled default, so existing
+     *   rows keep behaving as they did.
+     * - `[]`       => opt out: that satellite runs ONCE with no environment.
+     * - non-empty  => exactly those ids, INTERSECTED with the assignment's own
+     *   effective set - a satellite can never widen the assignment's scope,
+     *   only narrow it.
+     */
+    satelliteEnvironmentIds:
+      jsonb("satellite_environment_ids").$type<
+        Record<string, string[] | null>
+      >(),
+    /**
      * Whether to also run this check locally on the core instance.
      * Defaults to true. Only relevant when satelliteIds is set.
      */

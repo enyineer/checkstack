@@ -6,8 +6,11 @@
  * failed test is `down`. These helpers map that triad onto the colorblind-safe
  * status tones and the per-tone Tailwind class sets shared by the desktop table
  * cell and the mobile card accent stripe. Kept here so the branch logic can be
- * unit-tested without rendering React or importing `@checkstack/ui`.
+ * unit-tested without rendering React.
  */
+
+import {
+  neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 
 /** The colorblind-safe status-triad stem a test result maps onto. */
 export type ConnectionTone = "ok" | "down" | "unknown";
@@ -41,25 +44,17 @@ export interface ConnectionToneStyles {
 }
 
 /**
- * Per-tone class sets, spelled out as full literal strings (not interpolated)
- * so Tailwind's JIT keeps them.
+ * Per-tone class sets, taken from the shared `pillToneStyles` table wherever a
+ * status hue applies.
  */
 const toneStyles: Record<ConnectionTone, ConnectionToneStyles> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  ok: pillToneStyles.ok,
+  down: pillToneStyles.down,
+  // An untested connection is not a status the operator should read as bad, so
+  // it renders as the ABSENCE of a hue (the muted classes the shared
+  // `StatusPill` uses for `tone="neutral"`) rather than the shared table's
+  // `unknown` grey - an untested connection carries no signal at all.
+  unknown: neutralToneStyle,
 };
 
 /** Resolve the Tailwind class set for a given {@link ConnectionTone}. */

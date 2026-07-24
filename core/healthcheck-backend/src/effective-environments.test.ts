@@ -1,5 +1,8 @@
-import { describe, it, expect } from "bun:test";
-import { resolveEffectiveEnvironments } from "./effective-environments";
+import { describe, it, test, expect } from "bun:test";
+import {
+  resolveEffectiveEnvironments,
+  resolveSatelliteEnvironments,
+} from "./effective-environments";
 import type { Environment } from "@checkstack/catalog-common";
 
 const env = (
@@ -89,5 +92,63 @@ describe("resolveEffectiveEnvironments", () => {
       membership: [],
     });
     expect(result).toEqual([]);
+  });
+});
+
+describe("resolveSatelliteEnvironments", () => {
+  const effective = [
+    { id: "env-prod", name: "Production", fields: {} },
+    { id: "env-stage", name: "Staging", fields: {} },
+  ];
+
+  test("an unscoped satellite runs every environment the assignment resolved to", () => {
+    // The backfill-free default: a NULL column means no scoping, so existing
+    // assignments keep behaving exactly as they did.
+    expect(
+      resolveSatelliteEnvironments({
+        effective,
+        satelliteEnvironmentIds: undefined,
+      }),
+    ).toEqual(effective);
+    expect(
+      resolveSatelliteEnvironments({ effective, satelliteEnvironmentIds: null }),
+    ).toEqual(effective);
+  });
+
+  test("a scoped satellite runs only its own environments", () => {
+    // The point of the feature: the prod satellite probes prod, and never
+    // reaches for a staging endpoint it may have no route to.
+    expect(
+      resolveSatelliteEnvironments({
+        effective,
+        satelliteEnvironmentIds: ["env-prod"],
+      }).map((e) => e.id),
+    ).toEqual(["env-prod"]);
+  });
+
+  test("a satellite can NARROW but never widen the assignment's scope", () => {
+    // An id the assignment does not cover silently drops - a satellite must not
+    // be able to probe an environment the assignment itself excluded.
+    expect(
+      resolveSatelliteEnvironments({
+        effective,
+        satelliteEnvironmentIds: ["env-prod", "env-secret"],
+      }).map((e) => e.id),
+    ).toEqual(["env-prod"]);
+  });
+
+  test("an empty selector opts the satellite out into a single env-less run", () => {
+    expect(
+      resolveSatelliteEnvironments({ effective, satelliteEnvironmentIds: [] }),
+    ).toEqual([]);
+  });
+
+  test("preserves the assignment's order, so fan-out stays deterministic", () => {
+    expect(
+      resolveSatelliteEnvironments({
+        effective,
+        satelliteEnvironmentIds: ["env-stage", "env-prod"],
+      }).map((e) => e.id),
+    ).toEqual(["env-prod", "env-stage"]);
   });
 });

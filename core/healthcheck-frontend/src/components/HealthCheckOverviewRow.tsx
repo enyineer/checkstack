@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@checkstack/ui";
-import { EnvironmentPill } from "./EnvironmentPill";
+import { EnvironmentPill, SourcePill } from "./EnvironmentPill";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
@@ -49,8 +49,15 @@ export interface HealthCheckOverviewItem {
    */
   environmentName?: string;
   /**
-   * Stable per-row key: the check id for env-less / single-env rows, or
-   * `${configurationId}::${environmentId}` for a per-(check, env) row.
+   * Human-readable name of the LOCATION this slice was probed from (the local
+   * core, or a satellite). Set only when naming it carries information - a
+   * check that only ever runs on the core leaves it undefined. See
+   * `resolveSliceSourceLabel`.
+   */
+  sourceLabel?: string;
+  /**
+   * Stable per-row key: the check id for a single-slice row, or
+   * `${configurationId}::${environmentId}::${sourceId}` for a per-slice row.
    */
   rowKey: string;
   /**
@@ -142,6 +149,7 @@ export const HealthCheckOverviewRow: React.FC<{
             {item.name}
           </span>
           {envScoped && <EnvironmentPill label={envLabel} />}
+          {item.sourceLabel && <SourcePill label={item.sourceLabel} />}
         </div>
         <HealthStatusPill
           tone={displayTone}

@@ -41,14 +41,27 @@ describe("Teams and Resource Access Control", () => {
     teamIds: ["team-alpha"],
   };
 
-  // Mock regular user with limited access
-  // Note: Uses test-plugin prefix to match createMockRpcContext's pluginMetadata
+  // Mock non-admin user holding the GLOBAL `auth.teams.read` rule (qualified to
+  // "auth.teams.read", which is what the handlers check). Such a user may READ
+  // every team but holds no `teams.manage`, so directory search / team writes are
+  // still denied unless they manage the specific team.
   const mockRegularUser = {
     type: "user" as const,
     id: "regular-user",
-    accessRules: ["test-plugin.teams.read"],
+    accessRules: ["auth.teams.read"],
     roles: ["users"],
     teamIds: ["team-beta"],
+  };
+
+  // Mock team-scoped user with NO global rule at all - not a global reader, not a
+  // global manager. Their visibility/management is decided purely by the teams
+  // they are a member or manager of (ReBAC), which the mock DB supplies per test.
+  const mockScopedUser = {
+    type: "user" as const,
+    id: "scoped-user",
+    accessRules: [] as string[],
+    roles: ["users"],
+    teamIds: [] as string[],
   };
 
   // Mock service user for S2S calls
@@ -333,6 +346,324 @@ describe("Teams and Resource Access Control", () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].isManager).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // TEAM-SCOPED ACCESS (no global rule) — regression for the bug where a team
+  // manager/member with only a per-team ReBAC grant was 403'd on getTeams /
+  // listObjectRelations. These procedures are now `access: []` and scope in the
+  // handler: a caller without global `auth.teams.read` sees ONLY the team(s)
+  // they are a member or manager of; a caller who manages a team may write to it.
+  // ==========================================================================
+  describe("team-scoped access (no global teams.read)", () => {
+    // getTeams issues, for a NON-global caller, five sequential selects:
+    //   1 team, 2 userTeam(counts), 3 teamManager(isManager),
+    //   4 userTeam(scope member), 5 teamManager(scope manager).
+    const seedScopedGetTeams = ({
+      teams,
+      counts,
+      isManagerOf,
+      memberOf,
+      managerOf,
+    }: {
+      teams: Array<{ id: string; name: string; description: string | null }>;
+      counts: Array<{ teamId: string }>;
+      isManagerOf: Array<{ teamId: string }>;
+      memberOf: Array<{ teamId: string }>;
+      managerOf: Array<{ teamId: string }>;
+    }) => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain(teams)) }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(counts)),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(isManagerOf)),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(memberOf)),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(managerOf)),
+      }));
+      return mockDb;
+    };
+
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+
+    it("getTeams: a scoped MANAGER sees only the team they manage", async () => {
+      const mockDb = seedScopedGetTeams({
+        teams: [
+          { id: "team-alpha", name: "Alpha", description: null },
+          { id: "team-beta", name: "Beta", description: null },
+        ],
+        counts: [{ teamId: "team-beta" }],
+        isManagerOf: [{ teamId: "team-beta" }],
+        memberOf: [], // manager need not be a member
+        managerOf: [{ teamId: "team-beta" }],
+      });
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(makeRouter(mockDb).getTeams, undefined, {
+        context,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        id: "team-beta",
+        name: "Beta",
+        description: null,
+        memberCount: 1,
+        isManager: true,
+      });
+    });
+
+    it("getTeams: a scoped MEMBER sees only their team, isManager=false", async () => {
+      const mockDb = seedScopedGetTeams({
+        teams: [
+          { id: "team-alpha", name: "Alpha", description: null },
+          { id: "team-beta", name: "Beta", description: null },
+        ],
+        counts: [{ teamId: "team-beta" }],
+        isManagerOf: [],
+        memberOf: [{ teamId: "team-beta" }],
+        managerOf: [],
+      });
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(makeRouter(mockDb).getTeams, undefined, {
+        context,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe("team-beta");
+      expect(result[0].isManager).toBe(false);
+    });
+
+    it("getTeams: a scoped user with no teams sees an empty list (not a 403)", async () => {
+      const mockDb = seedScopedGetTeams({
+        teams: [
+          { id: "team-alpha", name: "Alpha", description: null },
+          { id: "team-beta", name: "Beta", description: null },
+        ],
+        counts: [],
+        isManagerOf: [],
+        memberOf: [],
+        managerOf: [],
+      });
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(makeRouter(mockDb).getTeams, undefined, {
+        context,
+      });
+
+      expect(result).toEqual([]);
+    });
+
+    it("getTeam: a scoped member can read their own team", async () => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      // scopedTeamIdsFor: memberOf then managerOf
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+      // team, members, managers, users
+      sel.mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ id: "team-1", name: "Platform", description: null }])
+        ),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ userId: "user-1" }])),
+      }));
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ id: "user-1", name: "Alice", email: "a@t.com" }])
+        ),
+      }));
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).getTeam,
+        { teamId: "team-1" },
+        { context }
+      );
+
+      expect(result).toBeDefined();
+      expect(result?.name).toBe("Platform");
+    });
+
+    it("getTeam: a scoped non-member gets undefined (no existence leak)", async () => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      // scopedTeamIdsFor: caller is in no team.
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).getTeam,
+        { teamId: "team-1" },
+        { context }
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it("addUserToTeam: a manager of the team may add a member", async () => {
+      const mockDb = createMockDb();
+      // assertTeamManagementAccess: teamManager lookup returns a manager row.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-1", userId: "scoped-user" }])
+        ),
+      }));
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await call(
+        makeRouter(mockDb).addUserToTeam,
+        { teamId: "team-1", userId: "new-member" },
+        { context }
+      );
+
+      expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it("addUserToTeam: a non-manager scoped user is FORBIDDEN", async () => {
+      const mockDb = createMockDb(); // teamManager lookup returns [] by default.
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).addUserToTeam,
+          { teamId: "team-1", userId: "new-member" },
+          { context }
+        )
+      ).rejects.toThrow(/permission to manage this team/);
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("addTeamManager: a non-manager scoped user is FORBIDDEN from promoting", async () => {
+      const mockDb = createMockDb(); // teamManager lookup returns [] by default.
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).addTeamManager,
+          { teamId: "team-1", userId: "someone" },
+          { context }
+        )
+      ).rejects.toThrow(/permission to manage this team/);
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("listObjectRelations: a caller with no stake sees no team grants", async () => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      // Object has a grant to team-1 (caller is NOT in team-1).
+      sel.mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            { relation: "editor", subjectType: "team", subjectId: "team-1" },
+          ])
+        ),
+      }));
+      // scopedTeamIdsFor: memberOf then managerOf — caller is in team-2 only.
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-2" }])),
+      }));
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).listObjectRelations,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+
+      // No stake => grants are hidden, but the call SUCCEEDS (no 403) and the
+      // public flag is still returned.
+      expect(result.teams).toEqual([]);
+      expect(result.isPublic).toBe(true);
+    });
+
+    it("accessRules: reports isInAnyTeam=true for a member (no manager lookup)", async () => {
+      const mockDb = createMockDb();
+      // A user who is already a member short-circuits; no teamManager query runs.
+      const context = createMockRpcContext({
+        user: { ...mockScopedUser, teamIds: ["team-1"] },
+      });
+      const result = await call(makeRouter(mockDb).accessRules, undefined, {
+        context,
+      });
+      expect(result.isInAnyTeam).toBe(true);
+    });
+
+    it("accessRules: reports isInAnyTeam=true for a manager-only user (via lookup)", async () => {
+      const mockDb = createMockDb();
+      // Member of no team, but a manager lookup finds a managed team.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(makeRouter(mockDb).accessRules, undefined, {
+        context,
+      });
+      expect(result.isInAnyTeam).toBe(true);
+    });
+
+    it("accessRules: reports isInAnyTeam=false for a user in no team", async () => {
+      const mockDb = createMockDb(); // teamManager lookup returns [] by default.
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(makeRouter(mockDb).accessRules, undefined, {
+        context,
+      });
+      expect(result.isInAnyTeam).toBe(false);
+    });
+
+    it("listObjectRelations: a caller WITH a stake sees the grants", async () => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      // Object granted to team-2; caller is a member of team-2.
+      sel.mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            { relation: "viewer", subjectType: "team", subjectId: "team-2" },
+          ])
+        ),
+      }));
+      // scopedTeamIdsFor: memberOf then managerOf.
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-2" }])),
+      }));
+      sel.mockImplementationOnce(() => ({ from: mock(() => createChain([])) }));
+      // team-name lookup.
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ id: "team-2", name: "Beta" }])),
+      }));
+
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).listObjectRelations,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+
+      expect(result.teams).toEqual([
+        { teamId: "team-2", teamName: "Beta", relation: "viewer" },
+      ]);
     });
   });
 
@@ -1007,6 +1338,172 @@ describe("Teams and Resource Access Control", () => {
       expect(insertedData?.subjectType).toBe("public");
       expect(insertedData?.subjectId).toBe("*");
       expect(insertedData?.relation).toBe("private");
+    });
+  });
+
+  // ==========================================================================
+  // TEAM-ACCESS DELEGATION AUTHZ (writeRelation / removeRelation /
+  // setObjectPublic / canManageObjectAccess). A caller may edit an object's team
+  // access only if they can MANAGE that object: a global teams.manage admin, the
+  // object's own `<type>.manage` rule (on a non-private object), or membership of
+  // a team with an editor/owner grant on it. A viewer-only team CANNOT elevate.
+  // ==========================================================================
+  describe("team-access delegation authz", () => {
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+
+    // For a NON-admin caller, canEditObjectAccess issues two selects:
+    //   1. userTeam (the caller's membership), 2. the object's relation tuples.
+    const seedAuthz = ({
+      memberTeams,
+      objectTuples,
+    }: {
+      memberTeams: Array<{ teamId: string }>;
+      objectTuples: Array<{
+        relation: string;
+        subjectType: string;
+        subjectId: string;
+      }>;
+    }) => {
+      const mockDb = createMockDb();
+      const sel = mockDb.select as ReturnType<typeof mock>;
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(memberTeams)),
+      }));
+      sel.mockImplementationOnce(() => ({
+        from: mock(() => createChain(objectTuples)),
+      }));
+      return mockDb;
+    };
+
+    const grant = (subjectId: string, relation: string) => ({
+      relation,
+      subjectType: "team",
+      subjectId,
+    });
+
+    const writeInput = {
+      objectType: "catalog.system",
+      objectId: "sys-1",
+      teamId: "team-2",
+      relation: "editor" as const,
+    };
+
+    it("lets a MEMBER of a team that MANAGES the object grant access", async () => {
+      // Caller is in team-1, which holds an editor (manage) grant on the object.
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "editor")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled(); // setTeamRelation ran
+    });
+
+    it("FORBIDS a member of a VIEWER-ONLY team (no privilege elevation)", async () => {
+      // team-1 can only READ the object, so its members must not be able to grant
+      // manage - to themselves or anyone else.
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "viewer")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).writeRelation,
+          { ...writeInput, teamId: "team-1" },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("FORBIDS a caller with no grant and no global rule", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(makeRouter(mockDb).writeRelation, writeInput, { context })
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("lets a holder of the object's `<type>.manage` rule edit a PUBLIC object", async () => {
+      // No grants + no private marker => public, so the resource-manage global
+      // rule authorizes editing its team access.
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({
+        user: { ...mockScopedUser, accessRules: ["catalog.system.manage"] },
+      });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled();
+    });
+
+    it("still lets a global teams.manage admin edit (short-circuits per-object authz)", async () => {
+      // `*` satisfies teams.manage; no authz selects are issued.
+      const mockDb = createMockDb();
+      const context = createMockRpcContext({ user: mockAdminUser });
+      await call(makeRouter(mockDb).writeRelation, writeInput, { context });
+      expect(mockDb.transaction).toHaveBeenCalled();
+    });
+
+    it("removeRelation enforces the same delegation authz", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).removeRelation,
+          { objectType: "catalog.system", objectId: "sys-1", teamId: "team-1" },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+      expect(mockDb.delete).not.toHaveBeenCalled();
+    });
+
+    it("setObjectPublic enforces the same delegation authz", async () => {
+      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      await expect(
+        call(
+          makeRouter(mockDb).setObjectPublic,
+          { objectType: "catalog.system", objectId: "sys-1", isPublic: false },
+          { context }
+        )
+      ).rejects.toThrow(/manage access to this resource/);
+    });
+
+    it("canManageObjectAccess returns true for a managing member", async () => {
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "editor")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).canManageObjectAccess,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it("canManageObjectAccess returns false for a viewer-only member", async () => {
+      const mockDb = seedAuthz({
+        memberTeams: [{ teamId: "team-1" }],
+        objectTuples: [grant("team-1", "viewer")],
+      });
+      const context = createMockRpcContext({ user: mockScopedUser });
+      const result = await call(
+        makeRouter(mockDb).canManageObjectAccess,
+        { objectType: "catalog.system", objectId: "sys-1" },
+        { context }
+      );
+      expect(result.allowed).toBe(false);
     });
   });
 

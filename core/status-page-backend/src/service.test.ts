@@ -49,6 +49,7 @@ function widget(
     boundResources: over.boundResources ?? (() => []),
     resolvePublic:
       over.resolvePublic ?? (async () => ({ value: "ok" })),
+    resolveDetail: over.resolveDetail,
     assertBindingsReadable: over.assertBindingsReadable,
     rendererRemote: over.rendererRemote,
   };
@@ -501,5 +502,144 @@ describe("resolvePublished — renderer remotes (third-party widgets)", () => {
       isAuthenticated: false,
     });
     expect(result?.rendererRemotes).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolvePublishedIncident / resolvePublishedMaintenance — the per-item detail
+// endpoints. They must delegate to the widget's `resolveDetail` (full item:
+// ALL updates + description, Items 5/6), gate on the published layout (the same
+// anti-enumeration boundary as the block), validate against the item schema
+// (allow-list), and fail closed on a resolver error — WITHOUT crashing.
+// ---------------------------------------------------------------------------
+
+const incidentItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  severity: z.string(),
+  systems: z.array(z.string()),
+  startedAt: z.string(),
+  description: z.string().optional(),
+  updates: z.array(
+    z.object({ message: z.string(), at: z.string() }),
+  ),
+});
+
+/** A published page carrying ONE incidents block backed by `resolveDetail`. */
+function incidentDetailService(
+  resolveDetail: RegisteredWidgetType["resolveDetail"],
+): StatusPageService {
+  return service({
+    row: row({
+      publishedLayout: [
+        { id: "inc-block", type: BUILTIN_WIDGET_IDS.incidents, config: {} },
+      ],
+    }),
+    widgets: [
+      widget({
+        id: "incidents",
+        qualifiedId: BUILTIN_WIDGET_IDS.incidents,
+        dtoSchema: z.object({ incidents: z.array(incidentItemSchema) }),
+        resolveDetail,
+      }),
+    ],
+  });
+}
+
+describe("resolvePublishedIncident — delegates to resolveDetail + gates", () => {
+  test("returns the FULL item (all updates + description) the widget resolves", async () => {
+    const svc = incidentDetailService(async ({ id }) =>
+      id === "inc-1"
+        ? {
+            id: "inc-1",
+            title: "API outage",
+            status: "monitoring",
+            severity: "major",
+            systems: ["System One"],
+            startedAt: "2026-07-01T00:00:00Z",
+            description: "Postmortem",
+            // MORE updates than any block cap would allow — proves the detail
+            // path is not the capped block DTO.
+            updates: [
+              { message: "u1", at: "2026-07-01T01:00:00Z" },
+              { message: "u2", at: "2026-07-01T02:00:00Z" },
+              { message: "u3", at: "2026-07-01T03:00:00Z" },
+              { message: "u4", at: "2026-07-01T04:00:00Z" },
+            ],
+          }
+        : null,
+    );
+    const item = await svc.resolvePublishedIncident({
+      slug: "acme",
+      id: "inc-1",
+      isAuthenticated: false,
+    });
+    expect(item?.updates).toHaveLength(4);
+    expect(item?.description).toBe("Postmortem");
+  });
+
+  test("returns null when the widget does not surface the id (gate)", async () => {
+    const svc = incidentDetailService(async () => null);
+    expect(
+      await svc.resolvePublishedIncident({
+        slug: "acme",
+        id: "unknown",
+        isAuthenticated: false,
+      }),
+    ).toBeNull();
+  });
+
+  test("a resolveDetail throw degrades to null, never crashing", async () => {
+    const svc = incidentDetailService(async () => {
+      throw new Error("resolver blew up");
+    });
+    expect(
+      await svc.resolvePublishedIncident({
+        slug: "acme",
+        id: "inc-1",
+        isAuthenticated: false,
+      }),
+    ).toBeNull();
+  });
+
+  test("the item schema is the allow-list — extra resolver fields are stripped", async () => {
+    const svc = incidentDetailService(async () => ({
+      id: "inc-1",
+      title: "API outage",
+      status: "monitoring",
+      severity: "major",
+      systems: ["System One"],
+      startedAt: "2026-07-01T00:00:00Z",
+      updates: [],
+      // A field the item schema does not allow-list — must be stripped.
+      createdBy: "LEAK-user-id",
+    }));
+    const item = await svc.resolvePublishedIncident({
+      slug: "acme",
+      id: "inc-1",
+      isAuthenticated: false,
+    });
+    expect(JSON.stringify(item)).not.toContain("LEAK");
+  });
+
+  test("an unpublished page yields null even for a real id (no leak)", async () => {
+    const svc = service({
+      row: row({ publishedLayout: null }),
+      widgets: [
+        widget({
+          id: "incidents",
+          qualifiedId: BUILTIN_WIDGET_IDS.incidents,
+          resolveDetail: async () => ({ id: "inc-1" }),
+        }),
+      ],
+    });
+    expect(
+      await svc.resolvePublishedIncident({
+        slug: "acme",
+        id: "inc-1",
+        isAuthenticated: false,
+      }),
+    ).toBeNull();
   });
 });

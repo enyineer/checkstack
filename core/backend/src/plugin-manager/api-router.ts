@@ -26,7 +26,7 @@ import type { EventBus } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
 import { rootLogger } from "../logger";
 import { extractErrorMessage } from "@checkstack/common";
-import { mapPgErrorToHttp } from "./pg-http-errors";
+import { mapPgErrorToHttp, isClientRejection } from "./pg-http-errors";
 
 interface RouteHandlerDeps {
   registry: ServiceRegistry;
@@ -221,8 +221,14 @@ function logHandlerError({
  * Shared interceptor catch path for both the RPC and REST handlers. A Postgres
  * driver error caused by bad client input (bad uuid, out-of-range int, over-long
  * string, constraint violation) is mapped to the correct 4xx `ORPCError` and
- * logged at warn (it is a client mistake, not a server fault). Everything else
- * keeps the existing error-level logging + rethrow so genuine 500s stay loud.
+ * logged at warn (it is a client mistake, not a server fault). A 4xx the
+ * contract itself raised (401/403/404/409/...) is the authorization or
+ * validation layer working as designed, so it is logged at DEBUG without a
+ * stack: the access-log middleware already reports every 4xx response at warn
+ * with its method, path and status, and duplicating that as an error-level
+ * stack made routine anonymous traffic look like the server was breaking.
+ * Everything else keeps the existing error-level logging + rethrow so genuine
+ * 500s stay loud.
  */
 function rethrowAsHttpError({
   error,
@@ -241,6 +247,12 @@ function rethrowAsHttpError({
       `${protocolLabel} ${pathname}: ${mapped.code} (${extractErrorMessage(error)})`,
     );
     throw mapped;
+  }
+  if (isClientRejection(error)) {
+    (logger ?? rootLogger).debug(
+      `${protocolLabel} ${pathname}: ${error.status} ${error.code} (${extractErrorMessage(error)})`,
+    );
+    throw error;
   }
   logHandlerError({ error, pathname, logger, protocolLabel });
   throw error;

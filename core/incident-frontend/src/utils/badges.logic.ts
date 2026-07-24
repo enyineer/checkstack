@@ -44,31 +44,39 @@ export const incidentStatusRank: Record<IncidentStatus, number> = {
   resolved: 4,
 };
 
-/** Maps an incident status to its triad tone + human label. */
+/**
+ * Maps an incident status to its human label - and deliberately NOT to a tone.
+ *
+ * An incident carries two dimensions, and at most one may own hue. Severity
+ * answers "how bad is this" and is the thing a reader scans for, so it keeps the
+ * colour; the lifecycle is stated in words on a neutral pill. Returning a tone
+ * here would be dead weight that invites re-colouring the status later and
+ * putting two competing scales back on one line.
+ *
+ * The public status page has always rendered this incident the same way -
+ * severity tinted, status on a muted chip.
+ */
 export function presentIncidentStatus(status: IncidentStatus): {
-  tone: StatusTone;
   label: string;
 } {
   switch (status) {
     case "investigating": {
-      return { tone: "down", label: "Investigating" };
+      return { label: "Investigating" };
     }
     case "identified": {
-      return { tone: "warn", label: "Identified" };
+      return { label: "Identified" };
     }
     case "fixing": {
-      return { tone: "warn", label: "Fixing" };
+      return { label: "Fixing" };
     }
     case "monitoring": {
-      // Blue "info" tone: monitoring is neither a hard problem nor unknown -
-      // it's an informational "watching for recurrence" state (Item 7 fix).
-      return { tone: "info", label: "Monitoring" };
+      return { label: "Monitoring" };
     }
     case "resolved": {
-      return { tone: "ok", label: "Resolved" };
+      return { label: "Resolved" };
     }
     default: {
-      return { tone: "unknown", label: status };
+      return { label: status };
     }
   }
 }

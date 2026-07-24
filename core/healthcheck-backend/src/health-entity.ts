@@ -22,7 +22,7 @@
  *  - the `writeHealthEntity` helper called at every evaluation-write site.
  */
 import { z } from "zod";
-import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
+import { SystemHealthStatusSchema } from "@checkstack/healthcheck-common";
 import type { AdvisoryLockService } from "@checkstack/backend-api";
 import type {
   EntityChangeDeriver,
@@ -43,7 +43,13 @@ export const HEALTH_ENTITY_KIND = "health";
  * same durable data `getSystemHealthStatus` reads — never materialized.
  */
 export const HealthEntityStateSchema = z.object({
-  status: HealthCheckStatusSchema,
+  /**
+   * `unknown` when the system's checks have produced no runs to evaluate.
+   * Automations matching on `unhealthy` therefore do NOT fire for a system that
+   * is merely unmeasured - which is the point: an unmeasured system is not a
+   * detected outage, and inventing `healthy` for it would hide the gap instead.
+   */
+  status: SystemHealthStatusSchema,
   healthyChecks: z.number().int().nonnegative(),
   totalChecks: z.number().int().nonnegative(),
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import type { CatalogHealthStatuses } from "@checkstack/catalog-common";
 import {
   computeGroupRollup,
@@ -91,11 +91,9 @@ describe("matchesHealth", () => {
     u: "unhealthy",
   };
 
-  test("'all' matches everything", () => {
+  test("an unconstrained filter matches everything", () => {
     for (const id of ["h", "d", "u", "missing"]) {
-      expect(matchesHealth({ systemId: id, health: "all", statuses })).toBe(
-        true,
-      );
+      expect(matchesHealth({ systemId: id, health: null, statuses })).toBe(true);
     }
   });
 
@@ -117,7 +115,7 @@ describe("matchesHealth", () => {
     );
   });
 
-  test("non-'all' filter with undefined statuses → everything unknown", () => {
+  test("a constrained filter with undefined statuses → everything unknown", () => {
     expect(
       matchesHealth({ systemId: "h", health: "healthy", statuses: undefined }),
     ).toBe(false);
@@ -171,5 +169,56 @@ describe("resolveSectionTone", () => {
 
   test("mixed healthy + unknown with no failures → unknown", () => {
     expect(resolveSectionTone({ ...base, hasData: true })).toBe("unknown");
+  });
+});
+
+/**
+ * Regression (@stuajnht): a system that has never been healthy left its group
+ * reading healthy on the catalog and "operational" on the status page.
+ *
+ * The rollup was never the culprit - it already ranks `unknown` below `healthy`
+ * and refuses to call a mixed group all-healthy. The backend was reporting
+ * `healthy` for a system whose check had never produced a run, so the rollup was
+ * told green. These tests pin the rollup's half of the contract: an unmeasured
+ * member must never let a group claim health.
+ */
+describe("a member with no signal never makes a group healthy", () => {
+  const statuses = { "sys-ok": "healthy" } as const;
+
+  it("does not report allHealthy when a member is unmeasured", () => {
+    const rollup = computeGroupRollup({
+      memberIds: ["sys-ok", "sys-never-ran"],
+      statuses,
+    });
+    expect(rollup.allHealthy).toBe(false);
+  });
+
+  it("resolves the section tone to unknown, not ok", () => {
+    // The visible symptom: the group header must not read green while one of
+    // its systems has never been measured.
+    const rollup = computeGroupRollup({
+      memberIds: ["sys-ok", "sys-never-ran"],
+      statuses,
+    });
+    expect(resolveSectionTone(rollup)).toBe("unknown");
+  });
+
+  it("still surfaces a real failure over an unmeasured member", () => {
+    // `unknown` must not mask a genuine outage either.
+    const rollup = computeGroupRollup({
+      memberIds: ["sys-never-ran", "sys-down"],
+      statuses: { "sys-down": "unhealthy" },
+    });
+    expect(rollup.worst).toBe("unhealthy");
+    expect(resolveSectionTone(rollup)).toBe("down");
+  });
+
+  it("is all-healthy only when EVERY member reported healthy", () => {
+    const rollup = computeGroupRollup({
+      memberIds: ["sys-ok", "sys-ok-2"],
+      statuses: { "sys-ok": "healthy", "sys-ok-2": "healthy" },
+    });
+    expect(rollup.allHealthy).toBe(true);
+    expect(resolveSectionTone(rollup)).toBe("ok");
   });
 });

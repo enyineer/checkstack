@@ -5,6 +5,7 @@ import { HealthCheckApi } from "../api";
 import { StatusBadge } from "@checkstack/ui";
 import { Activity } from "lucide-react";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
+import { resolveHealthBadge } from "./systemHealthBadge.logic";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
 
@@ -34,20 +35,16 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   );
 
   const health = providerData?.health ?? healthData;
-  const status = health?.status;
 
-  if (!status || status === "healthy") return <></>;
+  // The badge flags PROBLEM states only (`degraded` / `unhealthy`). `healthy`
+  // and `unknown` (unmeasured: no checks, or none have run yet) produce no
+  // badge - see `resolveHealthBadge`. This is what stops a check-less system
+  // from falsely reading "Degraded".
+  const badge = resolveHealthBadge({
+    status: health?.status,
+    overrideReason: health?.override?.reason,
+  });
+  if (!badge) return <></>;
 
-  const baseLabel = status === "unhealthy" ? "Unhealthy" : "Degraded";
-  // Explain WHY the system reads this way when an incident (not a health check)
-  // forced the status - surfaced on hover / to assistive tech via the label.
-  const label = health?.override
-    ? `${baseLabel} - forced by incident: ${health.override.reason}`
-    : baseLabel;
-
-  return status === "unhealthy" ? (
-    <StatusBadge tone="error" icon={Activity} label={label} />
-  ) : (
-    <StatusBadge tone="warn" icon={Activity} label={label} />
-  );
+  return <StatusBadge tone={badge.tone} icon={Activity} label={badge.label} />;
 };

@@ -21,12 +21,11 @@ import {
   HealthCheckList,
   HealthCheckListSkeleton,
 } from "../components/HealthCheckList";
-import { HealthCheckListToolbar } from "../components/HealthCheckListToolbar";
 import {
-  filterAndSortHealthChecks,
-  hasActiveHealthCheckFilter,
-} from "../components/healthCheckListState.logic";
-import { useHealthCheckListState } from "../hooks/useHealthCheckListState";
+  healthCheckFacetIds,
+  healthCheckSystemControl,
+  selectedSystemId,
+} from "../components/healthCheckFacets";
 import { FirstCheckWizard } from "../components/FirstCheckWizard";
 import {
   Button,
@@ -34,6 +33,7 @@ import {
   ListEmptyState,
   PageLayout,
   QueryErrorState,
+  useDataTableFilters,
   useToast,
   toastError,
 } from "@checkstack/ui";
@@ -79,15 +79,11 @@ const HealthCheckConfigPageContent = () => {
   const toast = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const {
-    state: listState,
-    debouncedQuery,
-    setQuery,
-    setStrategy,
-    setStatus,
-    setSystem,
-    clearFilters,
-  } = useHealthCheckListState();
+  // Filter state lives in the URL, so a filtered view is shareable and comes
+  // back intact from a check's editor. The bar is rendered by the page rather
+  // than by the table because the SYSTEM dimension is applied server-side (see
+  // below) - a mix the table cannot own on its own.
+  const filters = useDataTableFilters({ facetIds: healthCheckFacetIds });
   const { allowed: canRead, loading: readLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.read,
   );
@@ -171,10 +167,11 @@ const HealthCheckConfigPageContent = () => {
   // what makes the catalog's per-system wayfinding link work for a pure
   // system manager, whose `getConfigurations` is empty/forbidden - an
   // intersection would always come up empty for them.
-  const systemFilterActive = listState.systemId !== null;
+  const systemId = selectedSystemId({ filters: filters.state });
+  const systemFilterActive = systemId !== undefined;
   const systemConfigsQuery =
     healthCheckClient.getSystemConfigurations.useQuery(
-      { systemId: listState.systemId ?? "" },
+      { systemId: systemId ?? "" },
       { enabled: systemFilterActive },
     );
 
@@ -189,31 +186,26 @@ const HealthCheckConfigPageContent = () => {
         (configPlaneReader && configurations.length > 0) || systemFilterActive,
     },
   );
-  const systems = systemsQuery.data?.systems ?? [];
+  // Memoised because it feeds the facet-control memo below: a fresh `[]` on
+  // every render would rebuild the controls (and so the whole bar) each time.
+  const systemsData = systemsQuery.data;
+  const systems = useMemo(() => systemsData?.systems ?? [], [systemsData]);
 
-  const filteredConfigurations = useMemo(() => {
-    const base = systemFilterActive
-      ? (systemConfigsQuery.data ?? [])
-      : configurations;
-    return filterAndSortHealthChecks({
-      configurations: base,
-      // The base list is ALREADY system-scoped when the filter is active, so
-      // the pure filter only applies query/strategy/status on top.
-      state: { ...listState, query: debouncedQuery, systemId: null },
-      assignedConfigIds: null,
-    });
-  }, [
-    systemFilterActive,
-    systemConfigsQuery.data,
-    configurations,
-    listState,
-    debouncedQuery,
-  ]);
+  // The rows to hand the table: system-scoped when that filter is active (the
+  // server applies it by swapping the data source), otherwise everything. The
+  // table applies search / strategy / status itself.
+  const listedConfigurations = useMemo(
+    () =>
+      systemFilterActive ? (systemConfigsQuery.data ?? []) : configurations,
+    [systemFilterActive, systemConfigsQuery.data, configurations],
+  );
 
-  const hasActiveFilter = hasActiveHealthCheckFilter({
-    ...listState,
-    query: debouncedQuery,
-  });
+  // The one dimension no column owns: it has nothing on the row to read,
+  // because selecting a system changes WHICH rows are fetched.
+  const systemControl = useMemo(
+    () => healthCheckSystemControl({ systems }),
+    [systems],
+  );
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -438,43 +430,37 @@ const HealthCheckConfigPageContent = () => {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <HealthCheckListToolbar
-            state={listState}
-            onQueryChange={setQuery}
-            onStrategyChange={setStrategy}
-            onStatusChange={setStatus}
-            onSystemChange={setSystem}
-            onClearFilters={clearFilters}
+          <HealthCheckList
+            // The FULL set: the table owns search, strategy and status. Only the
+            // system dimension is applied before this point, by swapping the
+            // data source (it is authorized by system READ).
+            configurations={listedConfigurations}
             strategies={strategies}
-            systems={systems}
-            systemAssignmentsLoading={
-              systemFilterActive && systemConfigsQuery.isLoading
+            filters={filters.state}
+            onFiltersChange={filters.setState}
+            onClearFilters={filters.clear}
+            facets={[systemControl]}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onPause={(id) => pauseMutation.mutate({ id })}
+            onResume={(id) => resumeMutation.mutate({ id })}
+            // "Nothing here yet" is handled above, before the table renders, so
+            // an empty row set at this point always means the filters excluded
+            // everything.
+            noResultsState={
+              <ListEmptyState
+                resource="health checks"
+                description="No health checks match the current search or filters."
+                actions={
+                  filters.active ? (
+                    <Button variant="outline" onClick={filters.clear}>
+                      Clear filters
+                    </Button>
+                  ) : undefined
+                }
+              />
             }
-            hasActiveFilter={hasActiveFilter}
           />
-
-          {filteredConfigurations.length === 0 ? (
-            <ListEmptyState
-              resource="health checks"
-              description="No health checks match the current search or filters."
-              actions={
-                hasActiveFilter ? (
-                  <Button variant="outline" onClick={clearFilters}>
-                    Clear filters
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <HealthCheckList
-              configurations={filteredConfigurations}
-              strategies={strategies}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onPause={(id) => pauseMutation.mutate({ id })}
-              onResume={(id) => resumeMutation.mutate({ id })}
-            />
-          )}
         </div>
       )}
 

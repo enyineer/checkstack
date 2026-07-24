@@ -4,6 +4,7 @@ import {
   pluginMetadata as statusPagePluginMetadata,
   IncidentsConfigSchema,
   IncidentsDtoSchema,
+  IncidentDtoItemSchema,
   toPublicUpdate,
   selectEvents,
   resolveEventFeedScope,
@@ -84,18 +85,26 @@ function iso(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-/** Newest `max` updates, most-recent first (the current progress at the top). */
-function latestUpdates(updates: InternalUpdate[], max: number): PublicUpdate[] {
-  return updates
+/**
+ * Public updates, most-recent first (the current progress at the top). `max`
+ * caps the list for the summary BLOCK; omit it (the detail page) to return ALL
+ * updates.
+ */
+function latestUpdates(
+  updates: InternalUpdate[],
+  max?: number,
+): PublicUpdate[] {
+  const sorted = updates
     // The public status page is anonymous: only `public`-visibility updates may
     // appear. `logged_in` / `internal` updates are filtered out here so they
     // never reach the unauthenticated projection (Item 3/5).
     .filter((u) => u.visibility === "public")
     .toSorted(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, max)
-    .map((u) => toPublicUpdate(u));
+    );
+  return (max === undefined ? sorted : sorted.slice(0, max)).map((u) =>
+    toPublicUpdate(u),
+  );
 }
 
 async function labelsFor(
@@ -218,6 +227,41 @@ const incidents: WidgetTypeDefinition = {
       };
     });
     return IncidentsDtoSchema.parse({ incidents: items });
+  },
+  // Full detail for the individual incident page: the ONE incident's ALL public
+  // updates (no `maxUpdates` cap) + its description. Scope-checked the same way
+  // as resolvePublic; returns null for an out-of-scope / unknown id.
+  async resolveDetail({ id, config, ctx }) {
+    const c = IncidentsConfigSchema.parse(config);
+    const bound = await effectiveScope(c, ctx);
+    if (bound.size === 0) return null;
+    const inc = ctx.rpcClient.forPlugin(IncidentApi);
+    // includeResolved so a resolved incident's page still loads; the status-page
+    // gate has already confirmed this id is surfaced by the page.
+    const { incidents: all } = await inc.listIncidents({ includeResolved: true });
+    const found = all.find(
+      (i) => i.id === id && i.systemIds.some((s) => bound.has(s)),
+    );
+    if (!found) return null;
+    const names = await labelsFor(ctx, [...bound]);
+    const labelOf = (sid: string): string | undefined =>
+      bound.has(sid) ? (c.systemLabels[sid] ?? names.get(sid) ?? sid) : undefined;
+    const bulk = await inc.getBulkIncidentUpdates({ incidentIds: [id] });
+    const updates = latestUpdates(bulk.updates?.[id] ?? []);
+    const resolved = found.status === "resolved";
+    return IncidentDtoItemSchema.parse({
+      id: found.id,
+      title: found.title,
+      status: found.status,
+      severity: found.severity,
+      systems: found.systemIds
+        .map((sid) => labelOf(sid))
+        .filter((l): l is string => l !== undefined),
+      startedAt: iso(found.createdAt),
+      ...(resolved ? { resolvedAt: iso(found.updatedAt) } : {}),
+      ...(found.description ? { description: found.description } : {}),
+      updates,
+    });
   },
 };
 

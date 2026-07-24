@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { federation } from "@module-federation/vite";
 import { visualizer } from "rollup-plugin-visualizer";
+import { emitPublicHtml } from "./src/build/emit-public-html";
 // Relative (not the bare `@checkstack/ui/...` specifier): Vite's config loader
 // externalizes bare node_modules imports, which would leave this `.ts` file
 // un-transpiled at config-load time (ERR_UNKNOWN_FILE_EXTENSION). A relative
@@ -133,6 +134,7 @@ export default defineConfig(({ command }) => {
     envDir: monorepoRoot,
     plugins: [
       react(),
+      emitPublicHtml({ fallbackDir: path.resolve(__dirname, "dist") }),
       // Module Federation 2.0 host. Runtime (installed) frontend plugins are
       // built as MF remotes and registered at runtime (see plugin-loader.ts),
       // so no remotes are declared here. `shared` makes the host the single

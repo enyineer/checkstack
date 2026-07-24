@@ -63,6 +63,9 @@ function response(
       runsConsidered: 1,
       sliceCount: c.sliceCount ?? 1,
       failingSliceCount: c.failingSliceCount ?? 0,
+      // These tests exercise the cache's fingerprint/invalidation behaviour,
+      // which reads the counts rather than the per-slice breakdown.
+      slices: [],
     })),
   };
 }

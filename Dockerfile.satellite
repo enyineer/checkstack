@@ -21,6 +21,15 @@ COPY plugins ./plugins
 # `docs` workspace is required for Bun's workspace resolver to succeed
 # even though the satellite never runs the docs site.
 COPY docs/package.json ./docs/package.json
+# Only the three prune scripts (repo-root `scripts/`, NOT the `core/scripts`
+# workspace package) are needed, and only in this deps stage - they are never
+# copied into the final image, and the satellite has no dependency on them. Copy
+# exactly those files so the satellite build isn't coupled to the rest of the
+# repo's build tooling.
+COPY scripts/prune-for-satellite.ts \
+  scripts/satellite-prune.logic.ts \
+  scripts/workspace-packages.ts \
+  ./scripts/
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   for i in 1 2 3; do \
@@ -29,11 +38,21 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
   { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }; \
   done || true
 
-# Prune to only satellite-relevant packages:
-# - Remove dev-only core packages
-# - Remove all non-healthcheck/collector plugins
-RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend \
-  && cd plugins && find . -maxdepth 1 -mindepth 1 -type d ! -name 'healthcheck-*' ! -name 'collector-*' -exec rm -rf {} +
+# Prune to only the packages the satellite image needs, computed from the
+# dependency graph rather than a fragile name pattern. The keep-set is the
+# transitive runtime-`dependencies` closure of the satellite PLUS every plugin
+# it loads DYNAMICALLY at runtime (`healthcheck-*-backend`/`collector-*-backend`,
+# discovered by `strategy-loader.ts`), which are added as extra roots so they -
+# and their own transitive deps - are never pruned by accident.
+#
+# This keeps exactly what runs and deletes the rest (auth/cache/incident/... and
+# dev-only core packages). It closes the whole ENOENT-at-startup class the old
+# name pattern left open: a static satellite dep that is not a plugin (e.g. the
+# `k8s-events-common` telemetry contract), and a shared plugin contract a kept
+# backend depends on, are both retained because they are in the closure. Logic +
+# safety guard (refuses to prune on a collapsed keep-set) live in
+# `scripts/prune-for-satellite.ts`, unit-tested via `scripts/satellite-prune.logic.test.ts`.
+RUN bun run scripts/prune-for-satellite.ts
 
 # Stage 2: Production runtime
 FROM oven/bun:1-alpine AS runtime

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import type { Automation, AutomationDefinition } from "@checkstack/automation-common";
 import {
+  filterAutomationsByQuery,
   groupAutomations,
   UNGROUPED_LABEL,
 } from "./automation-grouping";
@@ -83,5 +84,41 @@ describe("groupAutomations", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.label).toBe("Only");
     expect(groups.some((g) => g.items.length === 0)).toBe(false);
+  });
+});
+
+describe("filterAutomationsByQuery", () => {
+  const rows = [
+    { name: "Nightly backup", group: "Ops" },
+    { name: "Deploy notifier", group: "Release" },
+    { name: "Cleanup", group: undefined },
+  ] as Automation[];
+
+  const names = (query: string) =>
+    filterAutomationsByQuery({ automations: rows, query }).map((a) => a.name);
+
+  test("matches the name, case-insensitively on a substring", () => {
+    expect(names("NIGHT")).toEqual(["Nightly backup"]);
+  });
+
+  test("matches the group label too", () => {
+    // The group is a heading the reader can see, so it is fair to search.
+    expect(names("release")).toEqual(["Deploy notifier"]);
+  });
+
+  test("an ungrouped automation is still searchable by name", () => {
+    expect(names("cleanup")).toEqual(["Cleanup"]);
+  });
+
+  test("an empty or whitespace query returns the same reference", () => {
+    // An idle search box must not re-group the list on every render.
+    expect(filterAutomationsByQuery({ automations: rows, query: "" })).toBe(rows);
+    expect(filterAutomationsByQuery({ automations: rows, query: "  " })).toBe(
+      rows,
+    );
+  });
+
+  test("a query matching nothing yields an empty list, not every row", () => {
+    expect(names("nonexistent")).toEqual([]);
   });
 });

@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import type { System, Group } from "@checkstack/catalog-common";
+import type { System, Group, Environment } from "@checkstack/catalog-common";
 import {
   buildBrowseModel,
+  filterEnvironments,
   filterManagementLists,
   systemTags,
   collectTagOptions,
 } from "./filterEntities.logic";
 import {
   DEFAULT_BROWSE_STATE,
+  NO_CATALOG_FILTERS,
   UNGROUPED_ID,
   type BrowseState,
+  type CatalogFilters,
 } from "./browseState.logic";
 
 const NOW = new Date("2026-01-01T00:00:00Z");
@@ -37,6 +40,23 @@ function makeGroup(props: Partial<Group> & { id: string; name: string }): Group 
 
 function state(overrides: Partial<BrowseState> = {}): BrowseState {
   return { ...DEFAULT_BROWSE_STATE, ...overrides };
+}
+
+function filters(overrides: Partial<CatalogFilters> = {}): CatalogFilters {
+  return { ...NO_CATALOG_FILTERS, ...overrides };
+}
+
+function makeEnvironment(
+  props: Partial<Environment> & { id: string; name: string },
+): Environment {
+  return {
+    description: null,
+    systemIds: [],
+    metadata: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...props,
+  };
 }
 
 const checkout = makeSystem({
@@ -476,5 +496,57 @@ describe("filterManagementLists", () => {
     });
     expect(cleared.systems.length).toBe(ALL_SYSTEMS.length);
     expect(cleared.groups.length).toBe(ALL_GROUPS.length);
+  });
+});
+
+describe("filterEnvironments", () => {
+  const production = makeEnvironment({
+    id: "e-prod",
+    name: "Production",
+    description: "Customer-facing region",
+  });
+  const staging = makeEnvironment({ id: "e-stage", name: "Staging" });
+  const ALL_ENVIRONMENTS = [production, staging];
+
+  test("no query returns every environment, same reference", () => {
+    expect(
+      filterEnvironments({
+        environments: ALL_ENVIRONMENTS,
+        filters: filters(),
+      }),
+    ).toBe(ALL_ENVIRONMENTS);
+  });
+
+  test("matches name case-insensitively", () => {
+    expect(
+      filterEnvironments({
+        environments: ALL_ENVIRONMENTS,
+        filters: filters({ query: "STAG" }),
+      }).map((e) => e.id),
+    ).toEqual(["e-stage"]);
+  });
+
+  test("matches description, like the systems list does", () => {
+    expect(
+      filterEnvironments({
+        environments: ALL_ENVIRONMENTS,
+        filters: filters({ query: "customer-facing" }),
+      }).map((e) => e.id),
+    ).toEqual(["e-prod"]);
+  });
+
+  test("the group/health/tag facets do not narrow environments", () => {
+    // An environment has no group, no health and no tag tokens; narrowing by a
+    // dimension it does not have would empty the tab for no stated reason.
+    expect(
+      filterEnvironments({
+        environments: ALL_ENVIRONMENTS,
+        filters: filters({
+          group: "g-payments",
+          health: "degraded",
+          tag: "team=payments",
+        }),
+      }),
+    ).toBe(ALL_ENVIRONMENTS);
   });
 });

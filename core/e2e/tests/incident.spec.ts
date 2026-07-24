@@ -47,22 +47,23 @@ async function expandBrowseSections(page: Page): Promise<void> {
   const headers = main.getByRole("button", { name: /\d+ systems?$/ });
   await expect(headers.first()).toBeVisible({ timeout: NAV_TIMEOUT });
 
-  // The health rollup applies asynchronously and collapses all-healthy sections;
-  // wait for it to settle (its badge shows) so we expand into a stable state,
-  // then open each collapsed section exactly once - awaiting the toggle before
-  // moving on, so a re-click never double-toggles it shut.
-  await expect(
-    main.getByText(/All healthy|degraded|unhealthy/).first(),
-  ).toBeVisible({ timeout: NAV_TIMEOUT });
-
-  const count = await headers.count();
-  for (let i = 0; i < count; i++) {
-    const header = headers.nth(i);
-    if ((await header.getAttribute("aria-expanded")) === "false") {
-      await header.click();
-      await expect(header).toHaveAttribute("aria-expanded", "true");
+  // The health rollup applies asynchronously and collapses all-healthy sections.
+  // We can't wait on the rollup badge to know it settled: a system with no
+  // health data reads "unknown" now and renders NO rollup pill at all. Instead,
+  // poll - open every still-collapsed section until none remain collapsed. A
+  // manual open stores an override that wins over the all-healthy auto-collapse,
+  // so each opened section sticks; one the async rollup collapses later is
+  // re-opened next iteration, and the settle assertion catches it.
+  const collapsed = main.getByRole("button", {
+    name: /\d+ systems?$/,
+    expanded: false,
+  });
+  await expect(async () => {
+    while ((await collapsed.count()) > 0) {
+      await collapsed.first().click();
     }
-  }
+    await expect(collapsed).toHaveCount(0);
+  }).toPass({ timeout: NAV_TIMEOUT });
 }
 
 /**

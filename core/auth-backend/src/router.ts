@@ -16,7 +16,7 @@ import {
   pluginMetadata,
   isApplicationBindable,
 } from "@checkstack/auth-common";
-import { qualifyAccessRuleId } from "@checkstack/common";
+import { qualifyAccessRuleId, isAccessRuleSatisfied } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { RelationTupleStore } from "./relation-tuple-store";
@@ -143,6 +143,17 @@ function generateSecret(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (byte) => chars[byte % chars.length]).join("");
+}
+
+/**
+ * True when the caller may read EVERY team: a trusted service, or a real user
+ * whose grants satisfy the global `auth.teams.read` rule - i.e. `*`, the rule
+ * itself, or `auth.teams.manage` (manage implies read, per `isAccessRuleSatisfied`).
+ * A user without it is scoped to the teams they are a member or manager of.
+ */
+function hasGlobalTeamsRead(user: AuthUser | undefined): boolean {
+  if (user?.type === "service") return true;
+  return isAccessRuleSatisfied(user?.accessRules ?? [], authAccess.teams.read);
 }
 
 async function assertTeamManagementAccess({
@@ -296,9 +307,24 @@ export const createAuthRouter = (
     // Anonymous callers get the anonymous role's effective rules (NOT empty), so
     // the UI can gate on what a guest may actually do.
     if (!isRealUser(user)) {
-      return { accessRules: await loadAnonymousAccessRules() };
+      return { accessRules: await loadAnonymousAccessRules(), isInAnyTeam: false };
     }
-    return { accessRules: user.accessRules || [] };
+    // `isInAnyTeam` lets the frontend show the Teams page/nav to a team-scoped
+    // user who holds no global rule. It must count MANAGER-only teams too
+    // (managers are not necessarily members), so `user.teamIds` - which is
+    // membership-only - is not sufficient on its own: fall back to a manager
+    // lookup only when the user is a member of no team (the cheap common case
+    // short-circuits without the extra query).
+    let isInAnyTeam = (user.teamIds?.length ?? 0) > 0;
+    if (!isInAnyTeam) {
+      const [managerRow] = await internalDb
+        .select({ teamId: schema.teamManager.teamId })
+        .from(schema.teamManager)
+        .where(eq(schema.teamManager.userId, user.id))
+        .limit(1);
+      isInAnyTeam = !!managerRow;
+    }
+    return { accessRules: user.accessRules || [], isInAnyTeam };
   });
 
   const getUsers = os.getUsers.handler(async () => {
@@ -324,13 +350,14 @@ export const createAuthRouter = (
   });
 
   const searchUsers = os.searchUsers.handler(async ({ input, context }) => {
-    // `auth.teams.read` is a DEFAULT rule (every authenticated user holds it),
-    // so the contract gate alone would let any logged-in user enumerate the
-    // full user directory (names + emails). This endpoint exists only to feed
-    // the team add-member picker, so we further restrict it to callers who
-    // actually administer a team: a global team-manager (admin) OR a manager of
-    // at least one specific team. A plain member with no management role has no
-    // reason to search the directory and is denied.
+    // The contract gates this `access: []` (any authenticated caller passes the
+    // middleware) so team managers - who hold no global rule - aren't 403'd, but
+    // that alone would let any logged-in user enumerate the full user directory
+    // (names + emails). This endpoint exists only to feed the team add-member
+    // picker, so we further restrict it HERE to callers who actually administer a
+    // team: a global team-manager (admin) OR a manager of at least one specific
+    // team. A plain member with no management role has no reason to search the
+    // directory and is denied.
     const user = context.user;
     if (user?.type === "service") {
       // Trusted S2S caller; no directory restriction.
@@ -1675,6 +1702,62 @@ export const createAuthRouter = (
   // TEAM MANAGEMENT HANDLERS
   // ==========================================================================
 
+  // --- Team-scoped read authorization ---------------------------------------
+  // The team read / self-service surfaces (the Teams page, the "Who can change
+  // this" editor) are reached by team MEMBERS and MANAGERS, who hold a per-team
+  // ReBAC grant, NOT the global `teams.read` rule. Those procedures are therefore
+  // gated `access: []` in the contract (so the middleware doesn't 403 a team
+  // manager) and scoped HERE: a global `teams.read` holder - or a trusted service
+  // - sees everything; everyone else sees only the team(s) they belong to as a
+  // member or manager. WRITE procedures keep enforcing `assertTeamManagementAccess`.
+  //
+  // `hasGlobalTeamsRead` is a module-scope helper (see above); the two below
+  // close over `internalDb` so they stay local.
+
+  /** Team ids the caller belongs to as a MEMBER or a MANAGER (managers are not
+   * necessarily members). Empty for anonymous callers. */
+  const scopedTeamIdsFor = async (
+    user: AuthUser | undefined,
+  ): Promise<Set<string>> => {
+    if (user?.type === "application" && user.id) {
+      const rows = await internalDb
+        .select({ teamId: schema.applicationTeam.teamId })
+        .from(schema.applicationTeam)
+        .where(eq(schema.applicationTeam.applicationId, user.id));
+      return new Set(rows.map((r) => r.teamId));
+    }
+    if (!isRealUser(user)) return new Set();
+    const [memberRows, managerRows] = await Promise.all([
+      internalDb
+        .select({ teamId: schema.userTeam.teamId })
+        .from(schema.userTeam)
+        .where(eq(schema.userTeam.userId, user.id)),
+      internalDb
+        .select({ teamId: schema.teamManager.teamId })
+        .from(schema.teamManager)
+        .where(eq(schema.teamManager.userId, user.id)),
+    ]);
+    return new Set([
+      ...memberRows.map((r) => r.teamId),
+      ...managerRows.map((r) => r.teamId),
+    ]);
+  };
+
+  /** Throw FORBIDDEN unless the caller may read the given team (global read, a
+   * service, or a member/manager of it). */
+  const assertTeamVisible = async (
+    user: AuthUser | undefined,
+    teamId: string,
+  ): Promise<void> => {
+    if (hasGlobalTeamsRead(user)) return;
+    const scope = await scopedTeamIdsFor(user);
+    if (!scope.has(teamId)) {
+      throw new ORPCError("FORBIDDEN", {
+        message: "You do not have access to this team.",
+      });
+    }
+  };
+
   const getTeams = os.getTeams.handler(async ({ context }) => {
     const teams = await internalDb.select().from(schema.team);
     const memberCounts = await internalDb
@@ -1690,7 +1773,14 @@ export const createAuthRouter = (
       : [];
     const managedTeamIds = new Set(managerRows.map((m) => m.teamId));
 
-    return teams.map((t) => ({
+    // Scope: everyone without global read sees ONLY their own team(s).
+    const globalRead = hasGlobalTeamsRead(context.user);
+    const scope = globalRead ? null : await scopedTeamIdsFor(context.user);
+    const visibleTeams = globalRead
+      ? teams
+      : teams.filter((t) => scope!.has(t.id));
+
+    return visibleTeams.map((t) => ({
       id: t.id,
       name: t.name,
       description: t.description,
@@ -1699,7 +1789,13 @@ export const createAuthRouter = (
     }));
   });
 
-  const getTeam = os.getTeam.handler(async ({ input }) => {
+  const getTeam = os.getTeam.handler(async ({ input, context }) => {
+    // Scope: only a global-read holder / service or a member/manager of THIS
+    // team may read it. Return undefined otherwise (no existence leak).
+    if (!hasGlobalTeamsRead(context.user)) {
+      const scope = await scopedTeamIdsFor(context.user);
+      if (!scope.has(input.teamId)) return;
+    }
     const teams = await internalDb
       .select()
       .from(schema.team)
@@ -1919,12 +2015,22 @@ export const createAuthRouter = (
 
   // Who has access to an object + whether it is public (the privacy marker).
   const listObjectRelations = os.listObjectRelations.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
       const { teams, isPublic } = await tupleStore.listObjectRelations({
         objectType: input.objectType,
         objectId: input.objectId,
       });
       if (teams.length === 0) return { teams: [], isPublic };
+      // Scope: a global teams.read holder sees every grant; otherwise the caller
+      // must have a STAKE - be a member/manager of a team granted on this object
+      // - so an unrelated user can't enumerate a resource's team access. The
+      // public flag is always returned.
+      if (!hasGlobalTeamsRead(context.user)) {
+        const scope = await scopedTeamIdsFor(context.user);
+        if (!teams.some((t) => scope.has(t.teamId))) {
+          return { teams: [], isPublic };
+        }
+      }
       const nameRows = await internalDb
         .select({ id: schema.team.id, name: schema.team.name })
         .from(schema.team)
@@ -1947,12 +2053,25 @@ export const createAuthRouter = (
   );
 
   const listObjectRelationsBulk = os.listObjectRelationsBulk.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
       if (input.objectIds.length === 0) return { objects: [] };
-      const results = await tupleStore.listObjectRelationsBulk({
+      const rawResults = await tupleStore.listObjectRelationsBulk({
         objectType: input.objectType,
         objectIds: input.objectIds,
       });
+      // Scope (same STAKE rule as listObjectRelations, applied per object): a
+      // global teams.read holder sees every grant; otherwise an object's team
+      // grants are hidden unless the caller is a member/manager of one of them.
+      const scope = hasGlobalTeamsRead(context.user)
+        ? null
+        : await scopedTeamIdsFor(context.user);
+      const results = scope
+        ? rawResults.map((r) =>
+            r.teams.some((t) => scope.has(t.teamId))
+              ? r
+              : { ...r, teams: [] },
+          )
+        : rawResults;
       // Resolve every referenced team name in ONE query across all objects.
       const allTeamIds = [
         ...new Set(results.flatMap((r) => r.teams.map((t) => t.teamId))),
@@ -1979,8 +2098,72 @@ export const createAuthRouter = (
     },
   );
 
-  const writeRelation = os.writeRelation.handler(async ({ input }) => {
+  // Delegation authz for editing a resource's TEAM ACCESS (writeRelation /
+  // removeRelation / setObjectPublic). The caller must be able to MANAGE the
+  // specific (objectType, objectId): a global `auth.teams.manage` admin, OR
+  // someone who can manage this exact object per the ReBAC engine - the object's
+  // own `<type>.manage` global rule (on a non-private object), or membership of a
+  // team holding an editor/owner grant on it. A viewer-only team, or a caller
+  // with no grant and no global rule, is READ-ONLY and cannot elevate its own or
+  // another team's access. Privacy is respected by construction: `tupleStore.check`
+  // closes the global path for a team-private object, so a global resource-manager
+  // who is not on a granted team cannot reach a private object (only a
+  // teams.manage admin or a granted team can).
+  const canEditObjectAccess = async ({
+    user,
+    objectType,
+    objectId,
+  }: {
+    user: AuthUser | undefined;
+    objectType: string;
+    objectId: string;
+  }): Promise<boolean> => {
+    if (user?.type === "service") return true;
+    // Global access-control admin may edit any object's team access.
+    if (
+      isAccessRuleSatisfied(user?.accessRules ?? [], authAccess.teams.manage)
+    ) {
+      return true;
+    }
+    // Otherwise the caller must be able to MANAGE this exact object. The object's
+    // global manage rule is `${objectType}.manage` by the RLAC keying convention
+    // (resourceType `${pluginId}.${resource}` <-> rule id `${resource}.manage`).
+    const rules = user?.accessRules ?? [];
+    const hasResourceManage =
+      rules.includes("*") || rules.includes(`${objectType}.manage`);
+    const userTeamIds =
+      user && (user.type === "user" || user.type === "application")
+        ? await resolveUserTeamIds(user.id, user.type)
+        : [];
+    return tupleStore.check({
+      objectType,
+      objectId,
+      userTeamIds,
+      action: "manage",
+      hasGlobalAccess: hasResourceManage,
+    });
+  };
+
+  const assertCanEditObjectAccess = async (args: {
+    user: AuthUser | undefined;
+    objectType: string;
+    objectId: string;
+  }): Promise<void> => {
+    if (!(await canEditObjectAccess(args))) {
+      throw new ORPCError("FORBIDDEN", {
+        message:
+          "You need manage access to this resource to change its team access.",
+      });
+    }
+  };
+
+  const writeRelation = os.writeRelation.handler(async ({ input, context }) => {
     assertKnownResourceType(input.objectType);
+    await assertCanEditObjectAccess({
+      user: context.user,
+      objectType: input.objectType,
+      objectId: input.objectId,
+    });
     await tupleStore.setTeamRelation({
       objectType: input.objectType,
       objectId: input.objectId,
@@ -1989,22 +2172,46 @@ export const createAuthRouter = (
     });
   });
 
-  const removeRelation = os.removeRelation.handler(async ({ input }) => {
-    await tupleStore.removeTeamFromObject({
-      objectType: input.objectType,
-      objectId: input.objectId,
-      teamId: input.teamId,
-    });
-  });
+  const removeRelation = os.removeRelation.handler(
+    async ({ input, context }) => {
+      await assertCanEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      });
+      await tupleStore.removeTeamFromObject({
+        objectType: input.objectType,
+        objectId: input.objectId,
+        teamId: input.teamId,
+      });
+    },
+  );
 
-  const setObjectPublic = os.setObjectPublic.handler(async ({ input }) => {
-    assertKnownResourceType(input.objectType);
-    await tupleStore.setObjectPublic({
-      objectType: input.objectType,
-      objectId: input.objectId,
-      isPublic: input.isPublic,
-    });
-  });
+  const setObjectPublic = os.setObjectPublic.handler(
+    async ({ input, context }) => {
+      assertKnownResourceType(input.objectType);
+      await assertCanEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      });
+      await tupleStore.setObjectPublic({
+        objectType: input.objectType,
+        objectId: input.objectId,
+        isPublic: input.isPublic,
+      });
+    },
+  );
+
+  const canManageObjectAccess = os.canManageObjectAccess.handler(
+    async ({ input, context }) => ({
+      allowed: await canEditObjectAccess({
+        user: context.user,
+        objectType: input.objectType,
+        objectId: input.objectId,
+      }),
+    }),
+  );
 
   // S2S engine endpoints (called by the auth middleware).
   const check = os.check.handler(async ({ input }) => {
@@ -2100,7 +2307,8 @@ export const createAuthRouter = (
   });
 
   const listSubjectRelations = os.listSubjectRelations.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
+      await assertTeamVisible(context.user, input.teamId);
       const rows = await tupleStore.listSubjectRelations({
         teamId: input.teamId,
       });
@@ -2200,7 +2408,8 @@ export const createAuthRouter = (
   );
 
   const listTeamCreateGrants = os.listTeamCreateGrants.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
+      await assertTeamVisible(context.user, input.teamId);
       const resourceTypes = await tupleStore.listCreateGrants({
         teamId: input.teamId,
       });
@@ -2552,6 +2761,7 @@ export const createAuthRouter = (
     writeRelation,
     removeRelation,
     setObjectPublic,
+    canManageObjectAccess,
     check,
     listAccessibleObjectIds,
     deleteObjectRelations,

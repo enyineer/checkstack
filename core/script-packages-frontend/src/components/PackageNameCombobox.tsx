@@ -13,7 +13,7 @@ import {
   comboboxAnchorProps,
   isAnchorInteraction,
 } from "@checkstack/ui";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 
 export interface PackageNameComboboxProps {
   /** Current package-name value (controlled). */

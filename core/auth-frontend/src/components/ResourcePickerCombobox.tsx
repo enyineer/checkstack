@@ -10,7 +10,7 @@ import {
   comboboxAnchorProps,
   isAnchorInteraction,
 } from "@checkstack/ui";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 
 export interface ResourcePickerComboboxProps {
   /** Qualified resource type to search within (e.g. "catalog.system"). */

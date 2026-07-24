@@ -9,9 +9,6 @@
   },
   "references": [
     {
-      "path": "../../plugins/k8s-events-common"
-    },
-    {
       "path": "../backend-api"
     },
     {
@@ -21,7 +18,13 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../healthcheck-execution"
+    },
+    {
       "path": "../ingest-utils"
+    },
+    {
+      "path": "../k8s-events-common"
     },
     {
       "path": "../logstream-common"

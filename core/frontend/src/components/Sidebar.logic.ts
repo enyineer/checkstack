@@ -22,6 +22,8 @@ export interface NavLike {
   isVisible?: (context: {
     accessRules: string[];
     isAuthenticated: boolean;
+    /** True when the user is a member or manager of at least one team. */
+    isInAnyTeam: boolean;
   }) => boolean;
 }
 
@@ -55,6 +57,7 @@ export function selectNavGroups<R extends { nav?: NavLike }>({
   isAuthenticated,
   groupOrder,
   manageableTypes = new Set<string>(),
+  isInAnyTeam = false,
 }: {
   routes: R[];
   accessRules: string[];
@@ -66,6 +69,12 @@ export function selectNavGroups<R extends { nav?: NavLike }>({
    * global rule. Empty set (the default) reduces to pure global-rule gating.
    */
   manageableTypes?: Set<string>;
+  /**
+   * Whether the user is a member or manager of at least one team. Passed to each
+   * entry's `isVisible` predicate so a surface (e.g. the Teams page) can appear
+   * for a team-scoped user who holds no global rule. Defaults to false.
+   */
+  isInAnyTeam?: boolean;
 }): Array<NavGroupOf<R & { nav: NavLike }>> {
   const visible = routes.filter((route): route is R & { nav: NavLike } => {
     const nav = route.nav;
@@ -85,7 +94,7 @@ export function selectNavGroups<R extends { nav?: NavLike }>({
     }
     if (
       nav.isVisible !== undefined &&
-      !nav.isVisible({ accessRules, isAuthenticated })
+      !nav.isVisible({ accessRules, isAuthenticated, isInAnyTeam })
     ) {
       return false;
     }

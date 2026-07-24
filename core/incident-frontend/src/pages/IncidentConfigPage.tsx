@@ -8,13 +8,12 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
-import type {
-  IncidentWithSystems,
-  IncidentStatus,
-} from "@checkstack/incident-common";
+import type { IncidentWithSystems } from "@checkstack/incident-common";
 import {
   incidentAccess,
   incidentResourceTypes,
+  IncidentSeverityEnum,
+  IncidentStatusEnum,
   pluginMetadata as incidentPluginMetadata,
 } from "@checkstack/incident-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
@@ -26,14 +25,12 @@ import {
   EmptyState,
   QueryErrorState,
   DataTable,
+  useDataTableFilters,
+  parsedFacetValue,
   type DataTableColumn,
+  type DataTableFacetOption,
   RowActions,
   RowAction,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
   Checkbox,
   useToast,
   ConfirmationModal,
@@ -57,7 +54,9 @@ import {
   getIncidentSeverityBadge,
   getIncidentSeverityAccentClass,
   incidentSeverityRank,
+  presentIncidentSeverity,
   incidentStatusRank,
+  presentIncidentStatus,
 } from "../utils/badges";
 import {
   canResolveIncident,
@@ -86,6 +85,39 @@ const IncidentLearnMore = () => (
     <ExternalLink className="h-3 w-3" />
   </a>
 );
+
+/**
+ * Incident lifecycle status options. Labels come from the same presenter the
+ * status badges use, so the dropdown and the rows can never disagree about what
+ * a status is called - and declaring them keeps the lifecycle order, which
+ * deriving from the data would sort alphabetically.
+ *
+ * The MATCHING lives on the Status column (`filterValue`), so the table renders
+ * this control in its own bar. The selection ALSO narrows the list query, which
+ * is what actually reduces the fetch; the column filter re-applying it over
+ * already-scoped rows is a harmless no-op that keeps the control where a reader
+ * expects it - attached to the column it filters.
+ */
+const INCIDENT_STATUS_FACET_ID = "status";
+const INCIDENT_SEVERITY_FACET_ID = "severity";
+
+/**
+ * Severity options in IMPACT order (critical first), which is how the column
+ * sorts and how an operator triages. Deriving them from the data would sort
+ * alphabetically - critical, major, minor - which only looks right by accident.
+ */
+const INCIDENT_SEVERITY_OPTIONS: readonly DataTableFacetOption[] =
+  IncidentSeverityEnum.options
+    .toSorted((a, b) => incidentSeverityRank[a] - incidentSeverityRank[b])
+    .map((severity) => ({
+      value: severity,
+      label: presentIncidentSeverity(severity).label,
+    }));
+const INCIDENT_STATUS_OPTIONS: readonly DataTableFacetOption[] =
+  IncidentStatusEnum.options.map((status) => ({
+    value: status,
+    label: presentIncidentStatus(status).label,
+  }));
 
 const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
@@ -117,9 +149,20 @@ const IncidentConfigPageContent: React.FC = () => {
       parentType: catalogResourceTypes.system,
     });
 
-  const [statusFilter, setStatusFilter] = useState<IncidentStatus | "all">(
-    "all",
-  );
+  // Server-side filtering (both feed the list query's input), so the table
+  // declares no facets - the shared bar drives the query. The status facet is
+  // URL-backed, so a link to "the incidents being investigated" reopens filtered.
+  const filters = useDataTableFilters({
+    facetIds: [INCIDENT_STATUS_FACET_ID, INCIDENT_SEVERITY_FACET_ID],
+  });
+  const statusFilter = parsedFacetValue({
+    filters: filters.state,
+    facetId: INCIDENT_STATUS_FACET_ID,
+    schema: IncidentStatusEnum,
+  });
+  // NOT a facet: a facet NARROWS, and this WIDENS the list to include resolved
+  // incidents. Modelling it as one would invert its meaning, so it rides in the
+  // bar's `children` slot and keeps its own state.
   const [showResolved, setShowResolved] = useState(false);
 
   // Editor state
@@ -142,7 +185,7 @@ const IncidentConfigPageContent: React.FC = () => {
 
   // Fetch incidents with useQuery
   const incidentsQuery = incidentClient.listIncidents.useQuery(
-    statusFilter === "all"
+    statusFilter === undefined
       ? { includeResolved: showResolved }
       : { status: statusFilter, includeResolved: showResolved },
   );
@@ -375,6 +418,10 @@ const IncidentConfigPageContent: React.FC = () => {
       id: "title",
       header: "Title",
       sortValue: (incident) => incident.title,
+      // Both lines the cell renders: searching for words you can SEE on the row
+      // is the behaviour people expect.
+      searchValue: (incident) =>
+        `${incident.title} ${incident.description ?? ""}`,
       cell: (incident) => (
         <div>
           <p className="text-sm font-semibold text-foreground">
@@ -392,12 +439,18 @@ const IncidentConfigPageContent: React.FC = () => {
       id: "severity",
       header: "Severity",
       sortValue: (incident) => incidentSeverityRank[incident.severity],
+      filterValue: (incident) => incident.severity,
+      filterOptions: INCIDENT_SEVERITY_OPTIONS,
+      filterAnyLabel: "All severities",
       cell: (incident) => getIncidentSeverityBadge(incident.severity),
     },
     {
       id: "status",
       header: "Status",
       sortValue: (incident) => incidentStatusRank[incident.status],
+      filterValue: (incident) => incident.status,
+      filterOptions: INCIDENT_STATUS_OPTIONS,
+      filterAnyLabel: "All statuses",
       cell: (incident) => getIncidentStatusBadge(incident.status),
     },
     {
@@ -502,34 +555,6 @@ const IncidentConfigPageContent: React.FC = () => {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
-        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={showResolved}
-            onChange={(e) => setShowResolved(e.target.checked)}
-            className="rounded border-border"
-          />
-          Show resolved
-        </label>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as IncidentStatus | "all")}
-        >
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="investigating">Investigating</SelectItem>
-            <SelectItem value="identified">Identified</SelectItem>
-            <SelectItem value="fixing">Fixing</SelectItem>
-            <SelectItem value="monitoring">Monitoring</SelectItem>
-            <SelectItem value="resolved">Resolved</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
       {loading ? (
         <div className="flex justify-center p-12">
           <LoadingSpinner />
@@ -592,12 +617,34 @@ const IncidentConfigPageContent: React.FC = () => {
             data={incidents}
             columns={columns}
             getRowId={(incident) => incident.id}
-            searchable={false}
+            // The Status column declares its own filter, so the control sits in
+            // the table's bar rather than floating above the card.
+            filters={filters.state}
+            onFiltersChange={filters.setState}
+            onClearFilters={filters.clear}
+            // "Show resolved" is not a facet: a facet NARROWS, and this WIDENS
+            // the list to include rows the endpoint excludes by default. It
+            // still belongs BESIDE the status control, not pushed to the far
+            // side of the row where `toolbar` puts its actions.
+            filterExtras={
+              <label className="flex items-center gap-2 whitespace-nowrap text-sm">
+                <Checkbox
+                  checked={showResolved}
+                  onCheckedChange={(checked) => setShowResolved(checked === true)}
+                />
+                Show resolved
+              </label>
+            }
+            searchPlaceholder="Search incidents..."
             getRowProps={(incident) => ({
               selected: selectedIds.has(incident.id),
               className: "hover:bg-surface-inset",
             })}
+            // The list arrives already narrowed by the server, so an empty
+            // `data` means either "none exist" or "none match". Suppressing
+            // `emptyState` while a filter is active is what tells them apart.
             emptyState={
+              filters.active ? undefined : (
               <EmptyState
                 icon={<AlertTriangle className="size-10" />}
                 title="No incidents found"
@@ -614,6 +661,19 @@ const IncidentConfigPageContent: React.FC = () => {
                       Report incident manually
                     </Button>
                   ) : undefined
+                }
+              />
+              )
+            }
+            noResultsState={
+              <EmptyState
+                icon={<AlertTriangle className="size-10" />}
+                title="No incidents match your filters"
+                description="Nothing in this list matches the current status filter. Resolved incidents are hidden unless you ask for them."
+                actions={
+                  <Button variant="outline" onClick={filters.clear}>
+                    Clear filters
+                  </Button>
                 }
               />
             }

@@ -57,7 +57,49 @@ const MAPPING: Array<{ label: string; tone: StatusPillTone }> = [
   { label: "status: monitoring / scheduled", tone: "info" },
   { label: "status: resolved / completed", tone: "ok" },
   { label: "status: cancelled", tone: "unknown" },
+  { label: "announcement severity: info", tone: "info" },
+  { label: "announcement severity: warning", tone: "warn" },
+  { label: "announcement severity: critical", tone: "down" },
 ];
+
+/**
+ * The banner surface classes (`tint` + `border` + `text`, with `tintHover` for
+ * the dismiss control). Announcement banners consume these so a full-bleed
+ * strip is tinted by the SAME tone that drives its pill and accent stripe.
+ */
+export const BannerSurfaces: Story = {
+  render: () => (
+    <div className="flex flex-col gap-2">
+      {TONES.map((tone) => {
+        const styles = pillToneStyles[tone];
+        return (
+          <div
+            key={tone}
+            className={cn(
+              "flex items-center gap-3 border px-4 py-2",
+              styles.tint,
+              styles.border,
+            )}
+          >
+            <span className={cn("text-sm font-medium flex-1", styles.text)}>
+              A {tone} announcement banner
+            </span>
+            <button
+              type="button"
+              className={cn(
+                "rounded p-1 text-xs transition-colors",
+                styles.text,
+                styles.tintHover,
+              )}
+            >
+              Dismiss
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  ),
+};
 
 export const DomainMapping: Story = {
   render: () => (

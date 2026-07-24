@@ -5,6 +5,8 @@ import {
   Card,
   DataTable,
   type DataTableColumn,
+  type DataTableFacetControl,
+  type DataTableFilterState,
   useKeptPrevious,
   cn,
 } from "@checkstack/ui";
@@ -54,19 +56,20 @@ const SIGNAL_CHIP =
 export const RunEnvironmentChip: React.FC<{
   environmentId?: string;
   label?: string;
-}> = ({ environmentId, label }) =>
-  environmentId ? (
+}> = ({ environmentId, label }) => {
+  // `label` is resolved by the caller against the FULL environment list, so an
+  // absent one means the environment was deleted - see
+  // `resolveRunEnvironmentLabel` for why those two cases must stay distinct.
+  if (!environmentId) {
+    return <span className="text-xs text-muted-foreground">None</span>;
+  }
+  return (
     <span className={NEUTRAL_CHIP}>
       <Layers className="h-3 w-3" />
-      {/* A run's environment id with no resolved name is an environment that no
-          longer exists (deleted from the catalog). Callers resolve names from
-          ALL environments, so an unresolved id here means "deleted", not merely
-          "unassigned" — read it as such rather than dumping the raw id. */}
       {label ?? "Removed environment"}
     </span>
-  ) : (
-    <span className="text-xs text-muted-foreground">None</span>
   );
+};
 
 export const RunSourceChip: React.FC<{
   sourceId?: string;
@@ -117,11 +120,18 @@ export interface HealthCheckRunsTableProps {
   loading: boolean;
   emptyMessage?: string;
   /**
-   * Optional id -> name map for the Environment column. When a run's
-   * `environmentId` is present, its display name is looked up here (falling
-   * back to the id). Env-less runs render a muted dash.
+   * id -> name map for the Environment column, covering EVERY environment in
+   * the instance (see `useEnvironmentLabels`) - not just those currently
+   * assigned to a system.
+   *
+   * REQUIRED, and deliberately so: an id that is absent from this list is
+   * rendered as "Removed environment", a claim that is only sound when the full
+   * list was actually supplied. While the prop was optional, a page that simply
+   * forgot it labelled every live environment as removed - a failure that lies
+   * rather than degrading visibly. Pass `[]` only if you genuinely mean "no
+   * environments exist".
    */
-  environmentLabels?: EnvironmentLabel[];
+  environmentLabels: EnvironmentLabel[];
   /** Show System ID and Configuration ID columns with link to detail page */
   showFilterColumns?: boolean;
   /** Number of columns for the expanded result row */
@@ -142,6 +152,15 @@ export interface HealthCheckRunsTableProps {
     setPage: (page: number) => void;
     setLimit: (limit: number) => void;
   };
+  /**
+   * Controlled filter state for the status/source controls. Both narrow the
+   * HISTORY QUERY rather than these rows, so the caller applies them - the table
+   * only renders the controls, keeping them attached to the list they filter.
+   */
+  filters?: DataTableFilterState;
+  onFiltersChange?: (next: DataTableFilterState) => void;
+  onClearFilters?: () => void;
+  facets?: ReadonlyArray<DataTableFacetControl>;
 }
 
 /** Keyboard activation for row-as-button semantics (Enter / Space). */
@@ -164,9 +183,13 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
   onRowSelect,
   selectedRunId,
   pagination,
+  filters,
+  onFiltersChange,
+  onClearFilters,
+  facets,
 }) => {
   const envNameById = new Map(
-    (environmentLabels ?? []).map((e) => [e.id, e.name]),
+    environmentLabels.map((e) => [e.id, e.name]),
   );
 
   // Keep previous runs during a refetch to prevent layout shift, and dim them
@@ -279,6 +302,14 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
         data={displayRuns}
         columns={columns}
         getRowId={(run) => run.id}
+        // Status and source are applied SERVER-side (they narrow the history
+        // query, and "failing" collapses degraded+unhealthy, which no single row
+        // value expresses), so they arrive as controls with no row accessor -
+        // rendered in the table's own bar, applied by the caller.
+        facets={facets}
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        onClearFilters={onClearFilters}
         searchable={false}
         getRowProps={(run) => {
           const selected = run.id === selectedRunId;

@@ -6,13 +6,14 @@ import {
   type DerivedState,
   type AffectedUpstream,
 } from "@checkstack/dependency-common";
-import { cn, Badge } from "@checkstack/ui";
+import { cn } from "@checkstack/ui";
 import { ArrowUpRight, AlertTriangle, Info } from "lucide-react";
 import {
   derivedStateTone,
   ownStatusTone,
   toneStyles,
 } from "./statusPill.logic";
+import { ImpactBadge } from "./ImpactBadge";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
@@ -47,29 +48,6 @@ function getAlertStyle(state: DerivedState): {
  * colorblind-safe status triad. `informational` is a neutral, non-degrading
  * signal, so it keeps the neutral secondary badge.
  */
-function getImpactBadge(impactType: string): React.ReactNode {
-  switch (impactType) {
-    case "critical": {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-down/10 px-2.5 py-1 text-xs font-medium text-status-down">
-          <span className="size-1.5 rounded-full bg-status-down" />
-          Critical
-        </span>
-      );
-    }
-    case "degraded": {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-warn/10 px-2.5 py-1 text-xs font-medium text-status-warn">
-          <span className="size-1.5 rounded-full bg-status-warn" />
-          Degraded
-        </span>
-      );
-    }
-    default: {
-      return <Badge variant="secondary">Info</Badge>;
-    }
-  }
-}
 
 /**
  * Alert banner component injected into the SystemDetailsTopSlot.
@@ -148,7 +126,7 @@ export const DependencyAlert: React.FC<Props> = ({ system }) => {
                     />
                     {upstream.ownStatus}
                   </span>
-                  {getImpactBadge(upstream.impactType)}
+                  <ImpactBadge impactType={upstream.impactType} />
                 </div>
               </div>
             );

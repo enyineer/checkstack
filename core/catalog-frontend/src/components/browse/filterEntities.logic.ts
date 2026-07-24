@@ -1,10 +1,13 @@
 import type {
   System,
   Group,
+  Environment,
   CatalogHealthStatuses,
 } from "@checkstack/catalog-common";
 import {
+  hasCatalogFilters,
   type BrowseState,
+  type CatalogFilters,
   type Density,
   UNGROUPED_ID,
 } from "./browseState.logic";
@@ -102,11 +105,20 @@ export function collectTagOptions(systems: System[]): string[] {
   return [...seen].toSorted((a, b) => a.localeCompare(b));
 }
 
-/** Does a system pass the search-query filter (name OR description)? */
-export function matchesQuery(system: System, query: string): boolean {
+/**
+ * Does a named entity pass the search-query filter (name OR description)?
+ *
+ * Deliberately structural rather than `System`-typed: systems, environments and
+ * groups are all searched by the SAME box, so they must agree on what "matches"
+ * means. A group carries no description, which the optional field covers.
+ */
+export function matchesQuery(
+  entity: { name: string; description?: string | null },
+  query: string,
+): boolean {
   if (!query) return true;
   return (
-    matchesText(system.name, query) || matchesText(system.description, query)
+    matchesText(entity.name, query) || matchesText(entity.description, query)
   );
 }
 
@@ -115,12 +127,6 @@ export function matchesTag(system: System, tag: string | null): boolean {
   if (!tag) return true;
   const lower = tag.toLowerCase();
   return systemTags(system).some((t) => t.toLowerCase() === lower);
-}
-
-/** Does a group's own name match the search query? (`Group` has no description.) */
-function groupMatchesQuery(group: Group, query: string): boolean {
-  if (!query) return true;
-  return matchesText(group.name, query);
 }
 
 /**
@@ -258,8 +264,7 @@ export function buildBrowseModel({
     }
   }
 
-  const hasAnyFilter =
-    hasQuery || state.tag !== null || state.group !== null || state.health !== "all";
+  const hasAnyFilter = hasCatalogFilters(state);
   const isFilteredEmpty =
     !isEmptyCatalog &&
     hasAnyFilter &&
@@ -297,7 +302,8 @@ export interface ManagementListsModel {
  *   no real group), and under an active query are kept when the group name
  *   matches OR the group contains a system that matches query+tag+health.
  * - The health filter reads the reported `statuses` map (Phase 4); when the slot
- *   is unfilled every system is `"unknown"` and only `"all"` matches anything.
+ *   is unfilled every system is `"unknown"`, so only an unconstrained or
+ *   `"unknown"` selection matches anything.
  */
 export function filterManagementLists({
   systems,
@@ -349,7 +355,7 @@ export function filterManagementLists({
     if (state.group === UNGROUPED_ID) return false;
     if (state.group && state.group !== group.id) return false;
     if (!hasQuery) return true;
-    return groupMatchesQuery(group, state.query) || groupContainsMatch(group);
+    return matchesQuery(group, state.query) || groupContainsMatch(group);
   });
 
   return {
@@ -357,4 +363,27 @@ export function filterManagementLists({
     groups: filteredGroups,
     isEmptyCatalog,
   };
+}
+
+/**
+ * Filter the management page's Environments tab with the SAME search rule the
+ * systems list uses (name OR description), so one search box behaves the same
+ * on every tab.
+ *
+ * Environments are deliberately untouched by the group/health/tag facets: an
+ * environment has no group membership, no health, and its metadata is template
+ * input for the systems attached to it rather than a filter token. Narrowing by
+ * a dimension the entity does not have would empty the tab for no stated reason.
+ */
+export function filterEnvironments({
+  environments,
+  filters,
+}: {
+  environments: Environment[];
+  filters: CatalogFilters;
+}): Environment[] {
+  if (filters.query.trim().length === 0) return environments;
+  return environments.filter((environment) =>
+    matchesQuery(environment, filters.query),
+  );
 }

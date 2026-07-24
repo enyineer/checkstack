@@ -1,24 +1,11 @@
-import type {
-  SatelliteAssignment,
-  ResultMessage,
-} from "@checkstack/satellite-common";
-import {
-  registerSandboxPolicyProvider,
-  type ConnectedClient,
-  type TransportClient,
-  type CollectorRunContext,
-} from "@checkstack/backend-api";
+import type { SatelliteAssignment } from "@checkstack/satellite-common";
+import { registerSandboxPolicyProvider } from "@checkstack/backend-api";
 import { resolveScriptPackagesDir } from "@checkstack/script-packages-backend";
 import { SatelliteClient } from "./satellite-client";
 import { SatelliteSandboxPolicyCache } from "./sandbox-policy-cache";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
-import { buildRunContext } from "./run-context";
-import {
-  hasUnresolvedConfigSecrets,
-  assertConfigSecretsResolved,
-  applyConfigSecretValues,
-} from "./config-secrets";
+import { executeAssignment } from "./execute-assignment";
 import { SatelliteScriptPackages } from "./satellite-script-packages";
 import { TelemetryClient } from "./telemetry-client";
 import { AgentCapabilityRegistry } from "./capability-config-registry";
@@ -47,7 +34,9 @@ if (!CLIENT_ID) {
   );
 }
 if (!TOKEN) {
-  throw new Error("CHECKSTACK_SATELLITE_TOKEN environment variable is required");
+  throw new Error(
+    "CHECKSTACK_SATELLITE_TOKEN environment variable is required",
+  );
 }
 
 // Read version from package.json
@@ -108,268 +97,6 @@ const { healthCheckRegistry, collectorRegistry } = await loadStrategies({
 // 3. Execute collectors against the connected client
 // 4. Close client and report result
 // =============================================================================
-
-/** Whether a collector config declares a non-empty secretEnv mapping. */
-function declaresSecretEnv(config: Record<string, unknown>): boolean {
-  const se = config.secretEnv;
-  return (
-    typeof se === "object" &&
-    se !== null &&
-    Object.keys(se as Record<string, unknown>).length > 0
-  );
-}
-
-async function executeAssignment(
-  assignment: SatelliteAssignment,
-  deps: {
-    /**
-     * Request a collector run's resolved secret env from core (JIT). Throws
-     * on delivery/resolution failure so the collector fails clearly.
-     */
-    requestRunSecrets: (input: {
-      configId: string;
-      collectorId: string;
-      runId: string;
-    }) => Promise<Record<string, string>>;
-    /**
-     * Request the assignment's resolved CONFIG secrets from core (JIT):
-     * `x-secret` strategy/collector config fields the relayed assignment
-     * carries only as markers / `${{ secrets.* }}` references. Throws on
-     * delivery/resolution failure so the run fails clearly.
-     */
-    requestConfigSecrets: (input: {
-      configId: string;
-      runId: string;
-    }) => Promise<{
-      strategy: Record<string, string>;
-      collectors: Record<string, Record<string, string>>;
-    }>;
-  },
-): Promise<ResultMessage> {
-  const strategy = healthCheckRegistry.getStrategy(assignment.strategyId);
-  if (!strategy) {
-    return {
-      type: "result",
-      configId: assignment.configId,
-      systemId: assignment.systemId,
-      status: "unhealthy",
-      latencyMs: 0,
-      executedAt: new Date().toISOString(),
-      result: {
-        status: "unhealthy",
-        latencyMs: 0,
-        message: `Strategy ${assignment.strategyId} not found in satellite`,
-        metadata: {
-          connected: false,
-          error: `Strategy ${assignment.strategyId} not found in satellite`,
-        },
-      },
-    };
-  }
-
-  // Curated, read-only run-context metadata exposed to collectors.
-  // Mirrors the core queue-executor; falls back to IDs when the optional
-  // name fields are absent (version-skew safety).
-  const runContext: CollectorRunContext = buildRunContext({ assignment });
-
-  const start = performance.now();
-  let connectedClient:
-    | ConnectedClient<TransportClient<never, unknown>>
-    | undefined;
-
-  try {
-    // 0. JIT config-secret delivery: if any `x-secret` field of the strategy
-    // or a collector config still holds a marker / reference, fetch the
-    // resolved values from core and apply them onto in-memory copies. The
-    // persisted assignment keeps only the markers; legacy bare literals need
-    // no round-trip (and stay compatible with an older core).
-    let strategyConfig = assignment.config;
-    const collectorConfigOverrides = new Map<string, Record<string, unknown>>();
-    // Schema-free detection catches a marker/reference anywhere in the config -
-    // including inside a Zod union, which a schema walk missed.
-    const needsConfigSecrets =
-      hasUnresolvedConfigSecrets({ config: assignment.config }) ||
-      (assignment.collectors ?? []).some((entry) =>
-        hasUnresolvedConfigSecrets({ config: entry.config }),
-      );
-    if (needsConfigSecrets) {
-      const resolved = await deps.requestConfigSecrets({
-        configId: assignment.configId,
-        runId: crypto.randomUUID(),
-      });
-      strategyConfig = applyConfigSecretValues({
-        config: assignment.config,
-        values: resolved.strategy,
-      });
-      for (const entry of assignment.collectors ?? []) {
-        const values = resolved.collectors[entry.id];
-        if (values && Object.keys(values).length > 0) {
-          collectorConfigOverrides.set(
-            entry.id,
-            applyConfigSecretValues({ config: entry.config, values }),
-          );
-        }
-      }
-    }
-
-    // Fail CLOSED before the config is used: if any marker/reference survived
-    // resolution (core lacked a schema, a value was undeliverable), refuse the
-    // run rather than probe the target with the opaque marker as a credential.
-    assertConfigSecretsResolved({
-      config: strategyConfig,
-      label: `Health check ${assignment.configId} strategy`,
-    });
-    for (const entry of assignment.collectors ?? []) {
-      assertConfigSecretsResolved({
-        config: collectorConfigOverrides.get(entry.id) ?? entry.config,
-        label: `Health check ${assignment.configId} collector ${entry.id}`,
-      });
-    }
-
-    // 1. Establish connection (measures connectivity + latency)
-    connectedClient = await strategy.createClient(strategyConfig);
-    const connectionTimeMs = Math.round(performance.now() - start);
-
-    // 2. Execute collectors if configured
-    const collectors = assignment.collectors ?? [];
-    const collectorResults: Record<string, unknown> = {};
-    let hasCollectorError = false;
-    let errorMessage: string | undefined;
-
-    if (collectors.length > 0) {
-      const collectorPromises = collectors.map(async (collectorEntry) => {
-        const registered = collectorRegistry.getCollector(
-          collectorEntry.collectorId,
-        );
-        if (!registered) {
-          logger.warn(
-            `Collector ${collectorEntry.collectorId} not found, skipping`,
-          );
-          return { storageKey: collectorEntry.id, skipped: true };
-        }
-
-        try {
-          // JIT secret delivery: if this collector declares a secretEnv,
-          // fetch the resolved values from core over the WS channel just
-          // before running. Held in memory only for this run; never written
-          // to disk and never part of the persisted assignment. A delivery
-          // / resolution failure throws and fails the collector clearly.
-          let secretEnv: Record<string, string> | undefined;
-          if (declaresSecretEnv(collectorEntry.config)) {
-            secretEnv = await deps.requestRunSecrets({
-              configId: assignment.configId,
-              collectorId: collectorEntry.id,
-              runId: crypto.randomUUID(),
-            });
-          }
-
-          const collectorResult = await registered.collector.execute({
-            config: collectorConfigOverrides.get(collectorEntry.id) ?? collectorEntry.config,
-            client: connectedClient!.client,
-            pluginId: assignment.strategyId,
-            runContext,
-            ...(secretEnv ? { secretEnv } : {}),
-          });
-
-          return {
-            storageKey: collectorEntry.id,
-            skipped: false,
-            success: !collectorResult.error,
-            error: collectorResult.error,
-            result: {
-              _collectorId: collectorEntry.collectorId,
-              ...collectorResult.result,
-            },
-          };
-        } catch (error) {
-          return {
-            storageKey: collectorEntry.id,
-            skipped: false,
-            success: false,
-            error: String(error),
-            result: {
-              _collectorId: collectorEntry.collectorId,
-              error: String(error),
-            },
-          };
-        }
-      });
-
-      const settledResults = await Promise.allSettled(collectorPromises);
-
-      for (const settled of settledResults) {
-        if (settled.status === "rejected") {
-          hasCollectorError = true;
-          if (!errorMessage) errorMessage = String(settled.reason);
-          continue;
-        }
-
-        const result = settled.value;
-        if (result.skipped) continue;
-
-        collectorResults[result.storageKey] = result.result;
-
-        if (!result.success) {
-          hasCollectorError = true;
-          if (!errorMessage) errorMessage = result.error;
-        }
-      }
-    }
-
-    const latencyMs = Math.round(performance.now() - start);
-
-    // 3. Build result — matches local queue-executor structure so
-    //    frontend auto-charts and history detail page work identically.
-    const status = hasCollectorError ? "unhealthy" : "healthy";
-    const result: ResultMessage = {
-      type: "result",
-      configId: assignment.configId,
-      systemId: assignment.systemId,
-      status,
-      latencyMs,
-      executedAt: new Date().toISOString(),
-      result: {
-        status,
-        latencyMs,
-        message: errorMessage
-          ? `Check failed: ${errorMessage}`
-          : `Completed in ${latencyMs}ms`,
-        metadata: {
-          connected: true,
-          connectionTimeMs,
-          collectors: collectorResults,
-        },
-      },
-    };
-
-    return result;
-  } catch (error) {
-    const latencyMs = Math.round(performance.now() - start);
-    return {
-      type: "result",
-      configId: assignment.configId,
-      systemId: assignment.systemId,
-      status: "unhealthy",
-      latencyMs,
-      executedAt: new Date().toISOString(),
-      result: {
-        status: "unhealthy",
-        latencyMs,
-        message: String(error),
-        metadata: {
-          connected: !!connectedClient,
-          error: String(error),
-        },
-      },
-    };
-  } finally {
-    try {
-      connectedClient?.close();
-    } catch {
-      // Ignore close errors
-    }
-  }
-}
 
 // =============================================================================
 // Bootstrap
@@ -444,12 +171,17 @@ const scriptPackages = new SatelliteScriptPackages({
 
 const scheduler = new Scheduler({
   logger,
-  onExecute: async (assignment: SatelliteAssignment) => {
+  onExecute: async ({ assignment, environment }) => {
     try {
-      const result = await executeAssignment(assignment, {
-        requestRunSecrets: (input) => client.requestRunSecrets(input),
-        requestConfigSecrets: (input) => client.requestConfigSecrets(input),
-      });
+      const result = await executeAssignment(
+        assignment,
+        environment,
+        {
+          requestRunSecrets: (input) => client.requestRunSecrets(input),
+          requestConfigSecrets: (input) => client.requestConfigSecrets(input),
+        },
+        { healthCheckRegistry, collectorRegistry, logger },
+      );
       client.sendResult(result);
     } catch (error) {
       logger.error(
@@ -459,6 +191,7 @@ const scheduler = new Scheduler({
         type: "result",
         configId: assignment.configId,
         systemId: assignment.systemId,
+        environmentId: environment?.id ?? null,
         status: "unhealthy",
         latencyMs: 0,
         executedAt: new Date().toISOString(),

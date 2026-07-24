@@ -13,8 +13,9 @@ import { HealthCheckService } from "./service";
  * Satellite ingest evaluates assertions ON THE CORE (satellites never held
  * the assertion semantics — before this, satellite-executed checks silently
  * skipped assertions), then strips ephemeral fields for parity with local
- * runs. These tests drive `ingestSatelliteResult` against a mock db and
- * assert on the run row it persists.
+ * runs. `processSatelliteResult` returns the processed status + result record
+ * (and the check name); the shared post-run path persists it. These tests
+ * assert on that returned payload.
  */
 
 const KEY = computeAssertionKey({
@@ -30,41 +31,15 @@ const collectorResultSchema = z.object({
   body: healthResultString({ "x-ephemeral": true }),
 });
 
-function buildService({
-  entries,
-  inserted,
-}: {
-  entries: CollectorConfigEntry[];
-  inserted: Record<string, unknown>[];
-}) {
-  const tx = {
-    insert: mock(() => ({
-      values: mock((vals: Record<string, unknown>) => {
-        inserted.push(vals);
-        return Object.assign(Promise.resolve(), {
-          onConflictDoUpdate: mock(() => Promise.resolve()),
-          onConflictDoNothing: mock(() => Promise.resolve()),
-        });
-      }),
-    })),
-    select: mock(() => ({
-      from: mock(() => ({
-        where: mock(() =>
-          Object.assign(Promise.resolve([]), {
-            limit: mock(() => Promise.resolve([])),
-          }),
-        ),
-      })),
-    })),
-  };
-
+function buildService({ entries }: { entries: CollectorConfigEntry[] }) {
   const db = {
     select: mock(() => ({
       from: mock(() => ({
-        where: mock(() => Promise.resolve([{ collectors: entries }])),
+        where: mock(() =>
+          Promise.resolve([{ name: "Test check", collectors: entries }]),
+        ),
       })),
     })),
-    transaction: mock(async (fn: (t: typeof tx) => Promise<void>) => fn(tx)),
   };
 
   const collectorRegistry = {
@@ -113,62 +88,57 @@ const entries: CollectorConfigEntry[] = [
   },
 ];
 
-async function ingest({
+async function process({
   entries,
   statusCode,
 }: {
   entries: CollectorConfigEntry[];
   statusCode: number;
 }) {
-  const inserted: Record<string, unknown>[] = [];
-  const service = buildService({ entries, inserted });
-  await service.ingestSatelliteResult({
+  const service = buildService({ entries });
+  return service.processSatelliteResult({
     configId: "config-1",
-    systemId: "system-1",
     status: "healthy",
-    latencyMs: 42,
     result: satelliteResult({ statusCode }) as never,
-    executedAt: "2026-07-03T10:00:00.000Z",
-    sourceId: "sat-1",
-    sourceLabel: "EU West",
   });
-  const runInsert = inserted.find((v) => "status" in v && "result" in v);
-  expect(runInsert).toBeDefined();
-  return runInsert as Record<string, unknown>;
 }
 
-function collectorEntryOf(runInsert: Record<string, unknown>) {
-  const result = runInsert.result as {
+function collectorEntryOf(resultRecord: Record<string, unknown>) {
+  const result = resultRecord as {
     metadata: { collectors: Record<string, Record<string, unknown>> };
   };
   return result.metadata.collectors["entry-1"];
 }
 
-describe("ingestSatelliteResult - assertion evaluation at ingest", () => {
+describe("processSatelliteResult - assertion evaluation at ingest", () => {
   it("downgrades a satellite-healthy run whose assertion fails", async () => {
-    const runInsert = await ingest({ entries, statusCode: 404 });
-    expect(runInsert.status).toBe("unhealthy");
+    const { status, resultRecord } = await process({ entries, statusCode: 404 });
+    expect(status).toBe("unhealthy");
 
-    const entry = collectorEntryOf(runInsert);
+    const entry = collectorEntryOf(resultRecord);
     expect(entry._assertionFailed).toBe("statusCode equals 200");
     expect(entry._assertions).toEqual([
       expect.objectContaining({ key: KEY, passed: false, actual: "404" }),
     ]);
-    const message = (runInsert.result as { message: string }).message;
-    expect(message).toBe(
+    expect((resultRecord as { message: string }).message).toBe(
       "Check failed: Assertion failed: statusCode equals 200",
     );
   });
 
   it("keeps a passing run healthy and stores the passing outcome", async () => {
-    const runInsert = await ingest({ entries, statusCode: 200 });
-    expect(runInsert.status).toBe("healthy");
+    const { status, resultRecord } = await process({ entries, statusCode: 200 });
+    expect(status).toBe("healthy");
 
-    const entry = collectorEntryOf(runInsert);
+    const entry = collectorEntryOf(resultRecord);
     expect(entry._assertionFailed).toBeUndefined();
     expect(entry._assertions).toEqual([
       expect.objectContaining({ key: KEY, passed: true, actual: "200" }),
     ]);
+  });
+
+  it("resolves the check name for the notification", async () => {
+    const { configName } = await process({ entries, statusCode: 200 });
+    expect(configName).toBe("Test check");
   });
 
   it("strips ephemeral fields AFTER assertions ran against them", async () => {
@@ -187,12 +157,12 @@ describe("ingestSatelliteResult - assertion evaluation at ingest", () => {
         ],
       },
     ];
-    const runInsert = await ingest({
+    const { status, resultRecord } = await process({
       entries: withBodyAssertion,
       statusCode: 200,
     });
 
-    const entry = collectorEntryOf(runInsert);
+    const entry = collectorEntryOf(resultRecord);
     // The JSONPath assertion evaluated against the (ephemeral) body...
     expect(entry._assertions).toEqual([
       expect.objectContaining({ passed: true, actual: "ok" }),
@@ -200,14 +170,17 @@ describe("ingestSatelliteResult - assertion evaluation at ingest", () => {
     // ...but the body itself never reaches storage.
     expect(entry.body).toBeUndefined();
     expect(entry.statusCode).toBe(200);
-    expect(runInsert.status).toBe("healthy");
+    expect(status).toBe("healthy");
   });
 
   it("tolerates collector entries the config no longer knows", async () => {
-    const runInsert = await ingest({ entries: [], statusCode: 500 });
+    const { status, resultRecord } = await process({
+      entries: [],
+      statusCode: 500,
+    });
     // No assertions configured: status passes through untouched.
-    expect(runInsert.status).toBe("healthy");
-    const entry = collectorEntryOf(runInsert);
+    expect(status).toBe("healthy");
+    const entry = collectorEntryOf(resultRecord);
     expect(entry._assertions).toBeUndefined();
   });
 });

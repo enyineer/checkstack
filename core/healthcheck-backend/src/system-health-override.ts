@@ -81,7 +81,12 @@ export function applySystemHealthOverrides({
     }
   }
 
-  const status = worstHealthStatus(base.status, worst.status);
+  // An override on an UNMEASURED system simply wins: there is no measured
+  // status to be worse than, and an incident is itself evidence of a problem.
+  const status =
+    base.status === "unknown"
+      ? worst.status
+      : worstHealthStatus(base.status, worst.status);
   const override: SystemHealthOverride = {
     status: worst.status,
     source: worst.source,

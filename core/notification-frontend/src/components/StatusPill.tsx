@@ -1,10 +1,10 @@
-import { cn } from "@checkstack/ui";
-import { toneStyles, type StatusTone } from "./notificationDisplay.logic";
+import { StatusPill as SharedStatusPill } from "@checkstack/ui";
+import type { StatusTone } from "./notificationDisplay.logic";
 
 /**
- * Status pill on the colorblind-safe status triad, multi-encoded with a dot
- * plus a text label (never color alone). Mirrors the pill shape used across
- * this package (StatusBadge, ChannelStatusPill) and `slo-frontend`.
+ * Thin adapter over the shared pill in `@checkstack/ui`, keeping this package's
+ * `label` prop so its call sites read unchanged. The chip itself is no longer
+ * this plugin's business - only the notification status -> tone mapping is.
  */
 export function StatusPill({
   tone,
@@ -15,17 +15,9 @@ export function StatusPill({
   label: string;
   className?: string;
 }) {
-  const styles = toneStyles[tone];
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        styles.pill,
-        className,
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+    <SharedStatusPill tone={tone} className={className}>
       {label}
-    </span>
+    </SharedStatusPill>
   );
 }

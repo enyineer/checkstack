@@ -4,11 +4,11 @@
  *
  * These derive the colorblind-safe status-triad tone and the small numeric
  * figures the cards lead with, kept here so the branch logic can be
- * unit-tested without rendering React or importing `@checkstack/ui`.
+ * unit-tested without rendering React.
  */
 
 import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
-import type { StackedBucket } from "@checkstack/ui";
+import { pillToneStyles, type StackedBucket } from "@checkstack/ui";
 
 /** The colorblind-safe status-triad stem a check status maps onto. */
 export type StatusTone = "ok" | "warn" | "down" | "unknown";
@@ -164,31 +164,12 @@ export function bucketsToStacked({
 
 /**
  * Per-tone class sets for the status pill, its dot, and a card's left accent
- * stripe. Spelled out as full literal strings (not interpolated) so Tailwind's
- * JIT keeps them, driven by the colorblind-safe status triad.
+ * stripe, taken from the shared `pillToneStyles` table rather than a private
+ * copy so the healthcheck surfaces cannot drift from the rest of the app.
  */
-export const toneStyles: Record<
-  StatusTone,
-  { pill: string; dot: string; accent: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
+export const toneStyles: Pick<typeof pillToneStyles, StatusTone> = {
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  unknown: pillToneStyles.unknown,
 };

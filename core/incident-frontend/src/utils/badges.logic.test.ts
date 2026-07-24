@@ -11,20 +11,27 @@ import {
 } from "./badges.logic";
 
 describe("presentIncidentStatus", () => {
-  const cases: Array<[IncidentStatus, StatusTone, string]> = [
-    ["investigating", "down", "Investigating"],
-    ["identified", "warn", "Identified"],
-    ["fixing", "warn", "Fixing"],
-    ["monitoring", "info", "Monitoring"],
-    ["resolved", "ok", "Resolved"],
+  const cases: Array<[IncidentStatus, string]> = [
+    ["investigating", "Investigating"],
+    ["identified", "Identified"],
+    ["fixing", "Fixing"],
+    ["monitoring", "Monitoring"],
+    ["resolved", "Resolved"],
   ];
 
-  test.each(cases)(
-    "maps %s to tone %s + label %s",
-    (status, tone, label) => {
-      expect(presentIncidentStatus(status)).toEqual({ tone, label });
-    },
-  );
+  test.each(cases)("maps %s to the label %s", (status, label) => {
+    expect(presentIncidentStatus(status)).toEqual({ label });
+  });
+
+  test("carries NO tone: severity owns the row's hue", () => {
+    // An incident shows severity AND status; colouring both puts two competing
+    // scales on one line (a red "Investigating" beside an amber "Major" reads
+    // as a contradiction). A tone returned here would be unused weight that
+    // invites re-colouring the status later.
+    for (const [status] of cases) {
+      expect(presentIncidentStatus(status)).not.toHaveProperty("tone");
+    }
+  });
 });
 
 describe("presentIncidentSeverity", () => {

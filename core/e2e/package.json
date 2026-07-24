@@ -8,7 +8,7 @@
   },
   "type": "module",
   "scripts": {
-    "pretest:e2e": "bun run ../../scripts/install-playwright.ts && bun run --filter @checkstack/frontend build && bun run --filter @checkstack/docs build",
+    "pretest:e2e": "bun run ../../scripts/install-playwright.ts && bun run --filter @checkstack/frontend build && bun run ../../scripts/build-public-remotes.ts && bun run --filter @checkstack/docs build",
     "test:e2e": "bun --env-file=../../.env scripts/with-e2e-postgres.ts",
     "test:e2e:no-db": "playwright test",
     "test:e2e:file": "playwright test",

@@ -212,10 +212,11 @@ status.example.com {
 }
 ```
 
-Two things to keep in mind:
+Three things to keep in mind:
 
 - Set `BASE_URL=https://status.example.com` (the public URL), not the internal Docker hostname.
 - The proxy must allow long-lived WebSocket connections; Checkstack uses them for realtime signals.
+- If you plan to serve [status pages on custom domains](/checkstack/user-guide/guides/serve-a-status-page-on-a-custom-domain/), the proxy must **preserve the original `Host` header or set `X-Forwarded-Host`** to it. Caddy's `reverse_proxy` does this by default; a hand-rolled nginx `proxy_pass` does not (`proxy_set_header Host $host;`). Without it, a custom domain resolves to the internal upstream name and serves the admin app instead of the status page.
 
 For Nginx / Traefik examples and TLS handling, see [Installation troubleshooting](/checkstack/user-guide/troubleshooting/).
 

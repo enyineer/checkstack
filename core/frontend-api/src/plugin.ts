@@ -168,6 +168,12 @@ export interface NavEntry {
     /** The current user's granted access-rule IDs (as `isAccessRuleSatisfied` expects). */
     accessRules: string[];
     isAuthenticated: boolean;
+    /**
+     * True when the user is a member or manager of at least one team. Use for
+     * entries a team-scoped user should reach without a global rule (e.g. the
+     * Teams page shown to any team member/manager).
+     */
+    isInAnyTeam: boolean;
   }) => boolean;
 }
 

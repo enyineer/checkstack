@@ -1,12 +1,19 @@
 import type * as React from "react";
 import type { SortValue } from "./helpers";
+import type {
+  DataTableColumnFilter,
+  DataTableFacet,
+  DataTableFacetControl,
+  DataTableFilterState,
+} from "./facets.logic";
 
 /**
  * A single column of a {@link DataTable}. Rendering stays fully caller-owned
  * via {@link DataTableColumn.cell}; the table only adds sort + search on top.
  */
-export interface DataTableColumn<TData> {
-  /** Stable, unique column id. */
+export interface DataTableColumn<TData>
+  extends DataTableColumnFilter<TData> {
+  /** Stable, unique column id. Doubles as the facet's URL parameter name. */
   id: string;
   /** Header content. Rendered inside the clickable sort button when sortable. */
   header: React.ReactNode;
@@ -56,6 +63,39 @@ export interface DataTableProps<TData> {
   searchable?: boolean;
   /** Placeholder for the search box. */
   searchPlaceholder?: string;
+  /**
+   * "Narrow by one dimension" selects for a dimension NO SINGLE COLUMN owns -
+   * one matching several values per row, or a SERVER-APPLIED one that narrows
+   * the query rather than the rows.
+   *
+   * A control with no `value` accessor is rendered but not applied: it names a
+   * dimension you narrow yourself (by feeding the selection into a query input),
+   * and the rows that arrive are already scoped. This keeps such a control in
+   * the table's own bar instead of forcing the page to render a second one.
+   *
+   * Prefer declaring `filterValue` on the column when a column DOES own the
+   * dimension: the column already reads the row for `sortValue` and renders it
+   * in `cell`, so filtering there too states the value once and keeps the three
+   * from drifting. Column-derived facets render first, in column order,
+   * followed by these.
+   */
+  facets?: ReadonlyArray<DataTableFacet<TData> | DataTableFacetControl>;
+  /**
+   * Controlled filter state. Pair with {@link DataTableProps.onFiltersChange}.
+   *
+   * Omit and the table owns the state internally, which is right for a simple
+   * table. Supply it - normally from `useDataTableFilters`, which persists to
+   * the URL - when the state has to be observable: to put a filtered view in a
+   * shareable link, or because the page must know whether rows are hidden (to
+   * gate reorder controls, or to render its own empty state).
+   */
+  filters?: DataTableFilterState;
+  onFiltersChange?: (next: DataTableFilterState) => void;
+  /**
+   * Reset handler behind the Clear button. Defaults to clearing the table's own
+   * state; supply it when the state is controlled.
+   */
+  onClearFilters?: () => void;
   /** Initial sort. */
   defaultSort?: { columnId: string; direction: "asc" | "desc" };
   /** Called when a row is clicked (e.g. to open a detail drawer). */
@@ -78,8 +118,18 @@ export interface DataTableProps<TData> {
    * scroll) at every width.
    */
   renderMobileCard?: (row: TData) => React.ReactNode;
-  /** Extra content shown in the toolbar, right of the search box. */
+  /**
+   * Extra content shown in the toolbar, RIGHT-ALIGNED away from the filters.
+   * For actions - an "Add" button, an export - not for filtering: a filter
+   * pushed over here reads as unrelated to the controls it belongs with.
+   */
   toolbar?: React.ReactNode;
+  /**
+   * Extra controls appended INSIDE the filter row, beside the facets - a date
+   * range, a density toggle, or a boolean that widens the list ("Show
+   * resolved") and so cannot be a facet.
+   */
+  filterExtras?: React.ReactNode;
   /** Shown when `data` is empty (before any search). */
   emptyState?: React.ReactNode;
   /** Shown when a search/filter leaves no rows. */

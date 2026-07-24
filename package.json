@@ -24,6 +24,7 @@
     "generate:docs-index": "bun run scripts/generate-docs-index.ts",
     "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
     "check:manage-capabilities": "bun run scripts/check-manage-capabilities.ts",
+    "build:public-remotes": "bun run scripts/build-public-remotes.ts",
     "profile:analyze": "bun run core/scripts/src/profiling/analyze-metrics.ts",
     "lint": "bun run lint:code",
     "lint:code": "eslint .",

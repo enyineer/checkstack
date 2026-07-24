@@ -6,6 +6,8 @@
  * status triad.
  */
 
+import { neutralToneStyle, pillToneStyles } from "@checkstack/ui";
+
 export type CountTone = "default" | "warning" | "danger" | "success";
 
 export interface CountToneStyle {
@@ -20,35 +22,18 @@ export interface CountToneStyle {
 }
 
 /**
- * Per-tone class sets for the KPI tiles. Spelled out as full literal strings
- * (not interpolated) so Tailwind's JIT keeps them. "default" is the non-status
- * tone (Processing) and stays neutral, with no colored dot or accent.
+ * Per-tone class sets for the KPI tiles. The status tones come from the shared
+ * `pillToneStyles` table (the tile's `icon` is the tone's standalone
+ * foreground); only "default" is spelled out here.
  */
 export const countToneStyles: Record<CountTone, CountToneStyle> = {
-  default: {
-    pill: "bg-muted/40 text-muted-foreground",
-    dot: "bg-muted-foreground/50",
-    accent: "bg-border/70",
-    icon: "text-muted-foreground",
-  },
-  warning: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-    icon: "text-status-warn",
-  },
-  danger: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-    icon: "text-status-down",
-  },
-  success: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-    icon: "text-status-ok",
-  },
+  // "default" (Processing) carries NO hue at all, so it takes the shared
+  // neutral treatment rather than a private, slightly-softer copy of it. It
+  // still recedes next to its siblings: they are tinted, this one is muted.
+  default: { ...neutralToneStyle, icon: neutralToneStyle.dot },
+  warning: { ...pillToneStyles.warn, icon: pillToneStyles.warn.text },
+  danger: { ...pillToneStyles.down, icon: pillToneStyles.down.text },
+  success: { ...pillToneStyles.ok, icon: pillToneStyles.ok.text },
 };
 
 /** Returns true when a job has been retried (attempts beyond the first run). */

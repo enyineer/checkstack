@@ -22,7 +22,7 @@ import {
   type LogEvent,
 } from "@checkstack/logstream-common";
 import { Search, Waypoints, X } from "lucide-react";
-import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useDebouncedValue } from "@checkstack/ui";
 import {
   effectiveExploreRange,
   hasActiveFilters,

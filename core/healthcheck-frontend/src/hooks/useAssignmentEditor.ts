@@ -317,6 +317,48 @@ export function useAssignmentEditor({
     patchAssignment(systemId, { satelliteIds: nextIds });
   };
 
+  /**
+   * Scope ONE satellite to all environments (drop its key) or to a specific
+   * list. Switching to "specific" seeds from the environments the assignment
+   * itself resolves to, so the first click narrows nothing until the operator
+   * unticks something - the safe direction.
+   */
+  const setSatelliteEnvironmentMode = (
+    systemId: string,
+    satelliteId: string,
+    mode: "all" | "specific",
+  ) => {
+    const assignment = findAssignment(systemId);
+    if (!assignment) return;
+    const current = { ...assignment.satelliteEnvironmentIds };
+    if (mode === "all") {
+      // Absent key IS "all environments" - storing an explicit list of every
+      // environment would freeze today's set and stop following new ones.
+      delete current[satelliteId];
+    } else {
+      current[satelliteId] = seedSpecificEnvironmentIds({
+        environmentIds: assignment.environmentIds,
+        systemEnvironmentIds: systemEnvironments.map((e) => e.id),
+      });
+    }
+    patchAssignment(systemId, { satelliteEnvironmentIds: current });
+  };
+
+  const toggleSatelliteEnvironment = (
+    systemId: string,
+    satelliteId: string,
+    environmentId: string,
+  ) => {
+    const assignment = findAssignment(systemId);
+    if (!assignment) return;
+    const current = { ...assignment.satelliteEnvironmentIds };
+    current[satelliteId] = toggleEnvironmentId({
+      selectedIds: current[satelliteId] ?? [],
+      environmentId,
+    });
+    patchAssignment(systemId, { satelliteEnvironmentIds: current });
+  };
+
   const toggleLocal = (systemId: string) => {
     const assignment = findAssignment(systemId);
     if (!assignment) return;
@@ -418,6 +460,8 @@ export function useAssignmentEditor({
     useDefaultsForAssignment,
     overrideForAssignment,
     toggleSatellite,
+    setSatelliteEnvironmentMode,
+    toggleSatelliteEnvironment,
     toggleLocal,
     setEnvironmentMode,
     toggleEnvironment,

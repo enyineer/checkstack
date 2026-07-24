@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY core ./core
 COPY plugins ./plugins
+# Top-level build scripts (e.g. `build:public-remotes`, which builds the core
+# frontend plugins that ship a public Module Federation remote - run below).
+COPY scripts ./scripts
 # `docs` is a workspace member (Astro Starlight site). We build it in this
 # stage and ship the static `dist` so the app can serve the user guide
 # in-app (same artifact as the GitHub Pages deploy). The full source is
@@ -50,6 +53,12 @@ RUN test -d core/backend/node_modules/hono && test -d core/backend/node_modules/
 
 # Build frontend
 RUN bun run --filter '@checkstack/frontend' build
+
+# Build the CORE frontend plugins that ship a public Module Federation remote
+# (checkstack.publicRemote), so the backend can serve their dist/ under
+# /assets/plugins/<name>/ to the lean public status-page bundle. Without this the
+# public bundle's loadRemote 404s and the widget renders nothing.
+RUN bun run build:public-remotes
 
 # Build the docs (Astro Starlight) static site -> docs/dist. Served in-app at
 # /checkstack/* by the backend (see CHECKSTACK_DOCS_DIST in the runtime stage).
@@ -124,6 +133,12 @@ COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=production-deps /app/core ./core
 COPY --from=production-deps /app/plugins ./plugins
 COPY --from=builder /app/core/frontend/dist ./core/frontend/dist
+# Public Module Federation remote plugin dist(s), built in the builder stage
+# (checkstack.publicRemote). production-deps ships the pruned `core` tree WITHOUT
+# any built dist, so copy each remote's dist over it explicitly - the backend
+# serves it from <plugin.path>/dist under /assets/plugins/<name>/. Add a line
+# here for each new publicRemote plugin (kept in sync with build:public-remotes).
+COPY --from=builder /app/core/announcement-frontend/dist ./core/announcement-frontend/dist
 # In-app user guide (Astro Starlight build), served at /checkstack/*.
 COPY --from=builder /app/docs/dist ./docs/dist
 COPY package.json bun.lock ./

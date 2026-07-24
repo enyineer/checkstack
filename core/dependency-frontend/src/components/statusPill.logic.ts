@@ -2,12 +2,14 @@
  * Pure, DOM-free helpers for mapping dependency status/impact values onto the
  * colorblind-safe status triad (ok / warn / down) plus a neutral fallback.
  *
- * These keep the premium status-pill and accent-stripe styling DRY across the
- * dependency alert banner and the upstream/downstream editor rows. They only
- * return Tailwind class strings and a tone token, never DOM, so they stay free
- * of any `@checkstack/ui` runtime dependency and are trivially unit-tested.
+ * These keep the status-pill and accent-stripe styling DRY across the dependency
+ * alert banner and the upstream/downstream editor rows. They only return
+ * Tailwind class strings and a tone token, never DOM, so they stay trivially
+ * unit-testable. The triad classes come from the shared `pillToneStyles` table
+ * rather than a private copy.
  */
 
+import { neutralToneStyle, pillToneStyles } from "@checkstack/ui";
 import type { DerivedState, ImpactType } from "@checkstack/dependency-common";
 
 /** Tone token for the triad plus a neutral fallback. */
@@ -21,26 +23,12 @@ export const toneStyles: Record<
   StatusTone,
   { pill: string; dot: string; accent: string }
 > = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  neutral: {
-    pill: "bg-muted text-muted-foreground",
-    dot: "bg-muted-foreground",
-    accent: "bg-border",
-  },
+  ok: pillToneStyles.ok,
+  warn: pillToneStyles.warn,
+  down: pillToneStyles.down,
+  // `neutral` is NOT a status tone - it is the absence of one - so it lives
+  // beside the table rather than in it.
+  neutral: neutralToneStyle,
 };
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ORPCError } from "@orpc/server";
-import { mapPgErrorToHttp } from "./pg-http-errors";
+import { mapPgErrorToHttp, isClientRejection } from "./pg-http-errors";
 
 /**
  * Guards the regression where a client-caused Postgres fault (bad uuid,
@@ -61,5 +61,57 @@ describe("mapPgErrorToHttp", () => {
       message: 'value too long for column "secret_token"',
     });
     expect(mapped?.message).not.toContain("secret_token");
+  });
+});
+
+/**
+ * Guards the regression where every contract-level 4xx was logged at ERROR with
+ * a full stack trace. Opening the app unauthenticated made the backend print an
+ * "RPC ... failed: Authentication required" stack for each authenticated-only
+ * query the page mounted, which reads as the server breaking when it is in fact
+ * the auth layer working.
+ */
+describe("isClientRejection", () => {
+  test("an anonymous caller's 401 is a client rejection, not a server fault", () => {
+    expect(
+      isClientRejection(
+        new ORPCError("UNAUTHORIZED", { message: "Authentication required" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("covers the other contract-level 4xx codes", () => {
+    for (const code of [
+      "BAD_REQUEST",
+      "FORBIDDEN",
+      "NOT_FOUND",
+      "CONFLICT",
+      "UNPROCESSABLE_CONTENT",
+      "TOO_MANY_REQUESTS",
+    ]) {
+      const error = new ORPCError(code);
+      expect(error.status).toBeGreaterThanOrEqual(400);
+      expect(error.status).toBeLessThan(500);
+      expect(isClientRejection(error)).toBe(true);
+    }
+  });
+
+  test("a 5xx ORPCError stays loud (not a client rejection)", () => {
+    expect(isClientRejection(new ORPCError("INTERNAL_SERVER_ERROR"))).toBe(
+      false,
+    );
+    expect(isClientRejection(new ORPCError("SERVICE_UNAVAILABLE"))).toBe(false);
+  });
+
+  test("a plain thrown Error stays loud", () => {
+    expect(isClientRejection(new Error("boom"))).toBe(false);
+    expect(isClientRejection({ code: "22P02" })).toBe(false);
+    expect(isClientRejection(undefined)).toBe(false);
+  });
+
+  test("an explicit 4xx status on a custom code is honoured", () => {
+    expect(
+      isClientRejection(new ORPCError("PAYMENT_REQUIRED", { status: 402 })),
+    ).toBe(true);
   });
 });

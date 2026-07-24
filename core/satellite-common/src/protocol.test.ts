@@ -307,3 +307,56 @@ describe("protocol forward-compatibility (version skew)", () => {
     ).toBe(false);
   });
 });
+
+describe("per-environment fan-out (version skew)", () => {
+  const baseAssignment = {
+    configId: "cfg-1",
+    systemId: "sys-1",
+    strategyId: "http",
+    config: {},
+    intervalSeconds: 60,
+  };
+
+  test("an assignment WITHOUT environments still parses (older core)", () => {
+    const parsed = SatelliteAssignmentSchema.safeParse(baseAssignment);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.environments).toBeUndefined();
+  });
+
+  test("an assignment carries its resolved environments", () => {
+    const parsed = SatelliteAssignmentSchema.safeParse({
+      ...baseAssignment,
+      environments: [
+        { id: "env-prod", name: "Production", fields: { baseUrl: "https://x" } },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.environments?.[0]?.id).toBe("env-prod");
+  });
+
+  test("a result WITHOUT environmentId still parses (older satellite)", () => {
+    // The core stores such a run env-less, exactly as it always did.
+    const parsed = SatelliteToCoreMessageSchema.safeParse({
+      type: "result",
+      configId: "cfg-1",
+      systemId: "sys-1",
+      status: "healthy",
+      executedAt: new Date().toISOString(),
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  test("a result carries the environment it ran for, including explicit null", () => {
+    for (const environmentId of ["env-prod", null]) {
+      const parsed = SatelliteToCoreMessageSchema.safeParse({
+        type: "result",
+        configId: "cfg-1",
+        systemId: "sys-1",
+        status: "healthy",
+        executedAt: new Date().toISOString(),
+        environmentId,
+      });
+      expect(parsed.success).toBe(true);
+    }
+  });
+});
