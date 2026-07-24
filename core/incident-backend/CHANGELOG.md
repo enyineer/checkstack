@@ -1,5 +1,104 @@
 # @checkstack/incident-backend
 
+## 1.13.6
+
+### Patch Changes
+
+- be74b01: Render markdown in incident/maintenance update messages instead of escaping it
+
+  Thanks to @stuajnht for reporting: an email notification showed the raw
+  markdown of a link (`[text](url)`) instead of a clickable link. The report
+  placed the bug in the email renderer, but the email path was fine - it already
+  runs `markdownToHtml`. The damage happened upstream.
+
+  The shared `sanitizeUpdateMessage` (in `notification-common`, used by both the
+  incident and maintenance backends to embed the latest update in a notification
+  body) backslash-escaped every markdown control character and forced the message
+  onto a single line inside a blockquote. So a `[label](href)` link arrived as
+  `\[label\]\(href\)` and rendered as literal text in every channel - exactly the
+  symptom reported.
+
+  Update messages are authored as markdown and render as markdown on the web, so
+  they now do the same in notifications. `sanitizeUpdateMessage` still normalizes
+  the text (strips non-whitespace control characters, normalizes line endings,
+  collapses runs of blank lines, bounds the length) but no longer escapes the
+  markdown, and `buildUpdateMessageSuffix` appends it as its own multi-line
+  markdown block rather than a single-line blockquote. Links, emphasis, code, and
+  lists now render.
+
+  This does not weaken safety. The only strategy that emits HTML is SMTP, via
+  `markdownToHtml`, whose email-safe allow-list drops `<script>`, `on*=`
+  handlers, and `javascript:`/`data:` URLs; every other strategy renders markdown
+  / mrkdwn / an adaptive card or flattens to plain text, none of which execute
+  HTML. Source-side escaping was redundant with that renderer sanitization for
+  the security goal while destroying legitimate formatting. The notification
+  title and the incident/maintenance descriptions were already interpolated into
+  the body unescaped, so this brings the update message in line with them.
+
+- be74b01: Fix status-page detail-page content and status colouring
+
+  Thanks to @stuajnht for reporting several public status-page issues (the
+  announcement-block fix is a separate changeset):
+
+  - **Incident/maintenance status text was uncoloured and inline.** Update-timeline
+    status changes rendered in the muted grey `text-muted-foreground`, making the
+    status hard to tell apart from the message. The status change now sits on its
+    own line, coloured by its lifecycle (a new `incidentStatusTone`/`Label` mirrors
+    the incident status enum the way `maintenanceStatusTone` mirrors maintenance),
+    on both the summary block and the detail pages. The detail-page incident status
+    pill next to the title is now coloured too (was a neutral grey pill).
+
+  - **Detail pages showed raw markdown.** Individual incident/maintenance pages
+    rendered the update body as the raw source string; they now render sanitized
+    markdown via `<Markdown>`, like the block.
+
+  - **Detail pages showed only a few updates.** The individual pages reused the
+    summary block DTO, so they inherited the block's `maxUpdates` cap. Widget types
+    now expose an optional `resolveDetail` that returns the ONE item with ALL its
+    public updates (no cap) and its long-form description; the incident and
+    maintenance widgets implement it, and the status-page backend's
+    `resolvePublishedIncident`/`resolvePublishedMaintenance` call it. The detail
+    page is gated by the SAME anti-enumeration boundary as the block (the widget's
+    live scope), and the result is re-validated against the widget's item DTO, so
+    it fails closed exactly like the block.
+
+  - **Maintenance detail page showed no description.** The maintenance item DTO
+    gained an optional `description`, emitted by `resolveDetail` and rendered as
+    markdown on the detail page (the incident detail page already had the field
+    plumbed and now renders it too).
+
+  Note on maintenance/grey systems (also reported): the maintenance BLOCK already
+  colours scheduled windows blue. On the SYSTEM-HEALTH widget the blue
+  "maintenance" tone is applied only while a window is actively `in_progress`; a
+  future scheduled window leaves the system on its live health, and a system with
+  no health data reads grey "unknown". That is deliberate and left as-is.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ai-backend@0.11.4
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/status-page-backend@0.6.6
+  - @checkstack/status-page-common@0.6.5
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/automation-backend@0.11.8
+  - @checkstack/catalog-backend@1.10.1
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/incident-common@1.10.5
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/command-backend@0.2.27
+  - @checkstack/integration-backend@0.7.9
+
 ## 1.13.5
 
 ### Patch Changes

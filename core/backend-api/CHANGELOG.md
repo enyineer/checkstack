@@ -1,5 +1,15 @@
 # @checkstack/backend-api
 
+## 0.34.1
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/healthcheck-common@1.19.0
+
 ## 0.34.0
 
 ### Minor Changes

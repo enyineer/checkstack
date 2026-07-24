@@ -1,5 +1,212 @@
 # @checkstack/incident-frontend
 
+## 0.16.5
+
+### Patch Changes
+
+- be74b01: Converge the status-tone exceptions that turned out to be drift
+
+  Reviewing the four "deliberate exceptions" left by the tone de-duplication, three
+  were drift wearing a comment, and one was genuine.
+
+  - **`neutralToneStyle` is now exported from `@checkstack/ui`.** Three plugins had
+    each written out the same three muted strings by hand. It sits beside
+    `pillToneStyles` rather than in it, because the absence of a tone is not a
+    tone; `StatusPill`'s `tone="neutral"` renders it.
+  - **Dashboard signals use the status ladder's blue.** In one record `error` and
+    `warn` came from the ladder while `info` reached for the general-purpose
+    `--info` accent - so the same "Watch" signal rendered in two different blues
+    depending on whether you looked at the problem card, its chip, or the fleet
+    header bar. All three now use `--status-info`, which is also the darker L45
+    blue chosen precisely so its text stays readable on a light card.
+  - **The system incident panel borders at `/20`** like every other tinted border,
+    removing the last class-string divergence in the tone system along with the
+    one-off map that documented it.
+  - **The queue's neutral pills use the shared neutral.** Its KPI tile and its job
+    state pill each carried a slightly softer private variant, so "carries no
+    signal" looked like two different things on one page.
+
+  The one genuine exception kept: `--info` and `--status-info` remain separate
+  tokens. The first is the general semantic palette (alongside `--success` /
+  `--warning`), the second the colourblind-safe status ladder with its own
+  contrast rationale. Non-status surfaces - the `Alert` component, plugin-type
+  chips - keep the general accent.
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Source every status tone from the one shared table
+
+  Nineteen plugin modules each re-declared the tone-to-class table verbatim
+  (`pill: "bg-status-ok/10 text-status-ok"`, `dot: "bg-status-ok"`, ...), some
+  reproducing every field of the shared one. They now take those classes from
+  `pillToneStyles` in `@checkstack/ui` while keeping their own domain mapping -
+  which value means which tone - since that is real domain knowledge and is unit
+  tested. A repo-wide search for a hand-written triad row now returns only the
+  shared table.
+
+  Several hand-rolled pills went with them, onto the shared `StatusPill`: the
+  automation run pill, the satellite status badge, the notification channel pill,
+  the SLO objective pill and both AI tool-card pills.
+
+  Four rows are deliberately still local, each with a comment saying why, because
+  they are NOT the shared tone despite looking like it:
+
+  - The dashboard's `info` uses the `--info` token, a different hue from
+    `--status-info` (light: `217 91% 60%` vs `214 90% 45%`).
+  - Integrations' and notifications' `unknown`/`neutral` use the muted treatment -
+    the ABSENCE of a tone - not the shared grey.
+  - The queue's "processing" uses opacity-softened muted classes that match
+    neither the shared table nor the pill's neutral.
+
+  One genuine class divergence was found and NOT normalised: the system incident
+  panel draws its borders at `/30` where the shared table uses `/20`. It is now a
+  single documented map instead of a full private table.
+
+  Pills whose geometry has no shared equivalent (the dependency canvas node with
+  its animated halo, the incident panel's compact chips, the dashboard's
+  non-triad signal tone) keep their markup and now only share the classes.
+
+- be74b01: Stop incidents colouring both severity and status
+
+  An incident row showed a coloured severity AND a coloured status, putting two
+  competing colour scales on one line - a red "Investigating" beside an amber
+  "Major" reads as a contradiction rather than as two independent facts. The
+  lifecycle is now stated in words on a neutral pill, so severity alone carries
+  the row's hue.
+
+  This is what the PUBLIC status page has always done with the same incident
+  (severity tinted, status on a muted chip), so the internal manage, detail,
+  overview and system-history views now agree with what a customer sees.
+
+  `presentIncidentStatus` no longer returns a tone at all. Nothing consumed it
+  once the badge went neutral, and a returned-but-unused tone is exactly how the
+  status gets re-coloured later.
+
+  The rule this follows is now written down on the shared tone module: at most ONE
+  coloured dimension per row. A domain with both an urgency (severity) and a
+  lifecycle (status) gives hue to the urgency; a domain with only one gives it the
+  hue - which is why maintenance, health checks, SLOs and gitops syncs keep their
+  coloured status, having no severity to compete with.
+
+- be74b01: Let you search the incident, maintenance and automation lists
+
+  These three management lists had their search box switched off, on the
+  assumption that you find a record by status rather than by typing its name. That
+  was wrong: every one of them shows a title or name column, and none of the
+  underlying queries paginate, so the full set is already in the browser and there
+  was nothing to gain by withholding search.
+
+  - **Incidents** gain a search box and a **severity filter**. Severity had a
+    column and a sort but no filter, so "show me the criticals" needed reading the
+    whole table. Its options are ordered by impact, matching how the column sorts;
+    deriving them would have sorted alphabetically as critical / major / minor.
+  - **Maintenances** gain a search box.
+  - **Automations** gain a search box. It is page-level rather than table-level
+    because that list renders one table per group - a table-owned box would only
+    ever search its own group, so a match inside a collapsed group could never
+    surface. Filtering ahead of the grouping also makes groups with no match
+    disappear instead of leaving a wall of empty accordions.
+
+  All three searches match the title/name AND the second line the row renders (a
+  description, or the group label), so a search matches the words you can actually
+  see on the row.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/dashboard-frontend@0.11.2
+  - @checkstack/notification-frontend@0.9.7
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/tips-frontend@0.5.5
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/incident-common@1.10.5
+
 ## 0.16.4
 
 ### Patch Changes

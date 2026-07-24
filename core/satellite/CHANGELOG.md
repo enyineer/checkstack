@@ -1,5 +1,148 @@
 # @checkstack/satellite
 
+## 0.9.0
+
+### Minor Changes
+
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Expand system/environment custom fields in satellite health checks, via one shared execution engine
+
+  Thanks to @stuajnht for reporting: a system or environment custom field
+  referenced with `{{ system.metadata.<key> }}` / `{{ environment.<key> }}` in a
+  health check was NOT expanded when the check ran on a satellite - the raw
+  template reached the probe. The core queue executor grew a per-run templating
+  pass, but the satellite's execution loop was a hand-maintained COPY that never
+  did, so the two drifted.
+
+  The fix removes the copy. A new lean package `@checkstack/healthcheck-execution`
+  owns the shared execution engine - render the strategy + collector
+  `x-templatable` fields against the run's environment/system context, build the
+  transport client, run the collectors, close the client - and BOTH the core
+  queue executor and the satellite now run through it. Templating, the
+  secret-then-template ordering, and the per-collector fan-out therefore cannot
+  drift between core and satellite again. Each side keeps only its genuine edges
+  as injected hooks: the core resolves secrets from its database and does
+  migrate-on-read; the satellite resolves them just-in-time over its socket.
+
+  Also fixed: transport sub-phase timings (DNS / connect / TLS / wait / transfer)
+  are now measured AT THE PROBE and reported by satellites, so a satellite run's
+  `metadata.timings` matches a local run's. The core cannot derive the timing of a
+  probe it did not run - and may have no route to a target a satellite can reach -
+  so the satellite must produce these; the core persists them as-is.
+
+### Patch Changes
+
+- be74b01: Fix satellite crash-loop on startup (ENOENT reading `@checkstack/k8s-events-common`)
+
+  Thanks to @stuajnht for reporting: satellite releases 134 and 135 crash-loop at
+  startup with `error: ENOENT reading ".../@checkstack/k8s-events-common"`, while
+  133 works. The k8s-events telemetry pull executor (added in 134) imports
+  `@checkstack/k8s-events-common` eagerly at module load, but the satellite Docker
+  image pruned it away, so the agent crashed before any check could run.
+
+  Two root causes, both fixed:
+
+  - `k8s-events-common` lived under `plugins/`, unlike its sibling telemetry
+    contracts (`metricstream-common`, `logstream-common`, `tracestream-common`),
+    which are in `core/`. A `core/` package (the satellite) importing a
+    `plugins/` package is a dependency-direction violation; the package now lives
+    in `core/` alongside its siblings.
+  - The satellite image prune deleted every plugin except the `healthcheck-*` /
+    `collector-*` backends by name pattern, which silently dropped any other
+    package the satellite needs. The prune is now driven by the dependency graph:
+    it keeps the transitive runtime-dependency closure of the satellite plus every
+    plugin it loads dynamically at runtime (using those backends as extra roots,
+    so they are never pruned by accident). The "which plugins does the satellite
+    load" rule is now a single shared predicate consumed by both the runtime
+    loader and the build-time prune, so they cannot drift.
+
+  Verified by building `Dockerfile.satellite` and starting the image: it loads all
+  15 strategies + 28 collectors, runs the k8s-events executor registration without
+  `ENOENT`, and reaches normal core-connection retries instead of crash-looping.
+
+- be74b01: Drive satellite health results through the same reactive/notify path as local runs
+
+  A satellite-detected health change previously did almost nothing on the core:
+  `ingestSatelliteResult` inserted the run row and invalidated the cache, and
+  stopped there. A LOCAL run additionally drives the whole reactive layer - the
+  `health` entity write (which fires the ENTITY_CHANGED that automations and
+  triggers key on), the state-transition record, the subscriber notification, the
+  checkCompleted/checkFailed automation hooks, and the realtime signals. So a
+  satellite that detected an outage fired **no notifications, no automations, no
+  transition record, and no realtime signal** - satellite monitoring was
+  effectively silent.
+
+  Both paths now run through ONE shared function, `persistRunAndReact`, so a
+  satellite result reacts exactly like a local one. The host binds the service
+  dependencies once and hands the router a narrowed reactor, so the local and
+  satellite callers cannot pass different dependencies and drift apart again
+  (`ingestSatelliteResult` was itself a duplicated-and-drifted copy of the local
+  persistence path - this removes the duplication that caused it). Ingest now
+  splits into `processSatelliteResult` (evaluate assertions, strip ephemeral
+  fields, resolve the check name) plus the shared reactive path.
+
+  Also fixed: a satellite collector's transport error is now annotated as
+  `_collectorError` on the stored result, matching a local run - the satellite
+  previously dropped that annotation.
+
+  Coverage: added tests that a satellite result is routed through the shared
+  reactor with its processed payload (guarding against a silent regression back
+  to insert-only), and extracted the satellite's `executeAssignment` into a
+  testable module with tests for custom-field template expansion, probe-measured
+  timings, the `_collectorError` annotation, and the strategy-not-loaded path.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/satellite-common@0.11.0
+  - @checkstack/k8s-events-common@0.1.1
+  - @checkstack/healthcheck-execution@0.35.0
+  - @checkstack/script-packages-backend@0.4.6
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/logstream-common@0.4.1
+  - @checkstack/telemetry-common@0.1.1
+  - @checkstack/tracestream-common@0.1.1
+  - @checkstack/metricstream-common@0.2.1
+
 ## 0.8.0
 
 ### Minor Changes

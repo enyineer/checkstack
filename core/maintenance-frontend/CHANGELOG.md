@@ -1,5 +1,167 @@
 # @checkstack/maintenance-frontend
 
+## 0.17.0
+
+### Minor Changes
+
+- be74b01: Make maintenance status colours agree across every surface
+
+  Thanks to @stuajnht for reporting: a "Scheduled" maintenance was blue on the
+  manage/list/detail pages, amber on the catalog system card, and grey on the
+  status page block and the public maintenance detail page - three different
+  colours for one status.
+
+  The manage surfaces went through the canonical `presentMaintenanceStatus`
+  mapping (blue `info` for scheduled, amber `warn` for in-progress); the other
+  three hardcoded Tailwind classes and never consulted it. Two of them hardcoded
+  the grey `unknown` tone for EVERY status, so they also painted an in-progress
+  window grey, and rendered the raw enum ("in progress") instead of the shared
+  label ("In Progress"). The catalog card hardcoded amber for every status, so a
+  scheduled-only window looked identical to a live one.
+
+  All three now derive tone and label from the canonical mapping:
+
+  - **status-page-frontend** gains `maintenanceStatusTone` /
+    `maintenanceStatusLabel`, replicated against the shared `pillToneStyles`
+    tones - the same platform-layer arrangement `severityTone.ts` already uses,
+    since status-page-frontend must not import the domain `maintenance-*`
+    packages. The public maintenance block, the public detail page, and the
+    system-level "Maintenance" status pill all read from it. A system under
+    planned maintenance now reads blue (informational), not grey (inert/unknown).
+  - **maintenance-frontend**'s system detail card takes the tone of whichever
+    window leads: amber while one is in progress, else blue for scheduled.
+
+  Separately, `StatusBadge` now draws from the shared status tokens
+  (`--status-*`) instead of the generic `--success`/`--warning`/`--info`
+  palette. Those palettes differ (e.g. `--info` 217 91% 60% vs `--status-info`
+  214 90% 45%), so a system-state badge and a status pill of the same tone
+  rendered two different blues (and two different ambers) for the same meaning.
+  They now share one hue per tone across health, incident, SLO, maintenance,
+  anomaly and dependency badges.
+
+### Patch Changes
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Let you search the incident, maintenance and automation lists
+
+  These three management lists had their search box switched off, on the
+  assumption that you find a record by status rather than by typing its name. That
+  was wrong: every one of them shows a title or name column, and none of the
+  underlying queries paginate, so the full set is already in the browser and there
+  was nothing to gain by withholding search.
+
+  - **Incidents** gain a search box and a **severity filter**. Severity had a
+    column and a sort but no filter, so "show me the criticals" needed reading the
+    whole table. Its options are ordered by impact, matching how the column sorts;
+    deriving them would have sorted alphabetically as critical / major / minor.
+  - **Maintenances** gain a search box.
+  - **Automations** gain a search box. It is page-level rather than table-level
+    because that list renders one table per group - a table-owned box would only
+    ever search its own group, so a match inside a collapsed group could never
+    surface. Filtering ahead of the grouping also makes groups with no match
+    disappear instead of leaving a wall of empty accordions.
+
+  All three searches match the title/name AND the second line the row renders (a
+  description, or the group label), so a search matches the words you can actually
+  see on the row.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/dashboard-frontend@0.11.2
+  - @checkstack/notification-frontend@0.9.7
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/tips-frontend@0.5.5
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/maintenance-common@1.10.5
+
 ## 0.16.4
 
 ### Patch Changes

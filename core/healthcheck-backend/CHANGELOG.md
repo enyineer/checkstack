@@ -1,5 +1,224 @@
 # @checkstack/healthcheck-backend
 
+## 1.22.0
+
+### Minor Changes
+
+- be74b01: Evaluate health per probe location, so a failing satellite can no longer read as healthy
+
+  Thanks to @stuajnht for reporting: a system whose local check succeeded and
+  whose satellite check failed was shown as **healthy**, and the report correctly
+  guessed the cause - one combined verdict where there should have been one per
+  location.
+
+  A check's runs were grouped into slices by environment alone, so both locations'
+  runs landed in the same slice and were handed to the threshold evaluator as one
+  interleaved stream. In the default `consecutive` mode the streak breaks on every
+  alternation, no threshold is ever reached, and evaluation falls through to its
+  healthy default. A satellite failing 100% of the time was therefore invisible
+  for as long as a local check succeeded between its runs.
+
+  A slice is now an **(environment, source)** pair - one environment as probed
+  from one location - and each is evaluated on its own window, with the worst
+  result deciding the check. This is the same rule environments already followed;
+  the source dimension was simply never considered. Both the system rollup and the
+  system overview were affected, and both are fixed.
+
+  Related correctness fixes that fall out of keying slices by source:
+
+  - A **de-assigned satellite** (or the core after **Include local** is turned
+    off) stops counting immediately instead of dragging the rollup with its last
+    failures until they age out of the window. Its history moves under **Old
+    checks**.
+  - **Per-satellite environment scoping** is honoured when resolving slices, so a
+    satellite narrowed to production no longer keeps a stale staging slice alive.
+  - A satellite scoped to run env-less while the core fans out keeps its slice
+    live; the "has a live environment slice" question is now answered per
+    location, as the backend already did.
+
+  The system overview shows one row per slice and names the location (for example
+  **EU West**) as soon as a check runs from more than one place. A check that only
+  ever runs on the core shows no location label - there is nothing to
+  disambiguate.
+
+  `checkStatuses[].slices` and the overview's per-slice entries carry the
+  breakdown (`sourceId`, `sourceLabel`, `sourceOrphaned`) on the wire, and
+  `sliceCount` / `failingSliceCount` now count locations as well as environments -
+  so a check probing one environment from the core and one satellite contributes
+  2 to the dashboard's "X of Y checks failing" denominator, not 1.
+
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Drive satellite health results through the same reactive/notify path as local runs
+
+  A satellite-detected health change previously did almost nothing on the core:
+  `ingestSatelliteResult` inserted the run row and invalidated the cache, and
+  stopped there. A LOCAL run additionally drives the whole reactive layer - the
+  `health` entity write (which fires the ENTITY_CHANGED that automations and
+  triggers key on), the state-transition record, the subscriber notification, the
+  checkCompleted/checkFailed automation hooks, and the realtime signals. So a
+  satellite that detected an outage fired **no notifications, no automations, no
+  transition record, and no realtime signal** - satellite monitoring was
+  effectively silent.
+
+  Both paths now run through ONE shared function, `persistRunAndReact`, so a
+  satellite result reacts exactly like a local one. The host binds the service
+  dependencies once and hands the router a narrowed reactor, so the local and
+  satellite callers cannot pass different dependencies and drift apart again
+  (`ingestSatelliteResult` was itself a duplicated-and-drifted copy of the local
+  persistence path - this removes the duplication that caused it). Ingest now
+  splits into `processSatelliteResult` (evaluate assertions, strip ephemeral
+  fields, resolve the check name) plus the shared reactive path.
+
+  Also fixed: a satellite collector's transport error is now annotated as
+  `_collectorError` on the stored result, matching a local run - the satellite
+  previously dropped that annotation.
+
+  Coverage: added tests that a satellite result is routed through the shared
+  reactor with its processed payload (guarding against a silent regression back
+  to insert-only), and extracted the satellite's `executeAssignment` into a
+  testable module with tests for custom-field template expansion, probe-measured
+  timings, the `_collectorError` annotation, and the strategy-not-loaded path.
+
+- be74b01: Expand system/environment custom fields in satellite health checks, via one shared execution engine
+
+  Thanks to @stuajnht for reporting: a system or environment custom field
+  referenced with `{{ system.metadata.<key> }}` / `{{ environment.<key> }}` in a
+  health check was NOT expanded when the check ran on a satellite - the raw
+  template reached the probe. The core queue executor grew a per-run templating
+  pass, but the satellite's execution loop was a hand-maintained COPY that never
+  did, so the two drifted.
+
+  The fix removes the copy. A new lean package `@checkstack/healthcheck-execution`
+  owns the shared execution engine - render the strategy + collector
+  `x-templatable` fields against the run's environment/system context, build the
+  transport client, run the collectors, close the client - and BOTH the core
+  queue executor and the satellite now run through it. Templating, the
+  secret-then-template ordering, and the per-collector fan-out therefore cannot
+  drift between core and satellite again. Each side keeps only its genuine edges
+  as injected hooks: the core resolves secrets from its database and does
+  migrate-on-read; the satellite resolves them just-in-time over its socket.
+
+  Also fixed: transport sub-phase timings (DNS / connect / TLS / wait / transfer)
+  are now measured AT THE PROBE and reported by satellites, so a satellite run's
+  `metadata.timings` matches a local run's. The core cannot derive the timing of a
+  probe it did not run - and may have no route to a target a satellite can reach -
+  so the satellite must produce these; the core persists them as-is.
+
+- be74b01: Stop reporting systems as healthy when nothing has measured them
+
+  A system whose health check had never produced a run reported `healthy` - so it
+  showed green in the catalog, kept its group green, and read "operational" on the
+  public status page. A system with no checks at all did the same. For a
+  monitoring product that is the worst possible default: the one state you must
+  never invent is the reassuring one.
+
+  `getSystemHealthStatus` began each check at `healthy` and each system's
+  aggregate at `healthy`, then only ever downgraded. With no runs to examine,
+  nothing downgraded them. `HealthCheckStatus` had no way to say "not measured".
+
+  A new `SystemHealthStatus` adds `unknown` for systems and their checks. It is
+  deliberately NOT a run status - a run that happened is always healthy, degraded
+  or unhealthy, and the database enum stays three-valued. Now:
+
+  - A check with no runs is `unknown`, not `healthy`.
+  - A system reports `unknown` when no check contributed a signal. A system with
+    one healthy check and one never-run check still reads `healthy`: it has
+    positive evidence, and the unmeasured check is visible on its own page.
+  - The catalog reports `unknown` by OMISSION, which its group rollup already
+    treats as "no signal" - so a group with an unmeasured member stops claiming to
+    be healthy. That is the reported bug.
+  - The public status page maps it to its existing `unknown`, which is ignored for
+    the overall banner unless everything is unknown. One unmeasured system no
+    longer claims "operational" for itself, and does not panic the whole page.
+  - A first measurement records a transition with a NULL `fromStatus` - the column
+    was already nullable for exactly this case - instead of pretending the system
+    was healthy beforehand.
+  - Automations matching on `unhealthy` do not fire for a merely unmeasured
+    system, which is correct: an unmeasured system is not a detected outage.
+
+  Dependency warnings deliberately keep their current behaviour: an unmeasured
+  upstream raises no warning, and a never-run check is dropped from the evaluation
+  rather than counted as passing.
+
+  Note that pausing a system's only check now leaves it `unknown` rather than
+  `healthy`. Paused failures still do not keep a system degraded - that behaviour
+  is unchanged - but with nothing running, the system is genuinely unmeasured.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ai-backend@0.11.4
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/incident-backend@1.13.6
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/satellite-backend@0.9.4
+  - @checkstack/healthcheck-execution@0.35.0
+  - @checkstack/status-page-backend@0.6.6
+  - @checkstack/status-page-common@0.6.5
+  - @checkstack/automation-backend@0.11.8
+  - @checkstack/secrets-backend@0.3.9
+  - @checkstack/catalog-backend@1.10.1
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/incident-common@1.10.5
+  - @checkstack/maintenance-common@1.10.5
+  - @checkstack/script-packages-backend@0.4.6
+  - @checkstack/sdk@0.135.1
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/command-backend@0.2.27
+  - @checkstack/gitops-backend@0.5.27
+
 ## 1.21.3
 
 ### Patch Changes

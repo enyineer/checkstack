@@ -1,5 +1,261 @@
 # @checkstack/announcement-frontend
 
+## 0.10.0
+
+### Minor Changes
+
+- be74b01: Make the announcement table sortable and filterable
+
+  Every column except Actions now sorts, and the list can be narrowed by title,
+  severity, status and visibility.
+
+  - **Sorting** is on impact rather than alphabet where that differs: severity
+    sorts critical -> info, status sorts active -> scheduled -> expired ->
+    inactive (the order the stat strip lists its buckets in), and Created sorts on
+    the raw timestamp instead of the "3 days ago" prose the cell shows. The two
+    icon-only columns sort by the label their tooltip shows.
+  - **Filtering** adds a title search plus severity / status / visibility facets,
+    a Clear affordance, and a filtered-empty state. Values arriving from the
+    `<Select>`s are parsed against the schemas that define them, so an
+    unrecognised value degrades to "unconstrained" rather than becoming a filter
+    nothing can match. The Status facet matches on the DERIVED lifecycle state, so
+    it stays correct as an announcement's window opens and closes.
+  - **Reordering** moved out of the Actions cluster into its own sortable "Order"
+    column that also shows each announcement's 1-based position. The position is
+    what makes the up/down arrows legible while the table is sorted some other
+    way. While a filter actually hides rows the arrows are disabled with a "Clear
+    filters to reorder" tooltip, since the neighbour being swapped with would be
+    off-screen - the same rule the catalog's Groups tab uses.
+
+  The table previously declared itself deliberately unsortable, on the grounds
+  that sorting would desync the index-based reorder controls from the visible row
+  order. Showing each row's canonical position removes that constraint.
+
+  Also fixes a pre-existing panel-in-panel: the table paints its own bordered
+  surface inside an already-opaque Card, so it now passes `surface={false}` like
+  the automation list and queue panels do.
+
+- be74b01: Render the announcement block on public status pages (serve core plugins as Module Federation remotes)
+
+  Thanks to @stuajnht for reporting: the Announcements block never rendered on a
+  public status page - the lean public bundle (used for both a custom domain and
+  the same-origin `/statuspage/view/:slug` path) loads NO plugins, and the
+  announcement renderer lives in a core frontend plugin that was only ever bundled
+  into the admin app. Declaring the widget's `rendererRemote` was necessary but not
+  sufficient: core plugins were never built or served as remotes, so the public
+  bundle's `loadRemote` 404'd and the block stayed blank.
+
+  BREAKING CHANGE (mechanism, not API): core frontend plugins can now ship a public
+  Module Federation remote so the lean public bundle can load their status-page
+  widget renderers on demand - the same mechanism third-party plugins use.
+
+  - `@checkstack/announcement-frontend` gains a federation `vite.config.ts` and a
+    `build` script that emit a remote (`mf-manifest.json` + `remoteEntry.js`),
+    exposing a LEAN public entry (`public-plugin.tsx`) that contributes ONLY the
+    status-widget renderer - not the admin routes/manage page - so the remote stays
+    small and avoids the heavy `@checkstack/ui` surface. It shares only `react`,
+    `@checkstack/frontend-api`, and (consume-only) `@checkstack/ui/code-editor` with
+    the host; react-dom / react-query are left unshared so their dead transitive
+    code bundles and tree-shakes rather than breaking the federated consume shim.
+  - Opt in with `checkstack.publicRemote: true` in the plugin's package.json. The
+    backend plugin discovery now syncs such core frontend plugins into the
+    `plugins` table so `/assets/plugins/<name>/*` serves their `dist/` (ordinary
+    core frontend plugins, bundled into the admin app, are unaffected and excluded
+    from the admin remote list).
+  - Build wiring: a new `bun run build:public-remotes` builds every
+    `publicRemote` plugin (single source of truth: the same marker discovery uses),
+    wired into the `Dockerfile` builder stage and the e2e `pretest:e2e`; the
+    runtime image copies each remote's `dist/`.
+
+  Verified end to end in a real browser: the public page fetches the remote's
+  `mf-manifest.json` / `remoteEntry.js` (200), Module Federation loads it against
+  the host's shared React/frontend-api, and the announcement renders (with its
+  markdown) - no console errors.
+
+### Patch Changes
+
+- be74b01: Fix info-severity announcements rendering in the neutral grey "unknown" hue
+
+  An announcement with `info` severity mapped onto the grey `unknown` status
+  tone, so its severity pill, its card accent stripe and the global announcement
+  banner all rendered grey - reading as "inert/disabled" rather than
+  "informational" - on the announcements manage page, the dashboard and the
+  public status page widget.
+
+  `info` severity now maps to the blue `info` tone that the design system already
+  defines (`--status-info`) and that incidents and status pages already use.
+  The announcement plugin's private copy of the tone table, which was missing the
+  `info` entry entirely, is replaced by the shared `pillToneStyles` from
+  `@checkstack/ui`, and the banner now derives its classes from the same
+  severity-to-tone mapping as the pills instead of carrying its own switch, so the
+  two can no longer drift.
+
+  `pillToneStyles` gains `text`, `tint`, `border` and `tintHover` class sets per
+  tone (additive - existing `pill` / `dot` / `accent` are unchanged) so banner-like
+  surfaces can be tinted from the shared table.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Give announcement lifecycle states deliberate colours instead of accidental grey
+
+  "Scheduled", "Expired" and "Inactive" all fell through a `default:` arm in
+  `statusToTone` to the neutral grey `unknown` tone, so a scheduled announcement
+  was indistinguishable from an inert one and none of the three had been chosen
+  on purpose.
+
+  Colour is now split by what it answers:
+
+  - **A row is coloured by its SEVERITY.** The manage table's leading dot and the
+    mobile card's accent stripe follow the announcement's severity (info blue /
+    warning amber / critical red), matching the banner, the dashboard card and
+    the status-page widget, which already worked this way.
+  - **A row's lifecycle is stated in words.** The Status column is now a neutral
+    pill (`Active` / `Scheduled` / `Expired` / `Inactive`), so it no longer puts a
+    second, competing colour scale on the same line.
+  - **The stat strip above the table keeps lifecycle colour**, because each card
+    IS a lifecycle bucket: active stays green, scheduled becomes informational
+    blue (deliberately not amber, which means "degraded" everywhere else and would
+    make a correctly scheduled announcement read as a fault), and expired and
+    inactive stay grey - the tone the design system defines for inert states -
+    now by explicit decision. The cards keep their neutral border and carry the
+    tone on the existing left accent stripe.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Make filtering part of the column contract
+
+  Filtering now joins sorting and searching on `DataTableColumn`: providing
+  `filterValue` is what makes a column filterable, with no separate boolean flag,
+  exactly as `sortValue` makes it sortable.
+
+  A status column already reads the row for `sortValue` and renders it in `cell`;
+  declaring the filter there too means the value is stated ONCE, so the badge, the
+  sort and the filter cannot drift apart. Previously the same value had to be
+  repeated in a standalone facet.
+
+  ```tsx
+  {
+    id: "severity",
+    header: "Severity",
+    cell: (a) => <SeverityBadge severity={a.severity} />,
+    sortValue: (a) => severityRank[a.severity],
+    filterValue: (a) => a.severity,
+    filterOptions: SEVERITY_OPTIONS,  // omit to derive from the data
+  }
+  ```
+
+  `filterOptions` is optional: omitted, the options are derived from the distinct
+  values present in the data, sorted and labelled by the raw value. Declare them
+  when the raw values are not what a person should read, when the order carries
+  meaning (severity by impact, which deriving would sort alphabetically into
+  critical / info / warning), or when an option must stay on offer even though no
+  row currently has it.
+
+  Options are derived from the FULL row set, never from what is currently visible.
+  Reading them off the filtered rows would let selecting one option delete every
+  other option, leaving no way back - the same reason a cell cannot simply publish
+  its value upward: rows excluded by a filter never render.
+
+  The standalone `facets` prop keeps its place for a dimension no single column
+  owns - the catalog's group and tag filters match several values per row and
+  narrow two different row types. Column-derived facets render first, in column
+  order, followed by those.
+
+  The announcements table is converted: its severity, status and visibility
+  filters now live on the columns that display them.
+
+- be74b01: Add native facet filtering to DataTable, with URL-persisted state
+
+  Search and "narrow by status/severity/type" had no home in `DataTable`, which
+  owned only a free-text box whose query lived in internal state a page could not
+  observe. So every surface that needed to know what was filtered - to gate a
+  control, to render its own empty state, to put the view in a shareable link -
+  abandoned the built-in search entirely and hand-rolled the lot. Across the repo
+  that produced 18 surfaces rendering filter UI outside `DataTable` against 17
+  using only its built-in search, with six different renderings of the same select
+  and three different "show everything" sentinels.
+
+  `DataTable` now accepts:
+
+  - `facets` - declarative `{ id, label, options, value }` filters rendered beside
+    the search box, ANDed with each other and with the search, with a Clear
+    affordance and a `noResultsState` that fires on facet emptiness.
+  - `filters` / `onFiltersChange` / `onClearFilters` - the state is controllable,
+    so a page can observe it. Omit them and the table owns it internally.
+  - `surface={false}` now also insets the filter bar with a separating rule, so a
+    table nested full-bleed in a page's own Card no longer has its controls flush
+    against the card's edges.
+
+  New exports:
+
+  - `useDataTableFilters` persists filter state to the URL, so a filtered view is
+    shareable, survives a reload, and returns intact from a row's detail page. It
+    exposes `active` (for gating controls a filtered view makes ambiguous) and a
+    `debounced` variant for server-side query inputs, plus `paramPrefix` for two
+    filtered tables on one page.
+  - `DataTableFilterBar` renders the same controls for a list surface that is not
+    a table, so a card grid filters identically to one.
+  - `useDebouncedValue`, which had been copied verbatim into six plugin packages,
+    each carrying a comment noting that no shared version existed.
+
+  The announcements manage table is migrated onto it as the first consumer,
+  dropping its local filter module in favour of facet declarations.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/status-page-common@0.6.5
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/tips-frontend@0.5.5
+
 ## 0.9.6
 
 ### Patch Changes

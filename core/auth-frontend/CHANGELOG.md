@@ -1,5 +1,143 @@
 # @checkstack/auth-frontend
 
+## 0.15.0
+
+### Minor Changes
+
+- be74b01: Let teams that manage a resource administer its team access (delegation)
+
+  Editing a resource's team access on the "Who can change this" editor (add/remove
+  teams, toggle Manage, toggle Private) was gated on the GLOBAL `auth.teams.manage`
+  rule on both the frontend and backend, so only a platform admin could do it -
+  even a member of a team that already manages the resource saw the editor
+  read-only.
+
+  `writeRelation`, `removeRelation` and `setObjectPublic` now authorize per-object:
+  the caller may edit a resource's team access when they can MANAGE that specific
+  resource - a global `auth.teams.manage` admin, a holder of the resource's own
+  `<type>.manage` rule (e.g. `catalog.system.manage`), or a member of a team that
+  holds an editor/owner grant on it. A team that only reads the resource (viewer
+  grant), or has no grant and no global rule, is read-only and CANNOT elevate its
+  own or another team's access. The check reuses the existing ReBAC engine
+  (`tupleStore.check({ action: "manage" })`), so team-only (private) resources are
+  respected: a global resource-manager who is not on a granted team cannot reach a
+  private resource - only a `teams.manage` admin or a granted team can. The first
+  grant on an otherwise-unscoped resource still requires one of the global rules.
+
+  A new `canManageObjectAccess` query runs the SAME authorization, and the
+  `TeamAccessEditor` gates its write controls on it instead of the global rule, so
+  the UI shows exactly the controls a write would accept (no frontend/backend
+  drift). The backend re-checks on every write, so it remains the security
+  boundary.
+
+  BREAKING CHANGE: granting/revoking a team's access to a resource is no longer
+  admin-only - it is delegated to whoever can manage that resource. If you relied
+  on only `auth.teams.manage` holders being able to change resource team-access,
+  note that members of a team that manages the resource can now do so too (a
+  read-only team still cannot).
+
+- be74b01: Let team members and managers see and manage their own team without a global rule
+
+  Opening the "Who can change this" team-access modal (e.g. on a system) as a
+  team manager failed with "Couldn't load team access. Retry or reopen the
+  editor.", because the backend 403'd `getTeams` and denied `listObjectRelations`.
+  The team-read procedures were gated on the GLOBAL `auth.teams.read` rule, which
+  a team-scoped user (a per-team ReBAC grant, no global rule) does not hold - so
+  managers and members were locked out of their own team, and managers who tried
+  to add / remove / promote members would have been 403'd too.
+
+  The read/metadata procedures (`getTeams`, `getTeam`, `listObjectRelations`,
+  `listObjectRelationsBulk`, `listSubjectRelations`, `listTeamCreateGrants`,
+  `searchUsers`, `resolveResourceNames`, `getResourceKinds`) are no longer gated
+  on the global rule. Each now scopes in the handler:
+
+  - A caller holding global `auth.teams.read` (or a trusted service) still sees
+    every team.
+  - Everyone else sees ONLY the team(s) they are a member or manager of.
+    `getTeams` returns just those teams, `getTeam` returns `undefined` for a team
+    the caller has no stake in (no existence leak), and `listObjectRelations` /
+    `listObjectRelationsBulk` hide an object's team grants from a caller with no
+    stake while still returning the public flag - a successful, empty response,
+    never a 403.
+  - `searchUsers` keeps its own guard: the directory is still searchable only by a
+    global team-manager or a manager of at least one team.
+
+  Team WRITE procedures (`updateTeam`, `addUserToTeam`, `removeUserFromTeam`,
+  `addTeamManager`, `removeTeamManager`) already enforced
+  `assertTeamManagementAccess` (service, global `teams.manage`, or manager of the
+  specific team) and now pass the middleware so a team manager can actually manage
+  their own team. Creating and deleting whole teams stays admin-only
+  (`auth.teams.manage`).
+
+  Frontend: the standalone Teams page and its nav entry are now shown to a global
+  `auth.teams.read` holder OR any user who is a member/manager of at least one
+  team - not unconditionally to every authenticated user, and no longer requiring
+  the global rule. A user in no team (and holding no global rule) does not see it.
+  This is driven by a new `isInAnyTeam` flag on the app-wide `accessRules` query
+  (member OR manager, so manager-only teams count), threaded into the sidebar's
+  nav-visibility model and exposed to every route's `isVisible` predicate via a
+  new `isInAnyTeam` context field (`@checkstack/frontend-api`). The page
+  self-scopes via the now-scoped `getTeams`, and per-team management affordances
+  stay gated on managing that team.
+
+  BREAKING CHANGE: `auth.teams.read` no longer gates the team read procedures at
+  the middleware. If you relied on that rule to hide team existence from
+  authenticated users, note that a user now sees the teams they belong to
+  regardless; access to a specific team's data is still limited to its
+  members/managers or a global-rule holder.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- be74b01: Migrate the automation surfaces onto the shared filter bar, and dedupe useDebouncedValue
+
+  Follows the native `DataTable` facet API with the first wave of migrations.
+
+  - `DataTableFacet` gains `kind: "select" | "pills"`. A segmented pill row is the
+    right control for two or three short options a reader benefits from seeing at
+    a glance, and several surfaces had independently built one - so the shared bar
+    renders that variant rather than forcing every list into a dropdown. Both
+    variants share one state, sentinel and URL round-trip, and the pills set
+    `aria-pressed`, which two of the hand-rolled groups they replace had omitted.
+  - `parsedFacetValue` reads a facet's selection back as a domain value by parsing
+    it against the schema that defines it. Facet state is stringly-typed because
+    it round-trips through the URL, but a server-side filter needs the narrow union
+    its query input declares; parsing rather than casting means a stale link
+    degrades to unconstrained instead of smuggling an unknown value into a request.
+  - The automation list and run-history pages drop their hand-rolled status pill
+    rows for the shared bar. Their filters now persist to the URL, so a link to
+    "the failed runs of this automation" reopens filtered. The run-history table
+    also gains the `surface={false}` it was missing, fixing a panel-in-panel.
+  - `useDebouncedValue` had been copied verbatim into six plugin packages, each
+    with a comment noting no shared version existed. All six now import the one in
+    `@checkstack/ui` and the copies are deleted.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/incident-common@1.10.5
+  - @checkstack/maintenance-common@1.10.5
+
 ## 0.14.0
 
 ### Minor Changes

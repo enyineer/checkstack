@@ -1,5 +1,12 @@
 # @checkstack/telemetry-common
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+  - @checkstack/frontend-api@0.17.0
+
 ## 0.1.0
 
 ### Minor Changes

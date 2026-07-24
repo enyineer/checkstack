@@ -1,5 +1,115 @@
 # @checkstack/script-packages-frontend
 
+## 0.4.18
+
+### Patch Changes
+
+- be74b01: Migrate the automation surfaces onto the shared filter bar, and dedupe useDebouncedValue
+
+  Follows the native `DataTable` facet API with the first wave of migrations.
+
+  - `DataTableFacet` gains `kind: "select" | "pills"`. A segmented pill row is the
+    right control for two or three short options a reader benefits from seeing at
+    a glance, and several surfaces had independently built one - so the shared bar
+    renders that variant rather than forcing every list into a dropdown. Both
+    variants share one state, sentinel and URL round-trip, and the pills set
+    `aria-pressed`, which two of the hand-rolled groups they replace had omitted.
+  - `parsedFacetValue` reads a facet's selection back as a domain value by parsing
+    it against the schema that defines it. Facet state is stringly-typed because
+    it round-trips through the URL, but a server-side filter needs the narrow union
+    its query input declares; parsing rather than casting means a stale link
+    degrades to unconstrained instead of smuggling an unknown value into a request.
+  - The automation list and run-history pages drop their hand-rolled status pill
+    rows for the shared bar. Their filters now persist to the URL, so a link to
+    "the failed runs of this automation" reopens filtered. The run-history table
+    also gains the `surface={false}` it was missing, fixing a panel-in-panel.
+  - `useDebouncedValue` had been copied verbatim into six plugin packages, each
+    with a comment noting no shared version existed. All six now import the one in
+    `@checkstack/ui` and the copies are deleted.
+
+- be74b01: Source every status tone from the one shared table
+
+  Nineteen plugin modules each re-declared the tone-to-class table verbatim
+  (`pill: "bg-status-ok/10 text-status-ok"`, `dot: "bg-status-ok"`, ...), some
+  reproducing every field of the shared one. They now take those classes from
+  `pillToneStyles` in `@checkstack/ui` while keeping their own domain mapping -
+  which value means which tone - since that is real domain knowledge and is unit
+  tested. A repo-wide search for a hand-written triad row now returns only the
+  shared table.
+
+  Several hand-rolled pills went with them, onto the shared `StatusPill`: the
+  automation run pill, the satellite status badge, the notification channel pill,
+  the SLO objective pill and both AI tool-card pills.
+
+  Four rows are deliberately still local, each with a comment saying why, because
+  they are NOT the shared tone despite looking like it:
+
+  - The dashboard's `info` uses the `--info` token, a different hue from
+    `--status-info` (light: `217 91% 60%` vs `214 90% 45%`).
+  - Integrations' and notifications' `unknown`/`neutral` use the muted treatment -
+    the ABSENCE of a tone - not the shared grey.
+  - The queue's "processing" uses opacity-softened muted classes that match
+    neither the shared table nor the pill's neutral.
+
+  One genuine class divergence was found and NOT normalised: the system incident
+  panel draws its borders at `/30` where the shared table uses `/20`. It is now a
+  single documented map instead of a full private table.
+
+  Pills whose geometry has no shared equivalent (the dependency canvas node with
+  its animated halo, the incident panel's compact chips, the dashboard's
+  non-triad signal tone) keep their markup and now only share the classes.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/sdk@0.135.1
+
 ## 0.4.17
 
 ### Patch Changes

@@ -1,5 +1,139 @@
 # @checkstack/status-page-frontend
 
+## 0.8.0
+
+### Minor Changes
+
+- be74b01: Make maintenance status colours agree across every surface
+
+  Thanks to @stuajnht for reporting: a "Scheduled" maintenance was blue on the
+  manage/list/detail pages, amber on the catalog system card, and grey on the
+  status page block and the public maintenance detail page - three different
+  colours for one status.
+
+  The manage surfaces went through the canonical `presentMaintenanceStatus`
+  mapping (blue `info` for scheduled, amber `warn` for in-progress); the other
+  three hardcoded Tailwind classes and never consulted it. Two of them hardcoded
+  the grey `unknown` tone for EVERY status, so they also painted an in-progress
+  window grey, and rendered the raw enum ("in progress") instead of the shared
+  label ("In Progress"). The catalog card hardcoded amber for every status, so a
+  scheduled-only window looked identical to a live one.
+
+  All three now derive tone and label from the canonical mapping:
+
+  - **status-page-frontend** gains `maintenanceStatusTone` /
+    `maintenanceStatusLabel`, replicated against the shared `pillToneStyles`
+    tones - the same platform-layer arrangement `severityTone.ts` already uses,
+    since status-page-frontend must not import the domain `maintenance-*`
+    packages. The public maintenance block, the public detail page, and the
+    system-level "Maintenance" status pill all read from it. A system under
+    planned maintenance now reads blue (informational), not grey (inert/unknown).
+  - **maintenance-frontend**'s system detail card takes the tone of whichever
+    window leads: amber while one is in progress, else blue for scheduled.
+
+  Separately, `StatusBadge` now draws from the shared status tokens
+  (`--status-*`) instead of the generic `--success`/`--warning`/`--info`
+  palette. Those palettes differ (e.g. `--info` 217 91% 60% vs `--status-info`
+  214 90% 45%), so a system-state badge and a status pill of the same tone
+  rendered two different blues (and two different ambers) for the same meaning.
+  They now share one hue per tone across health, incident, SLO, maintenance,
+  anomaly and dependency badges.
+
+### Patch Changes
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- be74b01: Fix status-page detail-page content and status colouring
+
+  Thanks to @stuajnht for reporting several public status-page issues (the
+  announcement-block fix is a separate changeset):
+
+  - **Incident/maintenance status text was uncoloured and inline.** Update-timeline
+    status changes rendered in the muted grey `text-muted-foreground`, making the
+    status hard to tell apart from the message. The status change now sits on its
+    own line, coloured by its lifecycle (a new `incidentStatusTone`/`Label` mirrors
+    the incident status enum the way `maintenanceStatusTone` mirrors maintenance),
+    on both the summary block and the detail pages. The detail-page incident status
+    pill next to the title is now coloured too (was a neutral grey pill).
+
+  - **Detail pages showed raw markdown.** Individual incident/maintenance pages
+    rendered the update body as the raw source string; they now render sanitized
+    markdown via `<Markdown>`, like the block.
+
+  - **Detail pages showed only a few updates.** The individual pages reused the
+    summary block DTO, so they inherited the block's `maxUpdates` cap. Widget types
+    now expose an optional `resolveDetail` that returns the ONE item with ALL its
+    public updates (no cap) and its long-form description; the incident and
+    maintenance widgets implement it, and the status-page backend's
+    `resolvePublishedIncident`/`resolvePublishedMaintenance` call it. The detail
+    page is gated by the SAME anti-enumeration boundary as the block (the widget's
+    live scope), and the result is re-validated against the widget's item DTO, so
+    it fails closed exactly like the block.
+
+  - **Maintenance detail page showed no description.** The maintenance item DTO
+    gained an optional `description`, emitted by `resolveDetail` and rendered as
+    markdown on the detail page (the incident detail page already had the field
+    plumbed and now renders it too).
+
+  Note on maintenance/grey systems (also reported): the maintenance BLOCK already
+  colours scheduled windows blue. On the SYSTEM-HEALTH widget the blue
+  "maintenance" tone is applied only while a window is actively `in_progress`; a
+  future scheduled window leaves the system on its live health, and a system with
+  no health data reads grey "unknown". That is deliberate and left as-is.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/status-page-common@0.6.5
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/catalog-common@2.8.1
+
 ## 0.7.6
 
 ### Patch Changes

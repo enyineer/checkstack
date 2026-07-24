@@ -1,5 +1,38 @@
 # @checkstack/slo-backend
 
+## 0.12.6
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ai-backend@0.11.4
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/healthcheck-backend@1.22.0
+  - @checkstack/automation-backend@0.11.8
+  - @checkstack/catalog-backend@1.10.1
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/dependency-common@1.7.7
+  - @checkstack/incident-common@1.10.5
+  - @checkstack/maintenance-common@1.10.5
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/slo-common@0.9.5
+  - @checkstack/command-backend@0.2.27
+  - @checkstack/gitops-backend@0.5.27
+
 ## 0.12.5
 
 ### Patch Changes

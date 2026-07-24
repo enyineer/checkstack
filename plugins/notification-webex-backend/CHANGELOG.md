@@ -1,5 +1,12 @@
 # @checkstack/notification-webex-backend
 
+## 0.0.79
+
+### Patch Changes
+
+- @checkstack/notification-backend@1.8.6
+- @checkstack/backend-api@0.34.1
+
 ## 0.0.78
 
 ### Patch Changes

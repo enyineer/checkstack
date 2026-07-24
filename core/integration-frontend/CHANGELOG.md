@@ -1,5 +1,85 @@
 # @checkstack/integration-frontend
 
+## 0.8.9
+
+### Patch Changes
+
+- be74b01: Converge the status-tone exceptions that turned out to be drift
+
+  Reviewing the four "deliberate exceptions" left by the tone de-duplication, three
+  were drift wearing a comment, and one was genuine.
+
+  - **`neutralToneStyle` is now exported from `@checkstack/ui`.** Three plugins had
+    each written out the same three muted strings by hand. It sits beside
+    `pillToneStyles` rather than in it, because the absence of a tone is not a
+    tone; `StatusPill`'s `tone="neutral"` renders it.
+  - **Dashboard signals use the status ladder's blue.** In one record `error` and
+    `warn` came from the ladder while `info` reached for the general-purpose
+    `--info` accent - so the same "Watch" signal rendered in two different blues
+    depending on whether you looked at the problem card, its chip, or the fleet
+    header bar. All three now use `--status-info`, which is also the darker L45
+    blue chosen precisely so its text stays readable on a light card.
+  - **The system incident panel borders at `/20`** like every other tinted border,
+    removing the last class-string divergence in the tone system along with the
+    one-off map that documented it.
+  - **The queue's neutral pills use the shared neutral.** Its KPI tile and its job
+    state pill each carried a slightly softer private variant, so "carries no
+    signal" looked like two different things on one page.
+
+  The one genuine exception kept: `--info` and `--status-info` remain separate
+  tokens. The first is the general semantic palette (alongside `--success` /
+  `--warning`), the second the colourblind-safe status ladder with its own
+  contrast rationale. Non-status surfaces - the `Alert` component, plugin-type
+  chips - keep the general accent.
+
+- be74b01: Source every status tone from the one shared table
+
+  Nineteen plugin modules each re-declared the tone-to-class table verbatim
+  (`pill: "bg-status-ok/10 text-status-ok"`, `dot: "bg-status-ok"`, ...), some
+  reproducing every field of the shared one. They now take those classes from
+  `pillToneStyles` in `@checkstack/ui` while keeping their own domain mapping -
+  which value means which tone - since that is real domain knowledge and is unit
+  tested. A repo-wide search for a hand-written triad row now returns only the
+  shared table.
+
+  Several hand-rolled pills went with them, onto the shared `StatusPill`: the
+  automation run pill, the satellite status badge, the notification channel pill,
+  the SLO objective pill and both AI tool-card pills.
+
+  Four rows are deliberately still local, each with a comment saying why, because
+  they are NOT the shared tone despite looking like it:
+
+  - The dashboard's `info` uses the `--info` token, a different hue from
+    `--status-info` (light: `217 91% 60%` vs `214 90% 45%`).
+  - Integrations' and notifications' `unknown`/`neutral` use the muted treatment -
+    the ABSENCE of a tone - not the shared grey.
+  - The queue's "processing" uses opacity-softened muted classes that match
+    neither the shared table nor the pill's neutral.
+
+  One genuine class divergence was found and NOT normalised: the system incident
+  panel draws its borders at `/30` where the shared table uses `/20`. It is now a
+  single documented map instead of a full private table.
+
+  Pills whose geometry has no shared equivalent (the dependency canvas node with
+  its animated halo, the incident panel's compact chips, the dashboard's
+  non-triad signal tone) keep their markup and now only share the classes.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/tips-frontend@0.5.5
+
 ## 0.8.8
 
 ### Patch Changes

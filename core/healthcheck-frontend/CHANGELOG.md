@@ -1,5 +1,412 @@
 # @checkstack/healthcheck-frontend
 
+## 0.38.0
+
+### Minor Changes
+
+- be74b01: Evaluate health per probe location, so a failing satellite can no longer read as healthy
+
+  Thanks to @stuajnht for reporting: a system whose local check succeeded and
+  whose satellite check failed was shown as **healthy**, and the report correctly
+  guessed the cause - one combined verdict where there should have been one per
+  location.
+
+  A check's runs were grouped into slices by environment alone, so both locations'
+  runs landed in the same slice and were handed to the threshold evaluator as one
+  interleaved stream. In the default `consecutive` mode the streak breaks on every
+  alternation, no threshold is ever reached, and evaluation falls through to its
+  healthy default. A satellite failing 100% of the time was therefore invisible
+  for as long as a local check succeeded between its runs.
+
+  A slice is now an **(environment, source)** pair - one environment as probed
+  from one location - and each is evaluated on its own window, with the worst
+  result deciding the check. This is the same rule environments already followed;
+  the source dimension was simply never considered. Both the system rollup and the
+  system overview were affected, and both are fixed.
+
+  Related correctness fixes that fall out of keying slices by source:
+
+  - A **de-assigned satellite** (or the core after **Include local** is turned
+    off) stops counting immediately instead of dragging the rollup with its last
+    failures until they age out of the window. Its history moves under **Old
+    checks**.
+  - **Per-satellite environment scoping** is honoured when resolving slices, so a
+    satellite narrowed to production no longer keeps a stale staging slice alive.
+  - A satellite scoped to run env-less while the core fans out keeps its slice
+    live; the "has a live environment slice" question is now answered per
+    location, as the backend already did.
+
+  The system overview shows one row per slice and names the location (for example
+  **EU West**) as soon as a check runs from more than one place. A check that only
+  ever runs on the core shows no location label - there is nothing to
+  disambiguate.
+
+  `checkStatuses[].slices` and the overview's per-slice entries carry the
+  breakdown (`sourceId`, `sourceLabel`, `sourceOrphaned`) on the wire, and
+  `sliceCount` / `failingSliceCount` now count locations as well as environments -
+  so a check probing one environment from the core and one satellite contributes
+  2 to the dashboard's "X of Y checks failing" denominator, not 1.
+
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- be74b01: Migrate the automation surfaces onto the shared filter bar, and dedupe useDebouncedValue
+
+  Follows the native `DataTable` facet API with the first wave of migrations.
+
+  - `DataTableFacet` gains `kind: "select" | "pills"`. A segmented pill row is the
+    right control for two or three short options a reader benefits from seeing at
+    a glance, and several surfaces had independently built one - so the shared bar
+    renders that variant rather than forcing every list into a dropdown. Both
+    variants share one state, sentinel and URL round-trip, and the pills set
+    `aria-pressed`, which two of the hand-rolled groups they replace had omitted.
+  - `parsedFacetValue` reads a facet's selection back as a domain value by parsing
+    it against the schema that defines it. Facet state is stringly-typed because
+    it round-trips through the URL, but a server-side filter needs the narrow union
+    its query input declares; parsing rather than casting means a stale link
+    degrades to unconstrained instead of smuggling an unknown value into a request.
+  - The automation list and run-history pages drop their hand-rolled status pill
+    rows for the shared bar. Their filters now persist to the URL, so a link to
+    "the failed runs of this automation" reopens filtered. The run-history table
+    also gains the `surface={false}` it was missing, fixing a panel-in-panel.
+  - `useDebouncedValue` had been copied verbatim into six plugin packages, each
+    with a comment noting no shared version existed. All six now import the one in
+    `@checkstack/ui` and the copies are deleted.
+
+- be74b01: Migrate the catalog and health-check filters onto the shared filter bar
+
+  Completes the consolidation. Every faceted list surface now renders one control
+  set over one state model.
+
+  `@checkstack/ui` gains what those two surfaces genuinely needed:
+
+  - `DataTableFacetControl` splits the PRESENTATIONAL half of a facet from its row
+    accessor. The catalog's matching cannot be a `value(row): string` - a system
+    belongs to several groups and carries several tags, its health lives in a
+    separate status map, and the same three controls also narrow GROUPS, a
+    different row type entirely. Such a surface can now use the shared bar and keep
+    its own matching, instead of being shut out or supplying fake accessors.
+  - `disabled` / `disabledReason` keep a control visibly present-but-unavailable
+    (the catalog's health filter before a health source is installed). Preferred to
+    dropping the control: present-but-disabled says the capability exists and what
+    would unlock it. It also keeps the parameter declared, so a selection arriving
+    on a shared link still constrains rather than silently widening the list.
+  - A facet option may carry a `tone`, applied while that option is selected. This
+    is reserved for a dimension that genuinely IS a status: the health-check run
+    filter's green "Healthy" / red "Failing" is the product's vocabulary, and a
+    shared control that could not express it would be a downgrade on the one
+    surface where colour carries the most meaning. Tone never affects matching.
+
+  Migrated:
+
+  - **Catalog** - `CatalogBrowseToolbar` becomes a thin wrapper over the shared
+    bar; the density toggle rides in its `children` slot, since it narrows nothing
+    and as a facet would sit behind Clear, where "clear filters" would silently
+    reset row height. One toolbar still drives the browse grid and all three manage
+    tabs, and `GroupsTab`'s reorder arrows are still gated on the filtered state.
+    Environments were filtered by an ad-hoc substring match in the page; they now
+    go through the shared logic and match descriptions too.
+  - **Health checks** - the list toolbar (a self-declared copy of the catalog's)
+    and both hand-rolled pill groups are deleted. The run-history filters gain URL
+    persistence, so a filtered run view is now shareable, and both pill groups gain
+    the `aria-pressed` and labelled group they were missing.
+
+  All existing URL parameters are preserved, guarded by tests, so links shared
+  before the migration still reopen the same view - including the catalog's
+  per-system "view health checks" link, whose server-side authorization path is
+  deliberately kept as a control without a row accessor.
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Source every status tone from the one shared table
+
+  Nineteen plugin modules each re-declared the tone-to-class table verbatim
+  (`pill: "bg-status-ok/10 text-status-ok"`, `dot: "bg-status-ok"`, ...), some
+  reproducing every field of the shared one. They now take those classes from
+  `pillToneStyles` in `@checkstack/ui` while keeping their own domain mapping -
+  which value means which tone - since that is real domain knowledge and is unit
+  tested. A repo-wide search for a hand-written triad row now returns only the
+  shared table.
+
+  Several hand-rolled pills went with them, onto the shared `StatusPill`: the
+  automation run pill, the satellite status badge, the notification channel pill,
+  the SLO objective pill and both AI tool-card pills.
+
+  Four rows are deliberately still local, each with a comment saying why, because
+  they are NOT the shared tone despite looking like it:
+
+  - The dashboard's `info` uses the `--info` token, a different hue from
+    `--status-info` (light: `217 91% 60%` vs `214 90% 45%`).
+  - Integrations' and notifications' `unknown`/`neutral` use the muted treatment -
+    the ABSENCE of a tone - not the shared grey.
+  - The queue's "processing" uses opacity-softened muted classes that match
+    neither the shared table nor the pill's neutral.
+
+  One genuine class divergence was found and NOT normalised: the system incident
+  panel draws its borders at `/30` where the shared table uses `/20`. It is now a
+  single documented map instead of a full private table.
+
+  Pills whose geometry has no shared equivalent (the dependency canvas node with
+  its animated halo, the incident panel's compact chips, the dashboard's
+  non-triad signal tone) keep their markup and now only share the classes.
+
+- be74b01: Stop the history page labelling live environments as "Removed environment"
+
+  The health-check history page showed "Removed environment" beside runs whose
+  environment was perfectly healthy - while opening the same run showed the
+  environment correctly.
+
+  The page rendered the runs table without passing `environmentLabels` at all. The
+  prop was optional, so the table received no environment names, found nothing to
+  resolve each run's id against, and fell back to its "this environment no longer
+  exists" label. Every other caller passed the prop; the history page was the only
+  one that did not, which is why the bug appeared on exactly one screen.
+
+  The page now resolves names from every environment in the instance (as the other
+  screens do) and holds its rows until they load, so a still-loading environment
+  cannot flash as removed either.
+
+  The prop is now REQUIRED on both run lists. "Removed environment" is a claim
+  that an id is absent from the complete list, which is only sound if the complete
+  list was actually supplied - and while the prop was optional, forgetting it
+  produced a confident lie rather than a visible gap. The three cases (env-less,
+  named, genuinely removed) are now resolved by one tested helper instead of a
+  lookup that could not tell "no list" from "not in the list".
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Stop labelling live satellite checks as "Old checks"
+
+  On a system that has environments, a check assigned to both the local core and a
+  satellite showed the satellite's results under "Old checks" the moment the
+  satellite first reported - even though they were the freshest data on the page.
+
+  The cause is that satellites are handed no environment information: every result
+  a satellite reports is written env-less. The overview decided a slice was old
+  STRUCTURALLY - an env-less slice must be historical, it reasoned, because a check
+  that fans out per environment cannot still be writing env-less runs. That held
+  while only the local executor wrote runs, and satellites break it.
+
+  The rule now means what its name says: an env-less slice is old only when it has
+  actually stopped receiving runs, judged from its own run timestamps against the
+  check's interval, with a generous allowance (five missed intervals, and a
+  ten-minute floor) so a probe that is merely slow or backing off is never
+  mistaken for a dead one. A slice that has never run at all is pending, not old.
+
+  A concrete environment that left the system, or was disabled for the assignment,
+  is still called old immediately - that verdict is certain, so making it wait
+  would only delay a correct label.
+
+  This fixes the mislabelling. The underlying gap - satellites receiving no
+  environment context, so satellite checks contribute no per-environment health -
+  is tracked separately.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+- be74b01: Stop a system with no health data from reading as "Degraded"
+
+  A system with no health checks (or whose checks have not run yet) has health
+  status `unknown`, but two display paths treated every non-`healthy` status as a
+  problem and fell through to the amber "Degraded" label - so a check-less system
+  falsely showed "Degraded" on its detail page, in catalog rows, and as a problem
+  card on the dashboard, with no incident, no failing check, and no failing
+  dependency to explain it.
+
+  Both now omit `unknown` alongside `healthy` (only `degraded` / `unhealthy`
+  produce a badge or signal), matching the "an unmeasured system is no signal, not
+  a fault" model the catalog rollup already uses:
+
+  - `deriveHealthcheckSignals` (`@checkstack/healthcheck-common`) no longer emits a
+    dashboard signal for an `unknown` system. Its doc already said healthy and
+    unknown are omitted; the code only skipped healthy.
+  - The system health badge (`@checkstack/healthcheck-frontend`) returns no badge
+    for `unknown`. The decision was extracted into a pure `resolveHealthBadge`
+    helper with unit tests.
+
+  The dependency "Degrading impact" chips on the edge are unrelated - they show the
+  edge's configured impact type, and the dependency warning engine already maps an
+  unmeasured upstream to operational, so it raises no warning.
+
+- be74b01: Stop reporting systems as healthy when nothing has measured them
+
+  A system whose health check had never produced a run reported `healthy` - so it
+  showed green in the catalog, kept its group green, and read "operational" on the
+  public status page. A system with no checks at all did the same. For a
+  monitoring product that is the worst possible default: the one state you must
+  never invent is the reassuring one.
+
+  `getSystemHealthStatus` began each check at `healthy` and each system's
+  aggregate at `healthy`, then only ever downgraded. With no runs to examine,
+  nothing downgraded them. `HealthCheckStatus` had no way to say "not measured".
+
+  A new `SystemHealthStatus` adds `unknown` for systems and their checks. It is
+  deliberately NOT a run status - a run that happened is always healthy, degraded
+  or unhealthy, and the database enum stays three-valued. Now:
+
+  - A check with no runs is `unknown`, not `healthy`.
+  - A system reports `unknown` when no check contributed a signal. A system with
+    one healthy check and one never-run check still reads `healthy`: it has
+    positive evidence, and the unmeasured check is visible on its own page.
+  - The catalog reports `unknown` by OMISSION, which its group rollup already
+    treats as "no signal" - so a group with an unmeasured member stops claiming to
+    be healthy. That is the reported bug.
+  - The public status page maps it to its existing `unknown`, which is ignored for
+    the overall banner unless everything is unknown. One unmeasured system no
+    longer claims "operational" for itself, and does not panic the whole page.
+  - A first measurement records a transition with a NULL `fromStatus` - the column
+    was already nullable for exactly this case - instead of pretending the system
+    was healthy beforehand.
+  - Automations matching on `unhealthy` do not fire for a merely unmeasured
+    system, which is correct: an unmeasured system is not a detected outage.
+
+  Dependency warnings deliberately keep their current behaviour: an unmeasured
+  upstream raises no warning, and a never-run check is dropped from the evaluation
+  rather than counted as passing.
+
+  Note that pausing a system's only check now leaves it `unknown` rather than
+  `healthy`. Paused failures still do not keep a system degraded - that behaviour
+  is unchanged - but with nothing running, the system is genuinely unmeasured.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/dashboard-frontend@0.11.2
+  - @checkstack/catalog-frontend@0.21.2
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/script-packages-frontend@0.4.18
+  - @checkstack/gitops-frontend@0.7.9
+  - @checkstack/secrets-frontend@0.3.17
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/satellite-common@0.11.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/tips-frontend@0.5.5
+  - @checkstack/anomaly-common@1.8.3
+  - @checkstack/catalog-common@2.8.1
+
 ## 0.37.1
 
 ### Patch Changes

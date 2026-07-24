@@ -1,5 +1,34 @@
 # @checkstack/metricstream-backend
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ai-backend@0.11.4
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/satellite-backend@0.9.4
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/secrets-backend@0.3.9
+  - @checkstack/telemetry-backend@0.1.1
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/telemetry-common@0.1.1
+  - @checkstack/metricstream-common@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

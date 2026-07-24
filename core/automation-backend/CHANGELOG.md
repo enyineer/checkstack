@@ -1,5 +1,34 @@
 # @checkstack/automation-backend
 
+## 0.11.8
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ai-backend@0.11.4
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/script-packages-backend@0.4.6
+  - @checkstack/sdk@0.135.1
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/command-backend@0.2.27
+  - @checkstack/gitops-backend@0.5.27
+
 ## 0.11.7
 
 ### Patch Changes
