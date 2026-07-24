@@ -1,5 +1,24 @@
 # @checkstack/command-frontend
 
+## 0.5.15
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/frontend-api@0.17.0
+
 ## 0.5.14
 
 ### Patch Changes

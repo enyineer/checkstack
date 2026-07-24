@@ -1,5 +1,172 @@
 # @checkstack/frontend
 
+## 0.16.0
+
+### Minor Changes
+
+- be74b01: Let team members and managers see and manage their own team without a global rule
+
+  Opening the "Who can change this" team-access modal (e.g. on a system) as a
+  team manager failed with "Couldn't load team access. Retry or reopen the
+  editor.", because the backend 403'd `getTeams` and denied `listObjectRelations`.
+  The team-read procedures were gated on the GLOBAL `auth.teams.read` rule, which
+  a team-scoped user (a per-team ReBAC grant, no global rule) does not hold - so
+  managers and members were locked out of their own team, and managers who tried
+  to add / remove / promote members would have been 403'd too.
+
+  The read/metadata procedures (`getTeams`, `getTeam`, `listObjectRelations`,
+  `listObjectRelationsBulk`, `listSubjectRelations`, `listTeamCreateGrants`,
+  `searchUsers`, `resolveResourceNames`, `getResourceKinds`) are no longer gated
+  on the global rule. Each now scopes in the handler:
+
+  - A caller holding global `auth.teams.read` (or a trusted service) still sees
+    every team.
+  - Everyone else sees ONLY the team(s) they are a member or manager of.
+    `getTeams` returns just those teams, `getTeam` returns `undefined` for a team
+    the caller has no stake in (no existence leak), and `listObjectRelations` /
+    `listObjectRelationsBulk` hide an object's team grants from a caller with no
+    stake while still returning the public flag - a successful, empty response,
+    never a 403.
+  - `searchUsers` keeps its own guard: the directory is still searchable only by a
+    global team-manager or a manager of at least one team.
+
+  Team WRITE procedures (`updateTeam`, `addUserToTeam`, `removeUserFromTeam`,
+  `addTeamManager`, `removeTeamManager`) already enforced
+  `assertTeamManagementAccess` (service, global `teams.manage`, or manager of the
+  specific team) and now pass the middleware so a team manager can actually manage
+  their own team. Creating and deleting whole teams stays admin-only
+  (`auth.teams.manage`).
+
+  Frontend: the standalone Teams page and its nav entry are now shown to a global
+  `auth.teams.read` holder OR any user who is a member/manager of at least one
+  team - not unconditionally to every authenticated user, and no longer requiring
+  the global rule. A user in no team (and holding no global rule) does not see it.
+  This is driven by a new `isInAnyTeam` flag on the app-wide `accessRules` query
+  (member OR manager, so manager-only teams count), threaded into the sidebar's
+  nav-visibility model and exposed to every route's `isVisible` predicate via a
+  new `isInAnyTeam` context field (`@checkstack/frontend-api`). The page
+  self-scopes via the now-scoped `getTeams`, and per-team management affordances
+  stay gated on managing that team.
+
+  BREAKING CHANGE: `auth.teams.read` no longer gates the team read procedures at
+  the middleware. If you relied on that rule to hide team existence from
+  authenticated users, note that a user now sees the teams they belong to
+  regardless; access to a specific team's data is still limited to its
+  members/managers or a global-rule holder.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- ca6c4c7: Refresh `bun.lock` to the newest versions permitted by the existing semver
+  ranges (Renovate lock-file maintenance). No `package.json` range changed, so
+  this only affects the resolutions baked into the production image.
+
+  Updated dependencies:
+
+  - `@ai-sdk/gateway` 3.0.148 -> 3.0.153
+  - `@ai-sdk/openai-compatible` 2.0.59 -> 2.0.62
+  - `@ai-sdk/provider-utils` 4.0.38 -> 4.0.40
+  - `@changesets/cli` 2.31.0 -> 2.31.1
+  - `@grammyjs/types` 3.28.0 -> 4.0.0
+  - `@happy-dom/global-registrator` 20.10.6 -> 20.11.0
+  - `@nodable/entities` 2.2.0 -> 3.0.0
+  - `@storybook/addon-a11y` 10.5.0 -> 10.5.2
+  - `@storybook/addon-docs` 10.5.0 -> 10.5.2
+  - `@storybook/addon-themes` 10.5.0 -> 10.5.2
+  - `@storybook/builder-vite` 10.5.0 -> 10.5.2
+  - `@storybook/csf-plugin` 10.5.0 -> 10.5.2
+  - `@storybook/react` 10.5.0 -> 10.5.2
+  - `@storybook/react-dom-shim` 10.5.0 -> 10.5.2
+  - `@storybook/react-vite` 10.5.0 -> 10.5.2
+  - `@typescript-eslint/eslint-plugin` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/parser` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/project-service` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/scope-manager` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/tsconfig-utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/type-utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/types` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/typescript-estree` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/visitor-keys` 8.63.0 -> 8.64.0
+  - `ai` 6.0.224 -> 6.0.230
+  - `autoprefixer` 10.5.2 -> 10.5.4
+  - `bullmq` 5.80.2 -> 5.80.9
+  - `caniuse-lite` 1.0.30001805 -> 1.0.30001806
+  - `electron-to-chromium` 1.5.389 -> 1.5.393
+  - `fast-xml-parser` 5.10.0 -> 5.10.1
+  - `grammy` 1.44.0 -> 1.45.1
+  - `happy-dom` 20.10.6 -> 20.11.0
+  - `hono` 4.12.30 -> 4.12.31
+  - `immer` 11.1.11 -> 11.1.15
+  - `lucide-react` 1.24.0 -> 1.25.0
+  - `mysql2` 3.22.6 -> 3.23.0
+  - `obug` 2.1.3 -> 2.1.4
+  - `storybook` 10.5.0 -> 10.5.2
+  - `typescript-eslint` 8.63.0 -> 8.64.0
+  - `vite` 8.1.4 -> 8.1.5
+  - `ws` 8.21.0 -> 8.21.1
+
+- be74b01: Fix custom-domain status pages serving the admin app (or 404) instead of the status page
+
+  Thanks to @stuajnht for reporting: a verified, published custom domain loaded the
+  admin SPA rather than its status page when the deployment sat behind a reverse
+  proxy or ingress that rewrites the `Host` header to an internal service name and
+  forwards the original public host as `X-Forwarded-Host`.
+
+  The public-host routing match and the `/api/config` origin read the raw `Host`
+  header, so behind such a proxy they saw the internal service name, never matched
+  a configured page, and fell through to the admin bundle. The request-origin
+  derivation already honored `X-Forwarded-Host`, so routing and origin disagreed.
+
+  Both now resolve the request host through a single `resolveRequestHost` helper
+  that reads `X-Forwarded-Host` (first hop) and falls back to `Host`, matching the
+  request-origin precedence. The routing e2e test previously mirrored the bug (it
+  read the raw `Host` header too), so it passed while the real path was broken; it
+  now exercises the `X-Forwarded-Host` case and locks the behaviour in.
+
+  Second, the frontend build never emitted the `public.html` the backend serves to
+  a custom-domain host - so even once routing resolved the host correctly, the SPA
+  fallback 404'd (`public.html` missing => fail-safe 404). The custom-domain public
+  bundle has therefore never actually served since it was introduced in #341; it
+  was only ever exercised via the same-origin `/statuspage/view/:slug` path, which
+  serves `index.html`. Because `main.tsx` is a single entry that branches to the
+  lean `PublicApp` at runtime from the `publicHost` the backend inlines, the build
+  now emits `public.html` as a copy of the built `index.html`, so the custom-domain
+  navigational route serves the public bundle instead of 404ing. Verified end to
+  end over real HTTP: a request with `Host: <internal>` + `X-Forwarded-Host:
+<custom-domain>` returns 200 with the lean public bootstrap (`publicHost` set,
+  `enabledPlugins: []`), while the primary host still serves the admin bundle.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/announcement-frontend@0.10.0
+  - @checkstack/ui@1.30.0
+  - @checkstack/dependency-frontend@0.8.10
+  - @checkstack/catalog-frontend@0.21.2
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/status-page-frontend@0.8.0
+  - @checkstack/status-page-common@0.6.5
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/about-frontend@0.5.9
+  - @checkstack/command-frontend@0.5.15
+
 ## 0.15.4
 
 ### Patch Changes

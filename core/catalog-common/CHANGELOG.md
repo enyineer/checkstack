@@ -1,5 +1,16 @@
 # @checkstack/catalog-common
 
+## 2.8.1
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/frontend-api@0.17.0
+
 ## 2.8.0
 
 ### Minor Changes

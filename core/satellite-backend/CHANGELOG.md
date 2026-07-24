@@ -1,5 +1,61 @@
 # @checkstack/satellite-backend
 
+## 0.9.4
+
+### Patch Changes
+
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/healthcheck-common@1.19.0
+  - @checkstack/healthcheck-backend@1.22.0
+  - @checkstack/satellite-common@0.11.0
+  - @checkstack/automation-backend@0.11.8
+  - @checkstack/secrets-backend@0.3.9
+  - @checkstack/script-packages-backend@0.4.6
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/command-backend@0.2.27
+  - @checkstack/gitops-backend@0.5.27
+
 ## 0.9.3
 
 ### Patch Changes

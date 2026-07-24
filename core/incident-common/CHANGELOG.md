@@ -1,5 +1,15 @@
 # @checkstack/incident-common
 
+## 1.10.5
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/catalog-common@2.8.1
+
 ## 1.10.4
 
 ### Patch Changes

@@ -1,5 +1,163 @@
 # @checkstack/backend
 
+## 0.25.7
+
+### Patch Changes
+
+- be74b01: Stop anonymous page loads from logging authentication errors in the backend
+
+  Opening the app unauthenticated printed an error-level stack trace per stream
+  plugin:
+
+  ```
+  error: [core] RPC /api/metricstream/listLinkedStreamStatuses failed: Authentication required
+  error: [core] Stack trace: Error: Authentication required ...
+  ```
+
+  Two independent causes, both fixed:
+
+  - The dashboard is reachable anonymously (the catalog read is public, as are
+    the health-check, incident, SLO and anomaly signal sources), but the three
+    stream plugins' `listLinkedStreamStatuses` is authenticated-only. Their
+    dashboard signal fillers queried it regardless of the caller, so every
+    anonymous page load fired three requests that could only ever come back 401.
+    The fillers now gate the lookup on the caller being authenticated.
+  - A contract-level 4xx (401/403/404/409/...) was logged at error level with a
+    full stack trace. That is the authorization layer working as designed, not a
+    server fault, and the access-log middleware already reports every 4xx
+    response at warn with its method, path and status. Contract 4xx responses now
+    log at debug without a stack; a 5xx stays as loud as before.
+
+  The three fillers were byte-for-byte the same component apart from their
+  client, source id and deriver, so the fetch/chunk/merge/report machinery moved
+  into a shared `useLinkedStreamSignals` hook exported by
+  `@checkstack/telemetry-frontend`. As a side effect the tracestream filler's
+  query is now namespaced under its plugin id like the other two, so the plugin's
+  signal auto-invalidator actually refreshes it.
+
+- ca6c4c7: Refresh `bun.lock` to the newest versions permitted by the existing semver
+  ranges (Renovate lock-file maintenance). No `package.json` range changed, so
+  this only affects the resolutions baked into the production image.
+
+  Updated dependencies:
+
+  - `@ai-sdk/gateway` 3.0.148 -> 3.0.153
+  - `@ai-sdk/openai-compatible` 2.0.59 -> 2.0.62
+  - `@ai-sdk/provider-utils` 4.0.38 -> 4.0.40
+  - `@changesets/cli` 2.31.0 -> 2.31.1
+  - `@grammyjs/types` 3.28.0 -> 4.0.0
+  - `@happy-dom/global-registrator` 20.10.6 -> 20.11.0
+  - `@nodable/entities` 2.2.0 -> 3.0.0
+  - `@storybook/addon-a11y` 10.5.0 -> 10.5.2
+  - `@storybook/addon-docs` 10.5.0 -> 10.5.2
+  - `@storybook/addon-themes` 10.5.0 -> 10.5.2
+  - `@storybook/builder-vite` 10.5.0 -> 10.5.2
+  - `@storybook/csf-plugin` 10.5.0 -> 10.5.2
+  - `@storybook/react` 10.5.0 -> 10.5.2
+  - `@storybook/react-dom-shim` 10.5.0 -> 10.5.2
+  - `@storybook/react-vite` 10.5.0 -> 10.5.2
+  - `@typescript-eslint/eslint-plugin` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/parser` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/project-service` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/scope-manager` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/tsconfig-utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/type-utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/types` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/typescript-estree` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/utils` 8.63.0 -> 8.64.0
+  - `@typescript-eslint/visitor-keys` 8.63.0 -> 8.64.0
+  - `ai` 6.0.224 -> 6.0.230
+  - `autoprefixer` 10.5.2 -> 10.5.4
+  - `bullmq` 5.80.2 -> 5.80.9
+  - `caniuse-lite` 1.0.30001805 -> 1.0.30001806
+  - `electron-to-chromium` 1.5.389 -> 1.5.393
+  - `fast-xml-parser` 5.10.0 -> 5.10.1
+  - `grammy` 1.44.0 -> 1.45.1
+  - `happy-dom` 20.10.6 -> 20.11.0
+  - `hono` 4.12.30 -> 4.12.31
+  - `immer` 11.1.11 -> 11.1.15
+  - `lucide-react` 1.24.0 -> 1.25.0
+  - `mysql2` 3.22.6 -> 3.23.0
+  - `obug` 2.1.3 -> 2.1.4
+  - `storybook` 10.5.0 -> 10.5.2
+  - `typescript-eslint` 8.63.0 -> 8.64.0
+  - `vite` 8.1.4 -> 8.1.5
+  - `ws` 8.21.0 -> 8.21.1
+
+- be74b01: Render the announcement block on public status pages (serve core plugins as Module Federation remotes)
+
+  Thanks to @stuajnht for reporting: the Announcements block never rendered on a
+  public status page - the lean public bundle (used for both a custom domain and
+  the same-origin `/statuspage/view/:slug` path) loads NO plugins, and the
+  announcement renderer lives in a core frontend plugin that was only ever bundled
+  into the admin app. Declaring the widget's `rendererRemote` was necessary but not
+  sufficient: core plugins were never built or served as remotes, so the public
+  bundle's `loadRemote` 404'd and the block stayed blank.
+
+  BREAKING CHANGE (mechanism, not API): core frontend plugins can now ship a public
+  Module Federation remote so the lean public bundle can load their status-page
+  widget renderers on demand - the same mechanism third-party plugins use.
+
+  - `@checkstack/announcement-frontend` gains a federation `vite.config.ts` and a
+    `build` script that emit a remote (`mf-manifest.json` + `remoteEntry.js`),
+    exposing a LEAN public entry (`public-plugin.tsx`) that contributes ONLY the
+    status-widget renderer - not the admin routes/manage page - so the remote stays
+    small and avoids the heavy `@checkstack/ui` surface. It shares only `react`,
+    `@checkstack/frontend-api`, and (consume-only) `@checkstack/ui/code-editor` with
+    the host; react-dom / react-query are left unshared so their dead transitive
+    code bundles and tree-shakes rather than breaking the federated consume shim.
+  - Opt in with `checkstack.publicRemote: true` in the plugin's package.json. The
+    backend plugin discovery now syncs such core frontend plugins into the
+    `plugins` table so `/assets/plugins/<name>/*` serves their `dist/` (ordinary
+    core frontend plugins, bundled into the admin app, are unaffected and excluded
+    from the admin remote list).
+  - Build wiring: a new `bun run build:public-remotes` builds every
+    `publicRemote` plugin (single source of truth: the same marker discovery uses),
+    wired into the `Dockerfile` builder stage and the e2e `pretest:e2e`; the
+    runtime image copies each remote's `dist/`.
+
+  Verified end to end in a real browser: the public page fetches the remote's
+  `mf-manifest.json` / `remoteEntry.js` (200), Module Federation loads it against
+  the host's shared React/frontend-api, and the announcement renders (with its
+  markdown) - no console errors.
+
+- be74b01: Fix custom-domain status pages serving the admin app (or 404) instead of the status page
+
+  Thanks to @stuajnht for reporting: a verified, published custom domain loaded the
+  admin SPA rather than its status page when the deployment sat behind a reverse
+  proxy or ingress that rewrites the `Host` header to an internal service name and
+  forwards the original public host as `X-Forwarded-Host`.
+
+  The public-host routing match and the `/api/config` origin read the raw `Host`
+  header, so behind such a proxy they saw the internal service name, never matched
+  a configured page, and fell through to the admin bundle. The request-origin
+  derivation already honored `X-Forwarded-Host`, so routing and origin disagreed.
+
+  Both now resolve the request host through a single `resolveRequestHost` helper
+  that reads `X-Forwarded-Host` (first hop) and falls back to `Host`, matching the
+  request-origin precedence. The routing e2e test previously mirrored the bug (it
+  read the raw `Host` header too), so it passed while the real path was broken; it
+  now exercises the `X-Forwarded-Host` case and locks the behaviour in.
+
+  Second, the frontend build never emitted the `public.html` the backend serves to
+  a custom-domain host - so even once routing resolved the host correctly, the SPA
+  fallback 404'd (`public.html` missing => fail-safe 404). The custom-domain public
+  bundle has therefore never actually served since it was introduced in #341; it
+  was only ever exercised via the same-origin `/statuspage/view/:slug` path, which
+  serves `index.html`. Because `main.tsx` is a single entry that branches to the
+  lean `PublicApp` at runtime from the `publicHost` the backend inlines, the build
+  now emits `public.html` as a copy of the built `index.html`, so the custom-domain
+  navigational route serves the public bundle instead of 404ing. Verified end to
+  end over real HTTP: a request with `Host: <internal>` + `X-Forwarded-Host:
+<custom-domain>` returns 200 with the lean public bootstrap (`publicHost` set,
+  `enabledPlugins: []`), while the primary host still serves the admin bundle.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/signal-backend@0.3.27
+
 ## 0.25.6
 
 ### Patch Changes

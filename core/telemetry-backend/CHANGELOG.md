@@ -1,5 +1,19 @@
 # @checkstack/telemetry-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/satellite-common@0.11.0
+  - @checkstack/satellite-backend@0.9.4
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/secrets-backend@0.3.9
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/telemetry-common@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

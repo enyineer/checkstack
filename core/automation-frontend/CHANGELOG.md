@@ -1,5 +1,116 @@
 # @checkstack/automation-frontend
 
+## 0.12.8
+
+### Patch Changes
+
+- be74b01: Migrate the automation surfaces onto the shared filter bar, and dedupe useDebouncedValue
+
+  Follows the native `DataTable` facet API with the first wave of migrations.
+
+  - `DataTableFacet` gains `kind: "select" | "pills"`. A segmented pill row is the
+    right control for two or three short options a reader benefits from seeing at
+    a glance, and several surfaces had independently built one - so the shared bar
+    renders that variant rather than forcing every list into a dropdown. Both
+    variants share one state, sentinel and URL round-trip, and the pills set
+    `aria-pressed`, which two of the hand-rolled groups they replace had omitted.
+  - `parsedFacetValue` reads a facet's selection back as a domain value by parsing
+    it against the schema that defines it. Facet state is stringly-typed because
+    it round-trips through the URL, but a server-side filter needs the narrow union
+    its query input declares; parsing rather than casting means a stale link
+    degrades to unconstrained instead of smuggling an unknown value into a request.
+  - The automation list and run-history pages drop their hand-rolled status pill
+    rows for the shared bar. Their filters now persist to the URL, so a link to
+    "the failed runs of this automation" reopens filtered. The run-history table
+    also gains the `surface={false}` it was missing, fixing a panel-in-panel.
+  - `useDebouncedValue` had been copied verbatim into six plugin packages, each
+    with a comment noting no shared version existed. All six now import the one in
+    `@checkstack/ui` and the copies are deleted.
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Let you search the incident, maintenance and automation lists
+
+  These three management lists had their search box switched off, on the
+  assumption that you find a record by status rather than by typing its name. That
+  was wrong: every one of them shows a title or name column, and none of the
+  underlying queries paginate, so the full set is already in the browser and there
+  was nothing to gain by withholding search.
+
+  - **Incidents** gain a search box and a **severity filter**. Severity had a
+    column and a sort but no filter, so "show me the criticals" needed reading the
+    whole table. Its options are ordered by impact, matching how the column sorts;
+    deriving them would have sorted alphabetically as critical / major / minor.
+  - **Maintenances** gain a search box.
+  - **Automations** gain a search box. It is page-level rather than table-level
+    because that list renders one table per group - a table-owned box would only
+    ever search its own group, so a match inside a collapsed group could never
+    surface. Filtering ahead of the grouping also makes groups with no match
+    disappear instead of leaving a wall of empty accordions.
+
+  All three searches match the title/name AND the second line the row renders (a
+  description, or the group label), so a search matches the words you can actually
+  see on the row.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be5c907]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/ui@1.30.0
+  - @checkstack/auth-frontend@0.15.0
+  - @checkstack/script-packages-frontend@0.4.18
+  - @checkstack/gitops-frontend@0.7.9
+  - @checkstack/secrets-frontend@0.3.17
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/catalog-common@2.8.1
+
 ## 0.12.7
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/logstream-frontend",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Log stream management and viewer UI",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

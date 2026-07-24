@@ -1,5 +1,162 @@
 # @checkstack/healthcheck-common
 
+## 1.19.0
+
+### Minor Changes
+
+- be74b01: Evaluate health per probe location, so a failing satellite can no longer read as healthy
+
+  Thanks to @stuajnht for reporting: a system whose local check succeeded and
+  whose satellite check failed was shown as **healthy**, and the report correctly
+  guessed the cause - one combined verdict where there should have been one per
+  location.
+
+  A check's runs were grouped into slices by environment alone, so both locations'
+  runs landed in the same slice and were handed to the threshold evaluator as one
+  interleaved stream. In the default `consecutive` mode the streak breaks on every
+  alternation, no threshold is ever reached, and evaluation falls through to its
+  healthy default. A satellite failing 100% of the time was therefore invisible
+  for as long as a local check succeeded between its runs.
+
+  A slice is now an **(environment, source)** pair - one environment as probed
+  from one location - and each is evaluated on its own window, with the worst
+  result deciding the check. This is the same rule environments already followed;
+  the source dimension was simply never considered. Both the system rollup and the
+  system overview were affected, and both are fixed.
+
+  Related correctness fixes that fall out of keying slices by source:
+
+  - A **de-assigned satellite** (or the core after **Include local** is turned
+    off) stops counting immediately instead of dragging the rollup with its last
+    failures until they age out of the window. Its history moves under **Old
+    checks**.
+  - **Per-satellite environment scoping** is honoured when resolving slices, so a
+    satellite narrowed to production no longer keeps a stale staging slice alive.
+  - A satellite scoped to run env-less while the core fans out keeps its slice
+    live; the "has a live environment slice" question is now answered per
+    location, as the backend already did.
+
+  The system overview shows one row per slice and names the location (for example
+  **EU West**) as soon as a check runs from more than one place. A check that only
+  ever runs on the core shows no location label - there is nothing to
+  disambiguate.
+
+  `checkStatuses[].slices` and the overview's per-slice entries carry the
+  breakdown (`sourceId`, `sourceLabel`, `sourceOrphaned`) on the wire, and
+  `sliceCount` / `failingSliceCount` now count locations as well as environments -
+  so a check probing one environment from the core and one satellite contributes
+  2 to the dashboard's "X of Y checks failing" denominator, not 1.
+
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Stop reporting systems as healthy when nothing has measured them
+
+  A system whose health check had never produced a run reported `healthy` - so it
+  showed green in the catalog, kept its group green, and read "operational" on the
+  public status page. A system with no checks at all did the same. For a
+  monitoring product that is the worst possible default: the one state you must
+  never invent is the reassuring one.
+
+  `getSystemHealthStatus` began each check at `healthy` and each system's
+  aggregate at `healthy`, then only ever downgraded. With no runs to examine,
+  nothing downgraded them. `HealthCheckStatus` had no way to say "not measured".
+
+  A new `SystemHealthStatus` adds `unknown` for systems and their checks. It is
+  deliberately NOT a run status - a run that happened is always healthy, degraded
+  or unhealthy, and the database enum stays three-valued. Now:
+
+  - A check with no runs is `unknown`, not `healthy`.
+  - A system reports `unknown` when no check contributed a signal. A system with
+    one healthy check and one never-run check still reads `healthy`: it has
+    positive evidence, and the unmeasured check is visible on its own page.
+  - The catalog reports `unknown` by OMISSION, which its group rollup already
+    treats as "no signal" - so a group with an unmeasured member stops claiming to
+    be healthy. That is the reported bug.
+  - The public status page maps it to its existing `unknown`, which is ignored for
+    the overall banner unless everything is unknown. One unmeasured system no
+    longer claims "operational" for itself, and does not panic the whole page.
+  - A first measurement records a transition with a NULL `fromStatus` - the column
+    was already nullable for exactly this case - instead of pretending the system
+    was healthy beforehand.
+  - Automations matching on `unhealthy` do not fire for a merely unmeasured
+    system, which is correct: an unmeasured system is not a detected outage.
+
+  Dependency warnings deliberately keep their current behaviour: an unmeasured
+  upstream raises no warning, and a never-run check is dropped from the evaluation
+  rather than counted as passing.
+
+  Note that pausing a system's only check now leaves it `unknown` rather than
+  `healthy`. Paused failures still do not keep a system degraded - that behaviour
+  is unchanged - but with nothing running, the system is genuinely unmeasured.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- be74b01: Stop a system with no health data from reading as "Degraded"
+
+  A system with no health checks (or whose checks have not run yet) has health
+  status `unknown`, but two display paths treated every non-`healthy` status as a
+  problem and fell through to the amber "Degraded" label - so a check-less system
+  falsely showed "Degraded" on its detail page, in catalog rows, and as a problem
+  card on the dashboard, with no incident, no failing check, and no failing
+  dependency to explain it.
+
+  Both now omit `unknown` alongside `healthy` (only `degraded` / `unhealthy`
+  produce a badge or signal), matching the "an unmeasured system is no signal, not
+  a fault" model the catalog rollup already uses:
+
+  - `deriveHealthcheckSignals` (`@checkstack/healthcheck-common`) no longer emits a
+    dashboard signal for an `unknown` system. Its doc already said healthy and
+    unknown are omitted; the code only skipped healthy.
+  - The system health badge (`@checkstack/healthcheck-frontend`) returns no badge
+    for `unknown`. The decision was extracted into a pure `resolveHealthBadge`
+    helper with unit tests.
+
+  The dependency "Degrading impact" chips on the edge are unrelated - they show the
+  edge's configured impact type, and the dependency warning engine already maps an
+  unmeasured upstream to operational, so it raises no warning.
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/notification-common@1.8.0
+  - @checkstack/frontend-api@0.17.0
+  - @checkstack/catalog-common@2.8.1
+
 ## 1.18.0
 
 ### Minor Changes

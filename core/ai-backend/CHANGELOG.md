@@ -1,5 +1,267 @@
 # @checkstack/ai-backend
 
+## 0.11.4
+
+### Patch Changes
+
+- be74b01: Make filtering part of the column contract
+
+  Filtering now joins sorting and searching on `DataTableColumn`: providing
+  `filterValue` is what makes a column filterable, with no separate boolean flag,
+  exactly as `sortValue` makes it sortable.
+
+  A status column already reads the row for `sortValue` and renders it in `cell`;
+  declaring the filter there too means the value is stated ONCE, so the badge, the
+  sort and the filter cannot drift apart. Previously the same value had to be
+  repeated in a standalone facet.
+
+  ```tsx
+  {
+    id: "severity",
+    header: "Severity",
+    cell: (a) => <SeverityBadge severity={a.severity} />,
+    sortValue: (a) => severityRank[a.severity],
+    filterValue: (a) => a.severity,
+    filterOptions: SEVERITY_OPTIONS,  // omit to derive from the data
+  }
+  ```
+
+  `filterOptions` is optional: omitted, the options are derived from the distinct
+  values present in the data, sorted and labelled by the raw value. Declare them
+  when the raw values are not what a person should read, when the order carries
+  meaning (severity by impact, which deriving would sort alphabetically into
+  critical / info / warning), or when an option must stay on offer even though no
+  row currently has it.
+
+  Options are derived from the FULL row set, never from what is currently visible.
+  Reading them off the filtered rows would let selecting one option delete every
+  other option, leaving no way back - the same reason a cell cannot simply publish
+  its value upward: rows excluded by a filter never render.
+
+  The standalone `facets` prop keeps its place for a dimension no single column
+  owns - the catalog's group and tag filters match several values per row and
+  narrow two different row types. Column-derived facets render first, in column
+  order, followed by those.
+
+  The announcements table is converted: its severity, status and visibility
+  filters now live on the columns that display them.
+
+- be74b01: Migrate the catalog and health-check filters onto the shared filter bar
+
+  Completes the consolidation. Every faceted list surface now renders one control
+  set over one state model.
+
+  `@checkstack/ui` gains what those two surfaces genuinely needed:
+
+  - `DataTableFacetControl` splits the PRESENTATIONAL half of a facet from its row
+    accessor. The catalog's matching cannot be a `value(row): string` - a system
+    belongs to several groups and carries several tags, its health lives in a
+    separate status map, and the same three controls also narrow GROUPS, a
+    different row type entirely. Such a surface can now use the shared bar and keep
+    its own matching, instead of being shut out or supplying fake accessors.
+  - `disabled` / `disabledReason` keep a control visibly present-but-unavailable
+    (the catalog's health filter before a health source is installed). Preferred to
+    dropping the control: present-but-disabled says the capability exists and what
+    would unlock it. It also keeps the parameter declared, so a selection arriving
+    on a shared link still constrains rather than silently widening the list.
+  - A facet option may carry a `tone`, applied while that option is selected. This
+    is reserved for a dimension that genuinely IS a status: the health-check run
+    filter's green "Healthy" / red "Failing" is the product's vocabulary, and a
+    shared control that could not express it would be a downgrade on the one
+    surface where colour carries the most meaning. Tone never affects matching.
+
+  Migrated:
+
+  - **Catalog** - `CatalogBrowseToolbar` becomes a thin wrapper over the shared
+    bar; the density toggle rides in its `children` slot, since it narrows nothing
+    and as a facet would sit behind Clear, where "clear filters" would silently
+    reset row height. One toolbar still drives the browse grid and all three manage
+    tabs, and `GroupsTab`'s reorder arrows are still gated on the filtered state.
+    Environments were filtered by an ad-hoc substring match in the page; they now
+    go through the shared logic and match descriptions too.
+  - **Health checks** - the list toolbar (a self-declared copy of the catalog's)
+    and both hand-rolled pill groups are deleted. The run-history filters gain URL
+    persistence, so a filtered run view is now shareable, and both pill groups gain
+    the `aria-pressed` and labelled group they were missing.
+
+  All existing URL parameters are preserved, guarded by tests, so links shared
+  before the migration still reopen the same view - including the catalog's
+  per-system "view health checks" link, whose server-side authorization path is
+  deliberately kept as a control without a row accessor.
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Add native facet filtering to DataTable, with URL-persisted state
+
+  Search and "narrow by status/severity/type" had no home in `DataTable`, which
+  owned only a free-text box whose query lived in internal state a page could not
+  observe. So every surface that needed to know what was filtered - to gate a
+  control, to render its own empty state, to put the view in a shareable link -
+  abandoned the built-in search entirely and hand-rolled the lot. Across the repo
+  that produced 18 surfaces rendering filter UI outside `DataTable` against 17
+  using only its built-in search, with six different renderings of the same select
+  and three different "show everything" sentinels.
+
+  `DataTable` now accepts:
+
+  - `facets` - declarative `{ id, label, options, value }` filters rendered beside
+    the search box, ANDed with each other and with the search, with a Clear
+    affordance and a `noResultsState` that fires on facet emptiness.
+  - `filters` / `onFiltersChange` / `onClearFilters` - the state is controllable,
+    so a page can observe it. Omit them and the table owns it internally.
+  - `surface={false}` now also insets the filter bar with a separating rule, so a
+    table nested full-bleed in a page's own Card no longer has its controls flush
+    against the card's edges.
+
+  New exports:
+
+  - `useDataTableFilters` persists filter state to the URL, so a filtered view is
+    shareable, survives a reload, and returns intact from a row's detail page. It
+    exposes `active` (for gating controls a filtered view makes ambiguous) and a
+    `debounced` variant for server-side query inputs, plus `paramPrefix` for two
+    filtered tables on one page.
+  - `DataTableFilterBar` renders the same controls for a list surface that is not
+    a table, so a card grid filters identically to one.
+  - `useDebouncedValue`, which had been copied verbatim into six plugin packages,
+    each carrying a comment noting that no shared version existed.
+
+  The announcements manage table is migrated onto it as the first consumer,
+  dropping its local filter module in favour of facet declarations.
+
+- be74b01: Regenerate the docs index for the per-location health-check documentation: the
+  environments guide and the satellites concept page now describe slices as
+  (environment, location) pairs and explain that the worst location decides a
+  check's status.
+- be74b01: Regenerate the docs index for the status-pages architecture page
+
+  The status-pages developer-guide page gained a `resolveDetail` section (per-item
+  detail pages return the full update timeline + description) and a note on
+  `X-Forwarded-Host` host resolution behind an edge proxy. The checked-in docs
+  index that backs the AI assistant's docs search is regenerated to reflect it.
+
+- be74b01: Regenerate the docs search index for the updated team-access documentation
+
+  The "Teams and access" concept page and the "Create a team" guide were updated
+  to describe team-scoped visibility (a member or manager sees and manages their
+  own team without the global `auth.teams.read` rule, and the Teams page is open
+  to any signed-in user). The AI assistant's docs index now reflects that wording.
+
+- be74b01: Regenerate the docs index for the notification-strategies guide, which now
+  documents that a user-authored update message is embedded as markdown via
+  `buildUpdateMessageSuffix` and that active-content safety comes from the
+  renderer (`markdownToHtml`), not from escaping the notification body.
+- be74b01: Satellites run per environment, and can be scoped to specific ones
+
+  Satellites were handed no environment information at all, so every result they
+  reported was stored env-less. On a system with environments that meant satellite
+  checks contributed nothing to per-environment health - and, until the preceding
+  fix, were labelled "Old checks" for it.
+
+  A satellite now fans out exactly as the local executor does:
+
+  - `getAssignmentsForSatellite` resolves each assignment's effective environments
+    and sends them with the assignment.
+  - The agent schedules ONE run per environment and reports each result with its
+    `environmentId`, so per-environment history, charts and rollups include
+    satellite results.
+  - Collectors on a satellite now receive the `environment` run-context block, so
+    `{{ environment.<key> }}` templating resolves there exactly as it does locally.
+
+  **A satellite can also be scoped to specific environments.** Without that, every
+  satellite would probe every environment - a staging-network satellite would start
+  failing prod checks it has no route to, and one per-environment slice would merge
+  results from satellites in different networks. A new `satelliteEnvironmentIds`
+  map on the assignment scopes each satellite: an absent key means "all
+  environments" (so every existing assignment behaves exactly as before), `[]` means
+  one env-less run, and a list narrows to those ids. A satellite can only ever
+  narrow the assignment's own selector, never widen it.
+
+  Both protocol additions are optional, for version skew in either direction: an
+  older satellite sends no `environmentId` and its runs are stored env-less as they
+  always were, while an older core sends no environments and the agent falls back to
+  a single env-less run.
+
+  The assignment's Execution panel gains a per-satellite environment picker,
+  shown for each assigned satellite once the system has environments.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be74b01: Let teams that manage a resource administer its team access (delegation)
+
+  Editing a resource's team access on the "Who can change this" editor (add/remove
+  teams, toggle Manage, toggle Private) was gated on the GLOBAL `auth.teams.manage`
+  rule on both the frontend and backend, so only a platform admin could do it -
+  even a member of a team that already manages the resource saw the editor
+  read-only.
+
+  `writeRelation`, `removeRelation` and `setObjectPublic` now authorize per-object:
+  the caller may edit a resource's team access when they can MANAGE that specific
+  resource - a global `auth.teams.manage` admin, a holder of the resource's own
+  `<type>.manage` rule (e.g. `catalog.system.manage`), or a member of a team that
+  holds an editor/owner grant on it. A team that only reads the resource (viewer
+  grant), or has no grant and no global rule, is read-only and CANNOT elevate its
+  own or another team's access. The check reuses the existing ReBAC engine
+  (`tupleStore.check({ action: "manage" })`), so team-only (private) resources are
+  respected: a global resource-manager who is not on a granted team cannot reach a
+  private resource - only a `teams.manage` admin or a granted team can. The first
+  grant on an otherwise-unscoped resource still requires one of the global rules.
+
+  A new `canManageObjectAccess` query runs the SAME authorization, and the
+  `TeamAccessEditor` gates its write controls on it instead of the global rule, so
+  the UI shows exactly the controls a write would accept (no frontend/backend
+  drift). The backend re-checks on every write, so it remains the security
+  boundary.
+
+  BREAKING CHANGE: granting/revoking a team's access to a resource is no longer
+  admin-only - it is delegated to whoever can manage that resource. If you relied
+  on only `auth.teams.manage` holders being able to change resource team-access,
+  note that members of a team that manages the resource can now do so too (a
+  read-only team still cannot).
+
+- Updated dependencies [be74b01]
+- Updated dependencies [be74b01]
+  - @checkstack/auth-common@0.16.0
+  - @checkstack/catalog-common@2.8.1
+  - @checkstack/sdk@0.135.1
+  - @checkstack/backend-api@0.34.1
+  - @checkstack/integration-backend@0.7.9
+
 ## 0.11.3
 
 ### Patch Changes

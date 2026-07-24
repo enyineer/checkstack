@@ -1,5 +1,346 @@
 # @checkstack/ui
 
+## 1.30.0
+
+### Minor Changes
+
+- be74b01: Converge the status-tone exceptions that turned out to be drift
+
+  Reviewing the four "deliberate exceptions" left by the tone de-duplication, three
+  were drift wearing a comment, and one was genuine.
+
+  - **`neutralToneStyle` is now exported from `@checkstack/ui`.** Three plugins had
+    each written out the same three muted strings by hand. It sits beside
+    `pillToneStyles` rather than in it, because the absence of a tone is not a
+    tone; `StatusPill`'s `tone="neutral"` renders it.
+  - **Dashboard signals use the status ladder's blue.** In one record `error` and
+    `warn` came from the ladder while `info` reached for the general-purpose
+    `--info` accent - so the same "Watch" signal rendered in two different blues
+    depending on whether you looked at the problem card, its chip, or the fleet
+    header bar. All three now use `--status-info`, which is also the darker L45
+    blue chosen precisely so its text stays readable on a light card.
+  - **The system incident panel borders at `/20`** like every other tinted border,
+    removing the last class-string divergence in the tone system along with the
+    one-off map that documented it.
+  - **The queue's neutral pills use the shared neutral.** Its KPI tile and its job
+    state pill each carried a slightly softer private variant, so "carries no
+    signal" looked like two different things on one page.
+
+  The one genuine exception kept: `--info` and `--status-info` remain separate
+  tokens. The first is the general semantic palette (alongside `--success` /
+  `--warning`), the second the colourblind-safe status ladder with its own
+  contrast rationale. Non-status surfaces - the `Alert` component, plugin-type
+  chips - keep the general accent.
+
+- be74b01: Make filtering part of the column contract
+
+  Filtering now joins sorting and searching on `DataTableColumn`: providing
+  `filterValue` is what makes a column filterable, with no separate boolean flag,
+  exactly as `sortValue` makes it sortable.
+
+  A status column already reads the row for `sortValue` and renders it in `cell`;
+  declaring the filter there too means the value is stated ONCE, so the badge, the
+  sort and the filter cannot drift apart. Previously the same value had to be
+  repeated in a standalone facet.
+
+  ```tsx
+  {
+    id: "severity",
+    header: "Severity",
+    cell: (a) => <SeverityBadge severity={a.severity} />,
+    sortValue: (a) => severityRank[a.severity],
+    filterValue: (a) => a.severity,
+    filterOptions: SEVERITY_OPTIONS,  // omit to derive from the data
+  }
+  ```
+
+  `filterOptions` is optional: omitted, the options are derived from the distinct
+  values present in the data, sorted and labelled by the raw value. Declare them
+  when the raw values are not what a person should read, when the order carries
+  meaning (severity by impact, which deriving would sort alphabetically into
+  critical / info / warning), or when an option must stay on offer even though no
+  row currently has it.
+
+  Options are derived from the FULL row set, never from what is currently visible.
+  Reading them off the filtered rows would let selecting one option delete every
+  other option, leaving no way back - the same reason a cell cannot simply publish
+  its value upward: rows excluded by a filter never render.
+
+  The standalone `facets` prop keeps its place for a dimension no single column
+  owns - the catalog's group and tag filters match several values per row and
+  narrow two different row types. Column-derived facets render first, in column
+  order, followed by those.
+
+  The announcements table is converted: its severity, status and visibility
+  filters now live on the columns that display them.
+
+- be74b01: Migrate the automation surfaces onto the shared filter bar, and dedupe useDebouncedValue
+
+  Follows the native `DataTable` facet API with the first wave of migrations.
+
+  - `DataTableFacet` gains `kind: "select" | "pills"`. A segmented pill row is the
+    right control for two or three short options a reader benefits from seeing at
+    a glance, and several surfaces had independently built one - so the shared bar
+    renders that variant rather than forcing every list into a dropdown. Both
+    variants share one state, sentinel and URL round-trip, and the pills set
+    `aria-pressed`, which two of the hand-rolled groups they replace had omitted.
+  - `parsedFacetValue` reads a facet's selection back as a domain value by parsing
+    it against the schema that defines it. Facet state is stringly-typed because
+    it round-trips through the URL, but a server-side filter needs the narrow union
+    its query input declares; parsing rather than casting means a stale link
+    degrades to unconstrained instead of smuggling an unknown value into a request.
+  - The automation list and run-history pages drop their hand-rolled status pill
+    rows for the shared bar. Their filters now persist to the URL, so a link to
+    "the failed runs of this automation" reopens filtered. The run-history table
+    also gains the `surface={false}` it was missing, fixing a panel-in-panel.
+  - `useDebouncedValue` had been copied verbatim into six plugin packages, each
+    with a comment noting no shared version existed. All six now import the one in
+    `@checkstack/ui` and the copies are deleted.
+
+- be74b01: Migrate the catalog and health-check filters onto the shared filter bar
+
+  Completes the consolidation. Every faceted list surface now renders one control
+  set over one state model.
+
+  `@checkstack/ui` gains what those two surfaces genuinely needed:
+
+  - `DataTableFacetControl` splits the PRESENTATIONAL half of a facet from its row
+    accessor. The catalog's matching cannot be a `value(row): string` - a system
+    belongs to several groups and carries several tags, its health lives in a
+    separate status map, and the same three controls also narrow GROUPS, a
+    different row type entirely. Such a surface can now use the shared bar and keep
+    its own matching, instead of being shut out or supplying fake accessors.
+  - `disabled` / `disabledReason` keep a control visibly present-but-unavailable
+    (the catalog's health filter before a health source is installed). Preferred to
+    dropping the control: present-but-disabled says the capability exists and what
+    would unlock it. It also keeps the parameter declared, so a selection arriving
+    on a shared link still constrains rather than silently widening the list.
+  - A facet option may carry a `tone`, applied while that option is selected. This
+    is reserved for a dimension that genuinely IS a status: the health-check run
+    filter's green "Healthy" / red "Failing" is the product's vocabulary, and a
+    shared control that could not express it would be a downgrade on the one
+    surface where colour carries the most meaning. Tone never affects matching.
+
+  Migrated:
+
+  - **Catalog** - `CatalogBrowseToolbar` becomes a thin wrapper over the shared
+    bar; the density toggle rides in its `children` slot, since it narrows nothing
+    and as a facet would sit behind Clear, where "clear filters" would silently
+    reset row height. One toolbar still drives the browse grid and all three manage
+    tabs, and `GroupsTab`'s reorder arrows are still gated on the filtered state.
+    Environments were filtered by an ad-hoc substring match in the page; they now
+    go through the shared logic and match descriptions too.
+  - **Health checks** - the list toolbar (a self-declared copy of the catalog's)
+    and both hand-rolled pill groups are deleted. The run-history filters gain URL
+    persistence, so a filtered run view is now shareable, and both pill groups gain
+    the `aria-pressed` and labelled group they were missing.
+
+  All existing URL parameters are preserved, guarded by tests, so links shared
+  before the migration still reopen the same view - including the catalog's
+  per-system "view health checks" link, whose server-side authorization path is
+  deliberately kept as a control without a row accessor.
+
+- be74b01: Add native facet filtering to DataTable, with URL-persisted state
+
+  Search and "narrow by status/severity/type" had no home in `DataTable`, which
+  owned only a free-text box whose query lived in internal state a page could not
+  observe. So every surface that needed to know what was filtered - to gate a
+  control, to render its own empty state, to put the view in a shareable link -
+  abandoned the built-in search entirely and hand-rolled the lot. Across the repo
+  that produced 18 surfaces rendering filter UI outside `DataTable` against 17
+  using only its built-in search, with six different renderings of the same select
+  and three different "show everything" sentinels.
+
+  `DataTable` now accepts:
+
+  - `facets` - declarative `{ id, label, options, value }` filters rendered beside
+    the search box, ANDed with each other and with the search, with a Clear
+    affordance and a `noResultsState` that fires on facet emptiness.
+  - `filters` / `onFiltersChange` / `onClearFilters` - the state is controllable,
+    so a page can observe it. Omit them and the table owns it internally.
+  - `surface={false}` now also insets the filter bar with a separating rule, so a
+    table nested full-bleed in a page's own Card no longer has its controls flush
+    against the card's edges.
+
+  New exports:
+
+  - `useDataTableFilters` persists filter state to the URL, so a filtered view is
+    shareable, survives a reload, and returns intact from a row's detail page. It
+    exposes `active` (for gating controls a filtered view makes ambiguous) and a
+    `debounced` variant for server-side query inputs, plus `paramPrefix` for two
+    filtered tables on one page.
+  - `DataTableFilterBar` renders the same controls for a list surface that is not
+    a table, so a card grid filters identically to one.
+  - `useDebouncedValue`, which had been copied verbatim into six plugin packages,
+    each carrying a comment noting that no shared version existed.
+
+  The announcements manage table is migrated onto it as the first consumer,
+  dropping its local filter module in favour of facet declarations.
+
+- be74b01: Make maintenance status colours agree across every surface
+
+  Thanks to @stuajnht for reporting: a "Scheduled" maintenance was blue on the
+  manage/list/detail pages, amber on the catalog system card, and grey on the
+  status page block and the public maintenance detail page - three different
+  colours for one status.
+
+  The manage surfaces went through the canonical `presentMaintenanceStatus`
+  mapping (blue `info` for scheduled, amber `warn` for in-progress); the other
+  three hardcoded Tailwind classes and never consulted it. Two of them hardcoded
+  the grey `unknown` tone for EVERY status, so they also painted an in-progress
+  window grey, and rendered the raw enum ("in progress") instead of the shared
+  label ("In Progress"). The catalog card hardcoded amber for every status, so a
+  scheduled-only window looked identical to a live one.
+
+  All three now derive tone and label from the canonical mapping:
+
+  - **status-page-frontend** gains `maintenanceStatusTone` /
+    `maintenanceStatusLabel`, replicated against the shared `pillToneStyles`
+    tones - the same platform-layer arrangement `severityTone.ts` already uses,
+    since status-page-frontend must not import the domain `maintenance-*`
+    packages. The public maintenance block, the public detail page, and the
+    system-level "Maintenance" status pill all read from it. A system under
+    planned maintenance now reads blue (informational), not grey (inert/unknown).
+  - **maintenance-frontend**'s system detail card takes the tone of whichever
+    window leads: amber while one is in progress, else blue for scheduled.
+
+  Separately, `StatusBadge` now draws from the shared status tokens
+  (`--status-*`) instead of the generic `--success`/`--warning`/`--info`
+  palette. Those palettes differ (e.g. `--info` 217 91% 60% vs `--status-info`
+  214 90% 45%), so a system-state badge and a status pill of the same tone
+  rendered two different blues (and two different ambers) for the same meaning.
+  They now share one hue per tone across health, incident, SLO, maintenance,
+  anomaly and dependency badges.
+
+- be74b01: Consolidate eight status pills into one
+
+  `StatusPill` moves into `@checkstack/ui`. It replaces six near-identical local
+  components (announcements, incidents, maintenance, health checks, notifications,
+  script packages) and three hand-rolled inline chips (the public status page's
+  event card and event detail page, the announcements status widget). They
+  differed only in whether they took `label` or `children`, whether they forwarded
+  `className`, and whether they set `shrink-0` - they agreed on everything that
+  mattered, which is why they collapse cleanly.
+
+  The shared pill absorbs the variations rather than flattening them:
+
+  - `tone="neutral"` for a state that deliberately carries no hue, read from its
+    label alone. This was hand-rolled in three places after the "at most one
+    coloured dimension per row" rule landed. It drops the dot, since with no hue
+    to encode a grey dot adds nothing.
+  - `size="sm"` for dense contexts - a public event card, a widget list - which
+    previously meant inline `text-[11px]` chips.
+  - `shrink-0` is now unconditional: a pill squashed by a greedy sibling is
+    unreadable, and its text is the accessible encoding of the status.
+
+  Domain plugins keep their thin wrappers (`HealthStatusPill`,
+  `getIncidentSeverityBadge`, ...) because mapping a domain value to a tone and a
+  label IS domain knowledge - only the chip moved.
+
+  Also removes two related duplications found in the same sweep: the dependency
+  plugin hand-wrote the pill's classes inline in a `getImpactBadge` switch
+  duplicated across its alert banner and its editor (now one `ImpactBadge`
+  component over the tone mapping its own logic module already owned), and its
+  private tone table now sources the triad from the shared one.
+
+  `status-page-frontend`'s local `StatusPill` is renamed `PublicStatusPill`: it is
+  keyed by the public status enum and draws from that enum's own visual tokens, so
+  it is a genuinely different component and the name now says so.
+
+### Patch Changes
+
+- be74b01: Fix info-severity announcements rendering in the neutral grey "unknown" hue
+
+  An announcement with `info` severity mapped onto the grey `unknown` status
+  tone, so its severity pill, its card accent stripe and the global announcement
+  banner all rendered grey - reading as "inert/disabled" rather than
+  "informational" - on the announcements manage page, the dashboard and the
+  public status page widget.
+
+  `info` severity now maps to the blue `info` tone that the design system already
+  defines (`--status-info`) and that incidents and status pages already use.
+  The announcement plugin's private copy of the tone table, which was missing the
+  `info` entry entirely, is replaced by the shared `pillToneStyles` from
+  `@checkstack/ui`, and the banner now derives its classes from the same
+  severity-to-tone mapping as the pills instead of carrying its own switch, so the
+  two can no longer drift.
+
+  `pillToneStyles` gains `text`, `tint`, `border` and `tintHover` class sets per
+  tone (additive - existing `pill` / `dot` / `accent` are unchanged) so banner-like
+  surfaces can be tinted from the shared table.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- be5c907: Security: auto-remediated fixable vulnerabilities flagged by the daily scan.
+
+  - `fast-xml-parser` 5.10.0 → 5.10.1 (GHSA-8r6m-32jq-jx6q)
+  - `adm-zip` 0.5.10 → 0.6.0 (CVE-2026-39244)
+  - `fast-uri` 3.1.3 → 3.1.4 (CVE-2026-16221)
+  - `sharp` 0.34.5 → 0.35.0 (GHSA-f88m-g3jw-g9cj)
+
+- be74b01: Move every table's filters into the table itself
+
+  The earlier migration unified how filter controls are BUILT but left several
+  rendering above their table as a detached bar, justified by the filtering
+  running server-side. That justification was wrong: where the narrowing runs says
+  nothing about where the control belongs, and a bar floating above a card reads
+  as unrelated to the list under it.
+
+  Now in the table's own bar:
+
+  - **Incidents** and **maintenances** - the Status column declares `filterValue`,
+    so the control sits with the column it filters. The selection still narrows
+    the list query, which is what actually reduces the fetch; the column filter
+    re-applying it over already-scoped rows is a harmless no-op.
+  - **Automation run history** - same, with the status pills.
+  - **Health-check list** - search, strategy and status move onto their columns.
+    The assigned-system control has no row to read (selecting a system swaps the
+    data source, which is what makes the catalog's per-system link work without
+    health-check grants), so it rides in as a control-only facet.
+  - **Health-check drawer** - the run-status control moves into the runs table.
+
+  `DataTable`'s `facets` now accepts a control WITHOUT a row accessor, rendered but
+  not applied. That is what lets a server-applied dimension stay in the table's bar
+  instead of forcing a second bar onto the page.
+
+  Fixes a trap the move exposed: with server-side filtering an empty `data` means
+  either "none exist" or "none match", and three of these pages rendered their
+  onboarding empty state either way - automation's run history replaced the whole
+  table, taking the filter controls with it, so a filter matching nothing could not
+  be cleared. Each now suppresses its `emptyState` while a filter is active and
+  offers a "no matches, clear filters" state instead.
+
+  Three surfaces deliberately keep an external bar, each narrowing more than one
+  list: the catalog toolbar (a browse grid plus three manage tabs), the automation
+  list (one table per accordion group), and the health-check drawer's source
+  control (it scopes the charts as well as the runs). The history detail page's
+  list is not a `DataTable` at all.
+
+- be74b01: Stop incidents colouring both severity and status
+
+  An incident row showed a coloured severity AND a coloured status, putting two
+  competing colour scales on one line - a red "Investigating" beside an amber
+  "Major" reads as a contradiction rather than as two independent facts. The
+  lifecycle is now stated in words on a neutral pill, so severity alone carries
+  the row's hue.
+
+  This is what the PUBLIC status page has always done with the same incident
+  (severity tinted, status on a muted chip), so the internal manage, detail,
+  overview and system-history views now agree with what a customer sees.
+
+  `presentIncidentStatus` no longer returns a tone at all. Nothing consumed it
+  once the badge went neutral, and a returned-but-unused tone is exactly how the
+  status gets re-coloured later.
+
+  The rule this follows is now written down on the shared tone module: at most ONE
+  coloured dimension per row. A domain with both an urgency (severity) and a
+  lifecycle (status) gives hue to the urgency; a domain with only one gives it the
+  hue - which is why maintenance, health checks, SLOs and gitops syncs keep their
+  coloured status, having no severity to compete with.
+
+- Updated dependencies [be74b01]
+  - @checkstack/frontend-api@0.17.0
+
 ## 1.29.0
 
 ### Minor Changes
