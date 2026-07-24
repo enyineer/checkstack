@@ -7,10 +7,13 @@
     "**/*.css"
   ],
   "main": "src/index.tsx",
+  "files": ["dist"],
   "checkstack": {
-    "type": "frontend"
+    "type": "frontend",
+    "publicRemote": true
   },
   "scripts": {
+    "build": "vite build",
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
@@ -33,7 +36,11 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@checkstack/scripts": "workspace:*",
+    "@module-federation/vite": "1.16.15",
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.16"
   }
 }

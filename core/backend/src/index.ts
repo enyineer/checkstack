@@ -20,6 +20,7 @@ import { extractErrorMessage } from "@checkstack/common";
 import {
   createPublicHostRegistry,
   normalizeHost,
+  resolveRequestHost,
 } from "./public-host/registry";
 import { createHostRoutingMiddleware } from "./public-host/middleware";
 import { createCorsOriginResolver } from "./public-host/cors";
@@ -143,7 +144,12 @@ const primaryHost = normalizeHost(
  * config endpoint and SPA fallback can both consult it cheaply.
  */
 async function matchPublicHost(c: Context): Promise<PublicHostMatch | null> {
-  const host = normalizeHost(c.req.header("host"));
+  // Honor X-Forwarded-Host (via resolveRequestHost), consistent with
+  // requestOrigin: behind an edge proxy that rewrites the upstream Host to the
+  // internal service address, the raw Host is NOT the custom domain, so using it
+  // here would resolve to no public match and serve the admin bundle on the
+  // custom domain.
+  const host = resolveRequestHost((n) => c.req.header(n));
   if (!host || host === primaryHost) return null;
   return publicHostRegistry.resolve(host);
 }
@@ -308,7 +314,11 @@ app.use(
  * single queried host.
  */
 app.get("/.well-known/checkstack/authorize-domain", async (c) => {
-  const host = normalizeHost(c.req.query("domain") ?? c.req.header("host"));
+  // The edge usually passes the candidate host as `?domain=`; fall back to the
+  // forwarded/real host (not the rewritten upstream Host) for edges that ask
+  // via Host only.
+  const host =
+    normalizeHost(c.req.query("domain")) ?? resolveRequestHost((n) => c.req.header(n));
   if (!host) return c.notFound();
   if (host === primaryHost) return c.text("ok");
   const match = await publicHostRegistry.resolve(host);

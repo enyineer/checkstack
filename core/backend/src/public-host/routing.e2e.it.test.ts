@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { PluginMetadata } from "@checkstack/common";
 import type { PublicHostMatch } from "@checkstack/backend-api";
-import { createPublicHostRegistry, normalizeHost } from "./registry";
+import { createPublicHostRegistry, resolveRequestHost } from "./registry";
 import { createHostRoutingMiddleware } from "./middleware";
 
 /**
@@ -37,9 +37,11 @@ beforeAll(() => {
     META,
   );
 
-  // Mirrors core/backend's matchPublicHost: primary/unknown hosts -> null.
+  // Mirrors core/backend's matchPublicHost: honors X-Forwarded-Host (so a
+  // Host-rewriting edge proxy still routes the custom domain), primary/unknown
+  // hosts -> null.
   const match = (c: { req: { header(n: string): string | undefined } }) => {
-    const host = normalizeHost(c.req.header("host"));
+    const host = resolveRequestHost((n) => c.req.header(n));
     if (!host || host === PRIMARY) return Promise.resolve(null);
     return registry.resolve(host);
   };
@@ -55,7 +57,10 @@ beforeAll(() => {
   app.get("/api/config", async (c) => {
     const m = await match(c);
     if (m) {
-      return c.json({ baseUrl: `https://${c.req.header("host")}`, publicHost: m.bootstrap });
+      // Mirrors requestOrigin: the origin is the CLIENT host (X-Forwarded-Host
+      // first), never the internal upstream Host.
+      const origin = resolveRequestHost((n) => c.req.header(n));
+      return c.json({ baseUrl: `https://${origin}`, publicHost: m.bootstrap });
     }
     return c.json({ baseUrl: `https://${PRIMARY}` });
   });
@@ -104,6 +109,42 @@ describe("custom-domain host (status.fake.test) — locked down", () => {
   test("serves the PUBLIC bundle for navigational routes", async () => {
     expect(await (await get("/", PUBLIC)).text()).toBe("PUBLIC_BUNDLE");
     expect(await (await get("/some/deep/route", PUBLIC)).text()).toBe("PUBLIC_BUNDLE");
+  });
+});
+
+describe("custom-domain behind a Host-rewriting edge proxy (X-Forwarded-Host)", () => {
+  // The real reported bug: an edge proxy terminates TLS and rewrites the upstream
+  // `Host` to the internal service address, forwarding the browser host in
+  // `X-Forwarded-Host`. Before the fix, routing used the raw `Host` (the internal
+  // upstream), so the custom domain resolved to NO public match and the ADMIN
+  // bundle was served on the status-page domain. Every prior test passed because
+  // it sent `Host` directly with no proxy in front. These drive the proxy shape.
+  const INTERNAL = "checkstack-web.internal.svc"; // what the proxy sets as Host
+  const proxied = (path: string, init?: RequestInit) =>
+    get(path, INTERNAL, { ...init, headers: { "x-forwarded-host": PUBLIC, ...init?.headers } });
+
+  test("serves the PUBLIC bundle (not the admin app) for navigational routes", async () => {
+    expect(await (await proxied("/")).text()).toBe("PUBLIC_BUNDLE");
+    expect(await (await proxied("/statuspage/view/acme")).text()).toBe("PUBLIC_BUNDLE");
+  });
+
+  test("still locks down admin/REST/platform endpoints", async () => {
+    expect((await proxied("/api/statuspage/listStatusPages")).status).toBe(404);
+    expect((await proxied("/rest/anything")).status).toBe(404);
+    expect((await proxied("/.checkstack/ready")).status).toBe(404);
+  });
+
+  test("/api/config returns the custom-domain origin + publicHost", async () => {
+    const cfg = await (await proxied("/api/config")).json();
+    expect(cfg.publicHost).toEqual({ kind: "status-page", slug: "acme" });
+    expect(cfg.baseUrl).toBe(`https://${PUBLIC}`);
+  });
+
+  test("a comma-list X-Forwarded-Host uses the first (client) hop", async () => {
+    const res = await get("/", INTERNAL, {
+      headers: { "x-forwarded-host": `${PUBLIC}, edge-1.internal` },
+    });
+    expect(await res.text()).toBe("PUBLIC_BUNDLE");
   });
 });
 

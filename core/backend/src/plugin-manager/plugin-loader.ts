@@ -289,13 +289,22 @@ export async function loadPlugins({
 
   if (!skipDiscovery) {
     const workspaceRoot = path.join(__dirname, "..", "..", "..", "..");
-    const localPlugins = discoverLocalPlugins({
-      workspaceRoot,
-      type: "backend",
-    });
+    // Backend plugins drive backend loading. ALSO sync CORE frontend plugins
+    // that ship a public MF remote (`checkstack.publicRemote: true`) so the
+    // `/assets/plugins/<name>/*` route can serve their built `dist/` to the lean
+    // public status-page bundle - without such a `plugins` row the remote 404s.
+    // Synced in the SAME call as backend plugins so `syncPluginsToDatabase`'s
+    // prune (which deletes local rows absent from the passed list) keeps both.
+    // Ordinary core frontend plugins (bundled into the admin app) are NOT synced.
+    const localPlugins = [
+      ...discoverLocalPlugins({ workspaceRoot, type: "backend" }),
+      ...discoverLocalPlugins({ workspaceRoot, type: "frontend" }).filter(
+        (p) => p.publicRemote,
+      ),
+    ];
 
     rootLogger.debug(
-      `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`,
+      `   -> Found ${localPlugins.length} local backend + public-remote frontend plugin(s) in workspace`,
     );
     rootLogger.debug("   -> Discovered plugins:");
     for (const p of localPlugins) {

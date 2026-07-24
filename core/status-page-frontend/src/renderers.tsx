@@ -10,6 +10,7 @@ import {
 import { Markdown, MarkdownBlock, formatPercent,
   StatusPill,
   pillToneStyles,
+  type StatusPillTone,
 } from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
@@ -39,6 +40,10 @@ import {
   maintenanceStatusLabel,
   maintenanceStatusTone,
 } from "./utils/maintenanceStatusTone";
+import {
+  incidentStatusLabel,
+  incidentStatusTone,
+} from "./utils/incidentStatusTone";
 
 export {
   mergeWidgetRenderers,
@@ -406,7 +411,20 @@ const ActiveEventCard: React.FC<{
 
 type Update = { message: string; statusChange?: string; at: string };
 
-const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
+/**
+ * Maps an update's `statusChange` (a raw incident/maintenance status) to its
+ * tone + label, so the timeline colours the status line by domain. Incidents
+ * pass the incident mapping, maintenance the maintenance one.
+ */
+interface StatusChangePresenter {
+  tone: (status: string) => StatusPillTone;
+  label: (status: string) => string;
+}
+
+const UpdatesTimeline: React.FC<{
+  updates: Update[];
+  status: StatusChangePresenter;
+}> = ({ updates, status }) => {
   if (updates.length === 0) return null;
   return (
     <ol className="mt-3 space-y-3 border-l border-border pl-4">
@@ -414,8 +432,13 @@ const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
         <li key={i} className="relative">
           <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
           {u.statusChange && (
-            <span className="mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {u.statusChange}
+            // The status change on its OWN line, COLOURED by its status (the
+            // reported bug rendered it in the muted grey `text-muted-foreground`,
+            // making it hard to tell the status apart from the message).
+            <span
+              className={`mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide ${pillToneStyles[status.tone(u.statusChange)].text}`}
+            >
+              {status.label(u.statusChange)}
             </span>
           )}
           {/* Sanitized markdown (rehype-sanitize inside <Markdown>): this is the
@@ -429,6 +452,16 @@ const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
       ))}
     </ol>
   );
+};
+
+/** Status-change presenters, one per event domain. */
+const INCIDENT_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: incidentStatusTone,
+  label: incidentStatusLabel,
+};
+const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
+  tone: maintenanceStatusTone,
+  label: maintenanceStatusLabel,
 };
 
 /** Section divider label for the "recently resolved / past" subsection. */
@@ -509,7 +542,7 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affected: {inc.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={inc.updates} />
+              <UpdatesTimeline updates={inc.updates} status={INCIDENT_STATUS_PRESENTER} />
             </ActiveEventCard>
           ))
         )}
@@ -588,7 +621,7 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affecting: {m.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={m.updates} />
+              <UpdatesTimeline updates={m.updates} status={MAINTENANCE_STATUS_PRESENTER} />
             </MaintenanceEventCard>
           ))
         )}

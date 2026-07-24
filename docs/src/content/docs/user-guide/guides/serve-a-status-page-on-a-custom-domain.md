@@ -41,7 +41,30 @@ A       status    203.0.113.10                # your ingress / load-balancer IP
 
 Verification (step 2) and pointing the domain (step 3) are independent and can be done in either order.
 
-## 4. Terminate TLS at your edge
+## 4. Let your edge forward the visitor's host
+
+Checkstack routes a request to the right status page by its **hostname**. Your edge (ingress / reverse proxy) must let Checkstack see the visitor's original host in **one** of two ways - either is fine:
+
+- **Preserve the original `Host` header** - pass `status.example.com` through unchanged; or
+- **Set `X-Forwarded-Host`** to the original host when the edge rewrites `Host` to an internal upstream address.
+
+The TLS examples in the next section (Kubernetes nginx-ingress, Caddy) already do this out of the box. A **hand-rolled** reverse proxy may not: a bare nginx `proxy_pass`, for example, defaults to `Host: <upstream>` and sends no `X-Forwarded-Host`, so Checkstack only ever sees the internal service name, matches no status page, and falls back to serving the **admin app** on your custom domain. Set it explicitly:
+
+```nginx
+location / {
+    proxy_pass http://checkstack-backend:3000;
+    proxy_set_header Host $host;                 # preserve the visitor's host…
+    proxy_set_header X-Forwarded-Host $host;     # …and/or forward it explicitly
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+The same applies to any other proxy (HAProxy, Apache, a cloud L7 load balancer): if it rewrites the `Host` header, it must forward the original host in `X-Forwarded-Host`.
+
+> [!CAUTION]
+> If your edge rewrites `Host` to the upstream **and** sends no `X-Forwarded-Host`, the visitor's hostname is lost before it reaches Checkstack, and custom domains cannot work - the page renders as the admin app. This is the one edge setting custom domains depend on. Checkstack reads `X-Forwarded-Host` first (first hop of a comma list), then falls back to `Host`.
+
+## 5. Terminate TLS at your edge
 
 Checkstack itself does not terminate TLS; your ingress or reverse proxy does, exactly as it already does for your primary Checkstack domain. Pick whichever matches your deployment.
 
@@ -107,13 +130,13 @@ If you use Cloudflare for SaaS to onboard customer domains:
 2. Set the **fallback origin** to your Checkstack ingress hostname.
 3. Use `https://<your-checkstack>/.well-known/checkstack/authorize-domain?domain=status.example.com` as the validation check so Cloudflare only provisions for domains Checkstack recognises.
 
-## 5. Publish the page
+## 6. Publish the page
 
 In the builder, click **Publish**. A verified domain serves nothing until the page is published.
 
 After you verify and publish, the domain begins serving within about a minute. Checkstack briefly caches host lookups (about 60 seconds), so if you visited the domain **before** finishing setup, give it up to a minute for the not-yet-configured result to expire.
 
-## 6. Confirm it is live
+## 7. Confirm it is live
 
 Open `https://status.example.com`. You should see your published page. In the builder, the Custom domain panel shows a green **Verified** badge and links to the live URL.
 
@@ -128,5 +151,5 @@ On a custom domain, visitors can reach only the published page and the data in i
 | Verify says "No TXT record found" | DNS not propagated yet, or the record name is wrong | Re-check the Name and Value against the builder; wait a few minutes; `dig TXT _checkstack-verify.<domain>` |
 | Browser shows a TLS/certificate error | Your edge has not issued a certificate yet | Check the cert-manager `Certificate`/`Order`, or that the `ask` endpoint returns 200 for the host; confirm DNS (step 3) resolves to the edge |
 | Page shows "This status page isn't available" / 404 | The page is verified but not published, or you visited before finishing setup | Publish the page; wait up to ~60s for the cached negative result to expire |
-| It still shows the admin login look | The domain points at the wrong host | Confirm the CNAME/A record targets the Checkstack ingress |
+| It still shows the admin login look | The domain points at the wrong host, OR your edge rewrote the `Host` header without setting `X-Forwarded-Host` (so Checkstack never sees the visitor's host) | Confirm the CNAME/A record targets the Checkstack ingress; make sure the edge preserves `Host` or sets `X-Forwarded-Host` (see [Let your edge forward the visitor's host](#4-let-your-edge-forward-the-visitors-host)) |
 | A third-party widget renders blank | Its renderer remote did not load | Ensure the widget's plugin is installed; built-in widgets always render |

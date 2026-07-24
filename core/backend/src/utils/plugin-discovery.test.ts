@@ -77,6 +77,7 @@ describe("extractPluginMetadata", () => {
       type: "backend",
       enabled: true,
       version: "0.0.1",
+      publicRemote: false,
     });
   });
 
@@ -315,6 +316,7 @@ describe("syncPluginsToDatabase", () => {
         type: "backend",
         enabled: true,
         version: "2.1.0",
+        publicRemote: false,
       },
     ];
 
@@ -349,6 +351,7 @@ describe("syncPluginsToDatabase", () => {
         type: "backend",
         enabled: true,
         version: "1.0.0",
+        publicRemote: false,
       },
     ];
 
@@ -388,6 +391,7 @@ describe("syncPluginsToDatabase", () => {
         type: "backend",
         enabled: true,
         version: "0.0.0",
+        publicRemote: false,
       },
     ];
 

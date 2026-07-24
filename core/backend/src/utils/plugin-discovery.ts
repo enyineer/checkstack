@@ -11,6 +11,16 @@ export interface PluginMetadata {
   type: "backend" | "frontend" | "common";
   enabled: boolean;
   version: string; // From package.json "version"
+  /**
+   * A CORE frontend plugin that ships a Module Federation REMOTE build (`dist/`
+   * with `mf-manifest.json`) so the lean public status-page bundle can
+   * `loadRemote` its widget renderer. Opt-in via `checkstack.publicRemote: true`
+   * in package.json. Such plugins get a `plugins` row (like a runtime-installed
+   * frontend plugin) so the backend serves their `dist/` under
+   * `/assets/plugins/<name>/`; normal core frontend plugins (bundled into the
+   * admin app via `import.meta.glob`) do not and stay out of the table.
+   */
+  publicRemote: boolean;
 }
 
 /**
@@ -66,6 +76,7 @@ export function extractPluginMetadata({
       type,
       enabled: true, // Local plugins are always enabled
       version: typeof pkgJson.version === "string" ? pkgJson.version : "",
+      publicRemote: pkgJson.checkstack.publicRemote === true,
     };
   } catch (error) {
     rootLogger.debug(`⚠️  Failed to read package.json for ${pluginDir}:`, error);

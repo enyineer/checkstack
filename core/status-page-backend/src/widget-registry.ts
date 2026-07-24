@@ -80,6 +80,23 @@ export interface WidgetTypeDefinition {
     ctx: WidgetResolveContext;
   }): Promise<unknown>;
   /**
+   * OPTIONAL: full public-safe detail for ONE item (`id`) this widget surfaces,
+   * for the dedicated detail page. Unlike {@link resolvePublic} - which caps the
+   * update timeline to the block's `maxUpdates` for the summary block and omits
+   * long-form fields - this returns the item with ALL its updates and its
+   * description. The service only calls it AFTER the item is confirmed surfaced
+   * by the page's block (the same anti-enumeration gate), so it widens no
+   * surface. The returned value is validated against a single item of the
+   * widget's own DTO shape, so it fails closed just like `resolvePublic`. Return
+   * null when `id` is not one this config surfaces. Omit for widgets with no
+   * per-item detail page.
+   */
+  resolveDetail?(args: {
+    id: string;
+    config: unknown;
+    ctx: WidgetResolveContext;
+  }): Promise<unknown | null>;
+  /**
    * Publish-time gate: throw if the EDITOR (the `userClient`, scoped to the
    * caller) cannot read every resource this config binds — "you cannot publish
    * what you cannot see". REQUIRED for any widget whose `boundResources` is

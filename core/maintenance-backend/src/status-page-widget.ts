@@ -4,6 +4,7 @@ import {
   pluginMetadata as statusPagePluginMetadata,
   MaintenanceConfigSchema,
   MaintenanceDtoSchema,
+  MaintenanceDtoItemSchema,
   toPublicUpdate,
   resolveEventFeedScope,
   type InternalUpdate,
@@ -29,18 +30,25 @@ async function groupMembers(
   return new Map(groups.map((g) => [g.id, g.systemIds] as const));
 }
 
-/** Newest `max` updates, most-recent first. */
-function latestUpdates(updates: InternalUpdate[], max: number): PublicUpdate[] {
-  return updates
+/**
+ * Public updates, most-recent first. `max` caps the list for the summary BLOCK;
+ * omit it (the detail page) to return ALL updates.
+ */
+function latestUpdates(
+  updates: InternalUpdate[],
+  max?: number,
+): PublicUpdate[] {
+  const sorted = updates
     // The public status page is anonymous: only `public`-visibility updates may
     // appear. `logged_in` / `internal` updates are filtered out here so they
     // never reach the unauthenticated projection (Item 3/5).
     .filter((u) => u.visibility === "public")
     .toSorted(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, max)
-    .map((u) => toPublicUpdate(u));
+    );
+  return (max === undefined ? sorted : sorted.slice(0, max)).map((u) =>
+    toPublicUpdate(u),
+  );
 }
 
 async function labelsFor(
@@ -214,6 +222,41 @@ const maintenance: WidgetTypeDefinition = {
       updates: latestUpdates(updatesByMaintenance[m.id] ?? [], c.maxUpdates),
     }));
     return MaintenanceDtoSchema.parse({ maintenances: items });
+  },
+  // Full detail for the individual maintenance page: the ONE maintenance's ALL
+  // public updates (no `maxUpdates` cap) + its description ("what the maintenance
+  // involves"). Scope-checked like resolvePublic; null for out-of-scope/unknown.
+  async resolveDetail({ id, config, ctx }) {
+    const c = MaintenanceConfigSchema.parse(config);
+    const bound = await effectiveScope(c, ctx);
+    if (bound.size === 0) return null;
+    const mc = ctx.rpcClient.forPlugin(MaintenanceApi);
+    // includeCompleted so a completed maintenance's page still loads; the
+    // status-page gate has already confirmed the id is surfaced by the page.
+    const { maintenances: all } = await mc.listMaintenances({
+      includeCompleted: true,
+    });
+    const found = all.find(
+      (m) => m.id === id && m.systemIds.some((s) => bound.has(s)),
+    );
+    if (!found) return null;
+    const names = await labelsFor(ctx, [...bound]);
+    const labelOf = (sid: string): string | undefined =>
+      bound.has(sid) ? (c.systemLabels[sid] ?? names.get(sid) ?? sid) : undefined;
+    const bulk = await mc.getBulkMaintenanceUpdates({ maintenanceIds: [id] });
+    const updates = latestUpdates(bulk.updates?.[id] ?? []);
+    return MaintenanceDtoItemSchema.parse({
+      id: found.id,
+      title: found.title,
+      status: found.status,
+      startAt: iso(found.startAt),
+      endAt: iso(found.endAt),
+      systems: found.systemIds
+        .map((sid) => labelOf(sid))
+        .filter((l): l is string => l !== undefined),
+      ...(found.description ? { description: found.description } : {}),
+      updates,
+    });
   },
 };
 

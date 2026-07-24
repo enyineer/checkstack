@@ -74,6 +74,9 @@ When a request arrives on a verified custom domain, the platform serves ONLY the
 
 On a custom domain, `/api/config` returns THAT domain as `baseUrl` (never the admin origin), so the bundle's RPC client can only ever call back into this same locked-down host. The net effect: a published page can reach exactly one data endpoint, and that endpoint already enforces published + visibility + the field allow-list. There is no path from the public host to any other plugin's data.
 
+> [!IMPORTANT]
+> Host resolution honors the edge proxy. Many deployments sit behind a reverse proxy or ingress that rewrites the `Host` header to an internal service name and forwards the ORIGINAL public host as `X-Forwarded-Host`. Both the host-routing match AND the `/api/config` origin resolve the request host through a single `resolveRequestHost` helper that reads `X-Forwarded-Host` (first hop) and falls back to `Host` - the SAME precedence the request-origin derivation uses. If routing read the raw `Host` header instead, a custom domain behind such a proxy would see the internal service name, never match a configured page, and silently serve the ADMIN bundle - so this must stay consistent between the two.
+
 ### A separate public bundle
 
 The custom-domain host loads a minimal public bundle that ships NONE of the admin app - no sidebar, auth, signals, command palette, or general plugin loader. The bundle is `core/frontend`'s public-app (`@checkstack/frontend`'s `public-app.tsx`), which renders the page WITHOUT the admin router, driving the slug from `/api/config` instead of the URL; `@checkstack/status-page-frontend` re-exports the `PublicStatusPageView` and the `RendererRemotesProvider` it mounts. The frontend entry fetches `/api/config` first and, when it sees a `publicHost`, dynamically imports only this public bundle; the admin app chunk is never fetched. So a public host downloads a few KB of public code plus shared vendor, and admin code never reaches the visitor's browser.
@@ -154,6 +157,23 @@ A widget renders a PUBLIC page, so every RPC a resolver makes is real external D
 
 Each is `POST` (array input), keyed by the resource id, and gated with the record post-filter (`recordKey`) that matches the single endpoint's read scope - so a team-scoped caller only sees ids they may read, exactly like the sibling `getBulkSystemHealthStatus` / `getBulkIncidentsForSystems`. The update endpoints additionally apply the SAME per-item audience filter as `getIncident` / `getMaintenance`, so a logged-in/internal update (or author identity) never reaches a caller who is not a manager of that item; the public widget re-filters to `public` on top.
 
+### Per-item detail pages: `resolveDetail`
+
+The summary block a widget renders is deliberately lean: an event-feed widget caps each item's update timeline to the block's `maxUpdates` and omits long-form fields (an incident/maintenance `description`). A widget that has a dedicated per-item **detail page** (e.g. `/status/<slug>/incident/<id>`) implements the OPTIONAL `resolveDetail` to return that ONE item with ALL its public updates (no cap) and its description:
+
+```ts
+resolveDetail: async ({ id, config, ctx }) => {
+  const c = LatencyConfigSchema.parse(config);
+  const bound = await effectiveScope(c, ctx);      // same scope helper as resolvePublic
+  if (bound.size === 0) return null;               // fail closed: nothing bound
+  const item = /* fetch the one item + its FULL update timeline, scope-checked */;
+  if (!item) return null;                          // id not one this config surfaces
+  return DetailItemSchema.parse({ /* ...all updates, description... */ });
+},
+```
+
+The service calls it from `resolvePublishedIncident` / `resolvePublishedMaintenance`: it iterates ONLY the published layout's blocks of the matching widget type and calls each block's `resolveDetail`, so the detail page is gated by the SAME anti-enumeration boundary as the block - `resolveDetail` returns `null` for any id the block's live scope does not surface, and a resolver throw degrades to `null` (never crashes). The returned value is re-validated against the widget's own item DTO shape, so it fails closed exactly like `resolvePublic`. This is the ONLY way a detail page shows more than the block; the block's `maxUpdates` is a display cap, not a security boundary, so the full timeline on the detail page is intentional. Widgets with no detail page omit `resolveDetail`.
+
 ### Environment scoping
 
 A page can publish only a subset of catalog [environments](/checkstack/user-guide/concepts/environments/) (`publishedEnvironmentIds` on the page; empty/NULL = all environments). The platform stays ignorant of what an environment is: it threads the selected ids onto `WidgetResolveContext.publishedEnvironmentIds` as OPAQUE strings and never interprets them. The SAME context is passed to `resolvePublic`, `resolveScopedSystems`, and `resolveScopedSystemsDetailed`, so what a page shows, offers for subscription, and emails about all agree.
@@ -202,7 +222,7 @@ Pass the LOCAL id and your plugin metadata; the qualified id (`${pluginId}.laten
 > [!IMPORTANT]
 > A renderer MUST be a PURE, prop-only component: it receives the resolved DTO and has no RPC client or `fetch`. That is what keeps third-party widgets unable to leak - a renderer can only draw the DTO it is handed.
 
-Plugin-contributed renderers load on the admin builder preview and the in-app page at `/status/<slug>` (where the admin app has already loaded every plugin). For a page served on a **custom domain**, the minimal public bundle loads your renderer on demand - declare its frontend package as `rendererRemote` on the backend widget type so the page knows which remote to fetch:
+Plugin-contributed renderers load on the admin builder preview. The public status page - whether on a **custom domain** OR the same-origin **`/status/<slug>`** path - is rendered by the lean public bundle, which loads NO plugins; it loads a widget's renderer on demand as a Module Federation remote. Declare the renderer's frontend package as `rendererRemote` on the backend widget type so the page knows which remote to fetch:
 
 ```ts
 env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
@@ -211,7 +231,12 @@ env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
 );
 ```
 
-Built-in widgets omit `rendererRemote` (they are bundled). See [Custom domains](#a-separate-public-bundle) for how the bundle loads remotes securely.
+Built-in widgets omit `rendererRemote` (they are bundled into the public bundle). A `rendererRemote` package MUST actually be built and SERVED as a remote:
+
+- A **third-party** installed plugin already is (its `dist/` ships an `mf-manifest.json` and is served from `runtime_plugins/`).
+- A **core** frontend plugin (bundled into the admin app, not a remote by default) must OPT IN with `"checkstack": { "type": "frontend", "publicRemote": true }` in its `package.json`. That gives it a federation `vite.config.ts` (exposing a LEAN `./plugin` entry that contributes ONLY the renderer, sharing `react` + `@checkstack/frontend-api` with the host), a `build` script, and a row in the `plugins` table so `/assets/plugins/<name>/*` serves its `dist/`. `bun run build:public-remotes` builds every such plugin (wired into the Docker build and e2e), keyed off the SAME `publicRemote` marker the backend discovery uses, so the built set and the served set cannot drift. Without this the public bundle's `loadRemote` 404s and the widget renders nothing.
+
+See [Custom domains](#a-separate-public-bundle) for how the bundle loads remotes securely.
 
 ## Anonymous email subscriptions
 
