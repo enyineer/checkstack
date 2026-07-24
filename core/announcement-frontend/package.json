@@ -7,7 +7,6 @@
     "**/*.css"
   ],
   "main": "src/index.tsx",
-  "files": ["dist"],
   "checkstack": {
     "type": "frontend",
     "publicRemote": true
