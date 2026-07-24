@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY core ./core
 COPY plugins ./plugins
+# Top-level build scripts (e.g. `build:public-remotes`, which builds the core
+# frontend plugins that ship a public Module Federation remote - run below).
+COPY scripts ./scripts
 # `docs` is a workspace member (Astro Starlight site). We build it in this
 # stage and ship the static `dist` so the app can serve the user guide
 # in-app (same artifact as the GitHub Pages deploy). The full source is
