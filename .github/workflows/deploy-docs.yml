@@ -29,10 +29,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Required: SVG/PNG/etc. assets (logo, favicons) are stored
-          # in Git LFS — see .gitattributes. Without this the runner
-          # gets pointer files and Astro fails with NoImageMetadata.
-          lfs: true
+          # LFS assets (logo/favicons/screenshots) are pulled by the cached
+          # lfs-cache step below instead of during checkout, so we don't burn
+          # LFS bandwidth re-downloading the whole store every run. Astro still
+          # needs the smudged files (NoImageMetadata otherwise) - the pull
+          # provides them.
+          lfs: false
+
+      - name: Cache & pull Git LFS
+        uses: ./.github/actions/lfs-cache
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
