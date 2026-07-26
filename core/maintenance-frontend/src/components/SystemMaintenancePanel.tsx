@@ -1,6 +1,11 @@
 import React, { useEffect } from "react";
 import { Link } from "react-router";
-import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  accessApiRef,
+  type SlotContext,
+} from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "../api";
@@ -11,7 +16,7 @@ import {
   DetailCard,
   pillToneStyles,
 } from "@checkstack/ui";
-import { Wrench, History } from "lucide-react";
+import { Wrench, History, Plus } from "lucide-react";
 import { getMaintenanceStatusTone } from "../utils/badges";
 
 type Props = SlotContext<typeof SystemDetailsSlot>;
@@ -25,6 +30,29 @@ export const SystemMaintenancePanel: React.FC<Props> = ({
   onLoadingChange,
 }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
+  const accessApi = useApi(accessApiRef);
+
+  // Derived from the CREATE procedure's contract, so it is true for a global
+  // maintenance manager AND for someone who can manage this system via a team
+  // (the `create.parent` gate) - exactly who the backend will accept.
+  const { allowed: canScheduleMaintenance } = accessApi.useProcedureAccess(
+    MaintenanceApi.contract.createMaintenance,
+  );
+
+  /**
+   * Open the maintenance editor already scoped to this system. Deep-links to the
+   * maintenance page, which consumes `action`/`systemId` and pre-selects it.
+   */
+  const scheduleButton = canScheduleMaintenance && system?.id && (
+    <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+      <Link
+        to={`${resolveRoute(maintenanceRoutes.routes.config)}?action=create&systemId=${encodeURIComponent(system.id)}`}
+      >
+        <Plus className="h-3 w-3 mr-1" />
+        Schedule maintenance
+      </Link>
+    </Button>
+  );
 
   // Fetch maintenances with useQuery — kept fresh via SignalAutoInvalidator.
   const { data: maintenances = [], isLoading: loading } =
@@ -54,16 +82,19 @@ export const SystemMaintenancePanel: React.FC<Props> = ({
           <Wrench className="h-3.5 w-3.5" />
           <span className="text-sm">No planned maintenances</span>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
-          <Link
-            to={resolveRoute(maintenanceRoutes.routes.systemHistory, {
-              systemId: system.id,
-            })}
-          >
-            <History className="h-3 w-3 mr-1" />
-            History
-          </Link>
-        </Button>
+        <div className="flex items-center gap-1">
+          {scheduleButton}
+          <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+            <Link
+              to={resolveRoute(maintenanceRoutes.routes.systemHistory, {
+                systemId: system.id,
+              })}
+            >
+              <History className="h-3 w-3 mr-1" />
+              History
+            </Link>
+          </Button>
+        </div>
       </DetailCard>
     );
   }
@@ -104,16 +135,19 @@ export const SystemMaintenancePanel: React.FC<Props> = ({
           </span>
         )}
       </div>
-      <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" asChild>
-        <Link
-          to={resolveRoute(maintenanceRoutes.routes.systemHistory, {
-            systemId: system.id,
-          })}
-        >
-          <History className="h-3 w-3 mr-1" />
-          View
-        </Link>
-      </Button>
+      <div className="flex items-center gap-1 shrink-0">
+        {scheduleButton}
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" asChild>
+          <Link
+            to={resolveRoute(maintenanceRoutes.routes.systemHistory, {
+              systemId: system.id,
+            })}
+          >
+            <History className="h-3 w-3 mr-1" />
+            View
+          </Link>
+        </Button>
+      </div>
     </DetailCard>
   );
 };

@@ -1,6 +1,11 @@
 import React from "react";
 import { Link } from "react-router";
-import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  accessApiRef,
+  type SlotContext,
+} from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
 import { IncidentApi } from "../api";
@@ -17,7 +22,7 @@ import {
   pillToneStyles,
   type StatusPillTone,
 } from "@checkstack/ui";
-import { AlertTriangle, History } from "lucide-react";
+import { AlertTriangle, History, Plus } from "lucide-react";
 import { presentIncidentSeverity } from "../utils/badges.logic";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
@@ -66,6 +71,30 @@ function findMostSevereIncident(
  */
 export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
   const incidentClient = usePluginClient(IncidentApi);
+  const accessApi = useApi(accessApiRef);
+
+  // Derived from the CREATE procedure's contract, so it is true for a global
+  // incident manager AND for someone who can manage this system via a team (the
+  // `create.parent` gate) - exactly who the backend will accept. Using the bare
+  // global rule here would hide the action from team-scoped users who may use it.
+  const { allowed: canReportIncident } = accessApi.useProcedureAccess(
+    IncidentApi.contract.createIncident,
+  );
+
+  /**
+   * Open the incident editor already scoped to this system. Deep-links to the
+   * incidents page, which consumes `action`/`systemId` and pre-selects it.
+   */
+  const reportButton = canReportIncident && system?.id && (
+    <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+      <Link
+        to={`${resolveRoute(incidentRoutes.routes.config)}?action=create&systemId=${encodeURIComponent(system.id)}`}
+      >
+        <Plus className="h-3 w-3 mr-1" />
+        Report incident
+      </Link>
+    </Button>
+  );
 
   // Fetch incidents with useQuery
   const { data: incidents = [], isLoading: loading } =
@@ -92,16 +121,19 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
           <AlertTriangle className="h-3.5 w-3.5" />
           <span className="text-sm">No active incidents</span>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
-          <Link
-            to={resolveRoute(incidentRoutes.routes.systemHistory, {
-              systemId: system.id,
-            })}
-          >
-            <History className="h-3 w-3 mr-1" />
-            History
-          </Link>
-        </Button>
+        <div className="flex items-center gap-1">
+          {reportButton}
+          <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+            <Link
+              to={resolveRoute(incidentRoutes.routes.systemHistory, {
+                systemId: system.id,
+              })}
+            >
+              <History className="h-3 w-3 mr-1" />
+              History
+            </Link>
+          </Button>
+        </div>
       </DetailCard>
     );
   }
@@ -162,16 +194,19 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
           })}
         </div>
       </div>
-      <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" asChild>
-        <Link
-          to={resolveRoute(incidentRoutes.routes.systemHistory, {
-            systemId: system.id,
-          })}
-        >
-          <History className="h-3 w-3 mr-1" />
-          View
-        </Link>
-      </Button>
+      <div className="flex items-center gap-1 shrink-0">
+        {reportButton}
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" asChild>
+          <Link
+            to={resolveRoute(incidentRoutes.routes.systemHistory, {
+              systemId: system.id,
+            })}
+          >
+            <History className="h-3 w-3 mr-1" />
+            View
+          </Link>
+        </Button>
+      </div>
     </DetailCard>
   );
 };

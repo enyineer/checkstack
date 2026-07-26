@@ -210,13 +210,22 @@ const MaintenanceConfigPageContent: React.FC = () => {
     setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
   };
 
-  // Handle ?action=create URL parameter (from command palette)
+  // Systems to pre-select when the create editor is opened by deep link. Set
+  // from `?systemId=` so "Schedule maintenance" on a system's overview page
+  // lands on a create form already scoped to that system.
+  const [presetSystemIds, setPresetSystemIds] = useState<string[]>([]);
+
+  // Handle ?action=create (command palette, or a system's "Schedule
+  // maintenance"), optionally carrying ?systemId= to pre-select that system.
   useEffect(() => {
     if (searchParams.get("action") === "create" && canManage) {
+      const systemId = searchParams.get("systemId");
+      setPresetSystemIds(systemId ? [systemId] : []);
       setEditingMaintenance(undefined);
       setEditorOpen(true);
-      // Clear the URL param after opening
+      // Clear the URL params after opening
       searchParams.delete("action");
+      searchParams.delete("systemId");
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, canManage, setSearchParams]);
@@ -679,6 +688,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
       )}
 
       <MaintenanceEditor
+        presetSystemIds={presetSystemIds}
         open={editorOpen}
         onOpenChange={setEditorOpen}
         maintenance={editingMaintenance}
