@@ -41,8 +41,13 @@ export function TestConnectionButton({
   disabled,
 }: TestConnectionButtonProps) {
   const client = usePluginClient(TelemetryApi);
-  const testMutation = client.testSourceConfig.useMutation();
-  const result = testMutation.data;
+  // Two contract procedures back the one button: a fresh-editor dry run
+  // (no id → typeScoped) and a secret-reuse dry run of an existing source
+  // (idParam-gated MANAGE on `sourceId`). Pick by whether we have a sourceId.
+  const inlineMutation = client.testSourceConfig.useMutation();
+  const existingMutation = client.testExistingSource.useMutation();
+  const active = sourceId ? existingMutation : inlineMutation;
+  const result = active.data;
 
   return (
     <div className="space-y-2">
@@ -50,19 +55,21 @@ export function TestConnectionButton({
         type="button"
         variant="outline"
         size="sm"
-        disabled={disabled || testMutation.isPending}
+        disabled={disabled || active.isPending}
         onClick={() =>
-          testMutation.mutate({ sourceTypeId, config, sourceId })
+          sourceId
+            ? existingMutation.mutate({ sourceTypeId, config, sourceId })
+            : inlineMutation.mutate({ sourceTypeId, config })
         }
       >
         <PlugZap className="size-4" />
-        {testMutation.isPending ? "Testing..." : "Test connection"}
+        {active.isPending ? "Testing..." : "Test connection"}
       </Button>
 
-      {testMutation.isError && (
+      {active.isError && (
         <p className="flex items-center gap-1.5 text-xs text-destructive">
           <TriangleAlert className="size-3.5" aria-hidden />
-          {extractErrorMessage(testMutation.error) || "Test failed"}
+          {extractErrorMessage(active.error) || "Test failed"}
         </p>
       )}
 
