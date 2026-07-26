@@ -1,0 +1,112 @@
+---
+"@checkstack/backend": patch
+"@checkstack/frontend": patch
+---
+
+Refresh `bun.lock` to the newest versions permitted by the existing semver
+ranges (Renovate lock-file maintenance). No `package.json` range changed, so
+this only affects the resolutions baked into the production image.
+
+Updated dependencies:
+
+- `@astrojs/language-server` 2.16.12 -> 2.16.13
+- `@astrojs/starlight` 0.41.3 -> 0.41.4
+- `@better-auth/core` 1.6.23 -> 1.6.24
+- `@better-auth/drizzle-adapter` 1.6.23 -> 1.6.24
+- `@better-auth/kysely-adapter` 1.6.23 -> 1.6.24
+- `@better-auth/memory-adapter` 1.6.23 -> 1.6.24
+- `@better-auth/mongo-adapter` 1.6.23 -> 1.6.24
+- `@better-auth/prisma-adapter` 1.6.23 -> 1.6.24
+- `@better-auth/telemetry` 1.6.23 -> 1.6.24
+- `@eslint-community/eslint-utils` 4.9.1 -> 4.10.1
+- `@happy-dom/global-registrator` 20.11.0 -> 20.11.1
+- `@opentelemetry/resources` 2.9.0 -> 2.10.0
+- `@opentelemetry/sdk-metrics` 2.9.0 -> 2.10.0
+- `@radix-ui/number` 1.1.2 -> 1.1.3
+- `@radix-ui/primitive` 1.1.5 -> 1.1.7
+- `@radix-ui/react-accordion` 1.2.16 -> 1.2.18
+- `@radix-ui/react-arrow` 1.1.11 -> 1.1.13
+- `@radix-ui/react-collapsible` 1.1.16 -> 1.1.18
+- `@radix-ui/react-collection` 1.1.12 -> 1.1.13
+- `@radix-ui/react-compose-refs` 1.1.3 -> 1.1.4
+- `@radix-ui/react-context` 1.2.0 -> 1.2.1
+- `@radix-ui/react-dialog` 1.1.19 -> 1.1.21
+- `@radix-ui/react-direction` 1.1.2 -> 1.1.3
+- `@radix-ui/react-dismissable-layer` 1.1.15 -> 1.1.17
+- `@radix-ui/react-focus-guards` 1.1.4 -> 1.1.5
+- `@radix-ui/react-focus-scope` 1.1.12 -> 1.1.14
+- `@radix-ui/react-id` 1.1.2 -> 1.1.3
+- `@radix-ui/react-popover` 1.1.19 -> 1.1.21
+- `@radix-ui/react-popper` 1.3.3 -> 1.3.5
+- `@radix-ui/react-portal` 1.1.13 -> 1.1.15
+- `@radix-ui/react-presence` 1.1.7 -> 1.1.9
+- `@radix-ui/react-primitive` 2.1.7 -> 2.1.8
+- `@radix-ui/react-select` 2.3.3 -> 2.3.5
+- `@radix-ui/react-slider` 1.4.3 -> 1.4.5
+- `@radix-ui/react-slot` 1.3.0 -> 1.3.1
+- `@radix-ui/react-tooltip` 1.2.12 -> 1.2.14
+- `@radix-ui/react-use-callback-ref` 1.1.2 -> 1.1.3
+- `@radix-ui/react-use-controllable-state` 1.2.3 -> 1.2.5
+- `@radix-ui/react-use-effect-event` 0.0.3 -> 0.0.4
+- `@radix-ui/react-use-layout-effect` 1.1.2 -> 1.1.3
+- `@radix-ui/react-use-previous` 1.1.2 -> 1.1.3
+- `@radix-ui/react-use-rect` 1.1.2 -> 1.1.3
+- `@radix-ui/react-use-size` 1.1.2 -> 1.1.3
+- `@radix-ui/react-visually-hidden` 1.2.7 -> 1.2.9
+- `@radix-ui/rect` 1.1.2 -> 1.1.3
+- `@storybook/addon-a11y` 10.5.2 -> 10.5.3
+- `@storybook/addon-docs` 10.5.2 -> 10.5.3
+- `@storybook/addon-themes` 10.5.2 -> 10.5.3
+- `@storybook/builder-vite` 10.5.2 -> 10.5.3
+- `@storybook/csf-plugin` 10.5.2 -> 10.5.3
+- `@storybook/react` 10.5.2 -> 10.5.3
+- `@storybook/react-dom-shim` 10.5.2 -> 10.5.3
+- `@storybook/react-vite` 10.5.2 -> 10.5.3
+- `@tanstack/query-core` 5.101.2 -> 5.101.4
+- `@tanstack/query-devtools` 5.101.2 -> 5.101.4
+- `@tanstack/react-query` 5.101.2 -> 5.101.4
+- `@tanstack/react-query-devtools` 5.101.2 -> 5.101.4
+- `@tanstack/react-virtual` 3.14.6 -> 3.14.8
+- `@tanstack/virtual-core` 3.17.4 -> 3.17.6
+- `@testing-library/jest-dom` 6.9.1 -> 6.10.0
+- `@typescript-eslint/eslint-plugin` 8.64.0 -> 8.65.0
+- `@typescript-eslint/parser` 8.64.0 -> 8.65.0
+- `@typescript-eslint/project-service` 8.64.0 -> 8.65.0
+- `@typescript-eslint/scope-manager` 8.64.0 -> 8.65.0
+- `@typescript-eslint/tsconfig-utils` 8.64.0 -> 8.65.0
+- `@typescript-eslint/type-utils` 8.64.0 -> 8.65.0
+- `@typescript-eslint/types` 8.64.0 -> 8.65.0
+- `@typescript-eslint/typescript-estree` 8.64.0 -> 8.65.0
+- `@typescript-eslint/utils` 8.64.0 -> 8.65.0
+- `@typescript-eslint/visitor-keys` 8.64.0 -> 8.65.0
+- `@vitejs/plugin-react` 6.0.3 -> 6.0.4
+- `bare-url` 2.4.5 -> 2.4.6
+- `baseline-browser-mapping` 2.10.43 -> 2.11.1
+- `better-auth` 1.6.23 -> 1.6.24
+- `browserslist` 4.28.6 -> 4.28.7
+- `bullmq` 5.80.9 -> 5.80.10
+- `devalue` 5.8.1 -> 5.8.2
+- `flatted` 3.4.2 -> 3.4.3
+- `happy-dom` 20.11.0 -> 20.11.1
+- `jose` 6.2.3 -> 6.2.4
+- `lightningcss` 1.32.0 -> 1.33.0
+- `lightningcss-android-arm64` 1.32.0 -> 1.33.0
+- `lightningcss-darwin-arm64` 1.32.0 -> 1.33.0
+- `lightningcss-darwin-x64` 1.32.0 -> 1.33.0
+- `lightningcss-freebsd-x64` 1.32.0 -> 1.33.0
+- `lightningcss-linux-arm-gnueabihf` 1.32.0 -> 1.33.0
+- `lightningcss-linux-arm64-gnu` 1.32.0 -> 1.33.0
+- `lightningcss-linux-arm64-musl` 1.32.0 -> 1.33.0
+- `lightningcss-linux-x64-gnu` 1.32.0 -> 1.33.0
+- `lightningcss-linux-x64-musl` 1.32.0 -> 1.33.0
+- `lightningcss-win32-arm64-msvc` 1.32.0 -> 1.33.0
+- `lightningcss-win32-x64-msvc` 1.32.0 -> 1.33.0
+- `mysql2` 3.23.0 -> 3.23.1
+- `nanostores` 1.4.0 -> 1.4.1
+- `p-limit` 7.3.0 -> 7.3.1
+- `p-queue` 9.3.1 -> 9.3.3
+- `postcss` 8.5.19 -> 8.5.22
+- `recharts` 3.9.2 -> 3.10.0
+- `storybook` 10.5.2 -> 10.5.3
+- `tar` 7.5.20 -> 7.5.21
+- `typescript-eslint` 8.64.0 -> 8.65.0
