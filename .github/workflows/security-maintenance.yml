@@ -141,8 +141,44 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Compose PR body
+      # A prune is "redundant" only against each removed package's OWN safeFloor;
+      # it cannot see a DIFFERENT (unmanaged, transitive) package that the lockfile
+      # re-resolution drags down to a vulnerable version once the pins come out.
+      # Re-scan the pruned tree and refuse to surface a prune that re-introduces a
+      # FIXABLE CVE - revert it so no PR is opened.
+      - name: Trivy filesystem re-scan (after prune)
         if: steps.prune.outputs.changed == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          output: /tmp/fs-after.json
+
+      - name: Verify prune introduces no new fixable CVEs
+        id: verify
+        if: steps.prune.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          [ -s /tmp/fs-after.json ] || echo '{"Results":[]}' > /tmp/fs-after.json
+          jq -s '
+            [ .[].Results[]?.Vulnerabilities[]?
+              | { id:.VulnerabilityID, pkg:.PkgName, installed:.InstalledVersion,
+                  fixed:(.FixedVersion // ""), sev:.Severity } ]
+            | unique_by(.id + "|" + .pkg + "|" + .installed)
+          ' /tmp/fs-after.json > /tmp/vulns-after.json
+          if bun run scripts/audit-overrides.ts --verify-prune /tmp/vulns.json /tmp/vulns-after.json; then
+            echo "safe=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Override prune blocked::Pruning redundant overrides re-introduced a fixable CVE; reverting and skipping the PR (see the log for the offending package)."
+            git checkout -- package.json bun.lock security/managed-overrides.json
+          fi
+
+      - name: Compose PR body
+        if: steps.prune.outputs.changed == 'true' && steps.verify.outputs.safe == 'true'
         run: |
           {
             echo "Automated by the daily **Security Maintenance** workflow."
@@ -160,7 +196,7 @@ jobs:
           } > /tmp/pr-body.md
 
       - name: Open / update override-removal PR
-        if: steps.prune.outputs.changed == 'true'
+        if: steps.prune.outputs.changed == 'true' && steps.verify.outputs.safe == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           # See the remediation PR step for why a non-GITHUB_TOKEN identity is

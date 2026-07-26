@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyPrune,
+  diffNewFixable,
   extractInstalledVersions,
   findDrift,
   isRedundant,
@@ -9,6 +10,7 @@ import {
   type ManagedOverride,
   type ManagedOverrideMeta,
 } from "./audit-overrides";
+import type { Finding } from "./remediate-vulns";
 
 // Human-only metadata as it appears under a name key in the `security` bucket
 // (no version - that lives in package.json).
@@ -220,5 +222,46 @@ describe("isRedundant", () => {
 
   test("redundant when the package left the graph entirely", () => {
     expect(isRedundant({ resolvedVersions: [], safeFloor: "8.21.0" })).toBe(true);
+  });
+});
+
+describe("diffNewFixable", () => {
+  const f = (
+    pkg: string,
+    installed: string,
+    fixed: string,
+    id = `CVE-${pkg}`,
+    sev = "HIGH",
+  ): Finding => ({ id, pkg, installed, fixed, sev });
+
+  test("flags a fixable vuln that appears only AFTER the prune", () => {
+    // A resolution shift dragged brace-expansion down to a vulnerable version
+    // that no managed override (and thus no isRedundant floor) protects.
+    const baseline: Finding[] = [];
+    const after = [f("brace-expansion", "5.0.7", "5.0.8", "CVE-2026-14257")];
+    expect(diffNewFixable({ baseline, after })).toEqual(after);
+  });
+
+  test("ignores a fixable vuln that already existed before (not introduced)", () => {
+    const finding = f("left-pad", "1.0.0", "1.0.1");
+    expect(
+      diffNewFixable({ baseline: [finding], after: [finding] }),
+    ).toEqual([]);
+  });
+
+  test("ignores UNFIXABLE (fixed==='') findings - only gated vulns count", () => {
+    const after = [f("nofix", "1.0.0", "")];
+    expect(diffNewFixable({ baseline: [], after })).toEqual([]);
+  });
+
+  test("a version bump of the same package+id counts as new (different installed)", () => {
+    const baseline = [f("pkg", "2.0.0", "2.0.1", "CVE-1")];
+    const after = [f("pkg", "1.9.0", "1.9.1", "CVE-1")];
+    expect(diffNewFixable({ baseline, after })).toEqual(after);
+  });
+
+  test("clean prune (no new fixable) returns empty", () => {
+    const shared = [f("a", "1.0.0", "1.0.1")];
+    expect(diffNewFixable({ baseline: shared, after: shared })).toEqual([]);
   });
 });
