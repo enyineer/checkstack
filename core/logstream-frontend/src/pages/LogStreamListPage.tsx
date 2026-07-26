@@ -18,7 +18,7 @@ import {
   type LogStreamSummary,
 } from "@checkstack/logstream-common";
 import { signalScopeMeta } from "@checkstack/signal-common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { CreateStreamDialog } from "../components/CreateStreamDialog";
 
 /**

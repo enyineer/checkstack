@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { AlertCircle, Home, LogIn } from "lucide-react";
 import { authRoutes } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";

@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ExternalLink, KeyRound, ShieldCheck } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi, authRoutes } from "@checkstack/auth-common";

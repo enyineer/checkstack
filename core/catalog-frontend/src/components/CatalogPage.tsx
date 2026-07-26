@@ -22,7 +22,7 @@ import {
   Button,
 } from "@checkstack/ui";
 import { Layers, ArrowRight, Plus } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useCatalogBrowseState } from "../hooks/useCatalogBrowseState";
 import { CatalogBrowseToolbar } from "./browse/CatalogBrowseToolbar";
 import { CatalogGroupSection } from "./browse/CatalogGroupSection";

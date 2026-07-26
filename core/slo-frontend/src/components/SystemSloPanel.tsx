@@ -8,7 +8,7 @@ import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
 import { DetailCard, formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 type Props = SlotContext<typeof SystemDetailsSlot>;
 

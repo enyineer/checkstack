@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { User, Lock, Mail, CheckCircle, AlertCircle, Check } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {

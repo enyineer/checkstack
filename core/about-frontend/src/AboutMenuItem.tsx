@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Info } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";

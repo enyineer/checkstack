@@ -21,7 +21,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "react": "19.2.7",
-    "react-router-dom": "^7.16.0",
+    "react-router": "^8.3.0",
     "lucide-react": "^1.17.0"
   },
   "devDependencies": {

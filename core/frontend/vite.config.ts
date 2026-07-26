@@ -109,10 +109,10 @@ export default defineConfig(({ command }) => {
   const shared: Record<string, HostShare> = {
     react: { singleton: true, eager: true, requiredVersion: "^19.0.0" },
     "react-dom": { singleton: true, eager: true, requiredVersion: "^19.0.0" },
-    "react-router-dom": {
+    "react-router": {
       singleton: true,
       eager: true,
-      requiredVersion: "^7.0.0",
+      requiredVersion: "^8.0.0",
     },
     "@tanstack/react-query": {
       singleton: true,
@@ -202,7 +202,7 @@ export default defineConfig(({ command }) => {
       include: [
         "react",
         "react-dom",
-        "react-router-dom",
+        "react-router",
         // NOTE (migration stage 1): the Monaco / VS Code editor stack
         // (@typefox/monaco-editor-react, monaco-languageclient, @codingame/*)
         // is intentionally NOT listed here. Those packages live in
@@ -235,7 +235,7 @@ export default defineConfig(({ command }) => {
       dedupe: [
         "react",
         "react-dom",
-        "react-router-dom",
+        "react-router",
         "react/jsx-runtime",
         "@tanstack/react-query",
       ],

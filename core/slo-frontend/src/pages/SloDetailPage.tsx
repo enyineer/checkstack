@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { SloApi } from "../api";
 import { CatalogApi } from "@checkstack/catalog-common";

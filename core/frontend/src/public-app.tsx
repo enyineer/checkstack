@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { MemoryRouter, Routes, Route, useParams } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useParams } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   ApiProvider,

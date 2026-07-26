@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router";
 import {
   usePluginClient,
   useQueryClient,
@@ -38,7 +38,7 @@ import {
   toastError,
 } from "@checkstack/ui";
 import { Plus, History, Activity, ExternalLink, Sparkles } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { resolveRoute, APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 
 /**

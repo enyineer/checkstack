@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Bell, Clock, Zap, Send, Activity } from "lucide-react";
 import {
   PageLayout,

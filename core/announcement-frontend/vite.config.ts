@@ -45,7 +45,7 @@ export default defineConfig({
       // the host's instance, or the host's `useStatusWidgetRenderers` would not
       // see this remote's `defineStatusWidgetRenderer` registration).
       //
-      // We deliberately do NOT share react-dom / react-router-dom /
+      // We deliberately do NOT share react-dom / react-router /
       // react-query here. This is a PURE, prop-only renderer that renders none
       // of them; they appear only as DEAD code transitively re-exported by
       // bundled `*-common` packages / the UI surface. The @module-federation/

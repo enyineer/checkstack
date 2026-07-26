@@ -1,7 +1,7 @@
 import type { Preview } from "@storybook/react";
 import { withThemeByClassName } from "@storybook/addon-themes";
 import React from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import {
   ApiRegistryBuilder,
   ApiProvider,

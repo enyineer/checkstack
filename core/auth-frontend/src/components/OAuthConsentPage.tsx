@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { ShieldCheck, AlertCircle } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
 import { getCachedRuntimeConfig } from "@checkstack/frontend-api";

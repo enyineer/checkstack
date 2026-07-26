@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { Button } from "@checkstack/ui";
 import { Waypoints } from "lucide-react";

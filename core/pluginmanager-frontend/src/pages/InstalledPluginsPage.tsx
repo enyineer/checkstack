@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Puzzle, Trash2, Plus, History } from "lucide-react";
 import {
   PageLayout,

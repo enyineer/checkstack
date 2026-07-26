@@ -16,7 +16,7 @@ import {
   Badge,
 } from "@checkstack/ui";
 import { Search, Zap } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { resolveRoute } from "@checkstack/common";
 
 /**

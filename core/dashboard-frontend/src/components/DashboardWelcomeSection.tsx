@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useApi, accessApiRef, usePluginClient } from "@checkstack/frontend-api";
 import { CatalogApi, catalogRoutes, catalogAccess } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";

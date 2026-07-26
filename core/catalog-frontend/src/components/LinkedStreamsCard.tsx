@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { CollapsibleDetailCard } from "@checkstack/ui";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 

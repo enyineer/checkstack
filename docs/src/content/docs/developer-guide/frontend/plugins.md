@@ -534,7 +534,7 @@ extensions: [
 
 ```typescript
 import { DropdownMenuItem } from "@checkstack/ui";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export const MyUserMenuItems = () => {
   return (
@@ -552,7 +552,7 @@ export const MyUserMenuItems = () => {
 ### Navigation
 
 ```typescript
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 
 // Using Link
 <Link to="/items/123">View Item</Link>
@@ -565,7 +565,7 @@ navigate("/items/123");
 ### Route Parameters
 
 ```typescript
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 
 export const ItemDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -577,7 +577,7 @@ export const ItemDetailPage = () => {
 ### Query Parameters
 
 ```typescript
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 export const ItemListPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();

@@ -5,7 +5,7 @@
  * Uses the provider's connectionSchema with DynamicForm for the configuration UI.
  */
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import {
   Plus,
   Settings2,

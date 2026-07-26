@@ -12,7 +12,7 @@
       "dependencies": [
         "react",
         "react-dom",
-        "react-router-dom",
+        "react-router",
         "@orpc/contract",
         "@orpc/server",
         "@orpc/client",

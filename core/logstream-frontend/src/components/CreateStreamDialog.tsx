@@ -20,7 +20,7 @@ import {
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { LogstreamApi, logstreamAccess } from "@checkstack/logstream-common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 export interface CreateStreamDialogProps {
   open: boolean;

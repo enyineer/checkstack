@@ -19,7 +19,7 @@ import {
   useSeedFormOnOpen,
 } from "@checkstack/ui";
 import { Layers } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import {
   TeamOwnershipPicker,
   teamCreateErrorMessage,

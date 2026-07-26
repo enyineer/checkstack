@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { AlertCircle } from "lucide-react";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { authApiRef } from "../api";

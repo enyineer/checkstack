@@ -8,7 +8,7 @@ import {
   Skeleton,
 } from "@checkstack/ui";
 import { Gauge, LayoutDashboard, Boxes, Radio, Settings } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { MetricstreamApi } from "@checkstack/metricstream-common";
 import { OverviewTab } from "../components/tabs/OverviewTab";
 import { MetricsTab } from "../components/tabs/MetricsTab";

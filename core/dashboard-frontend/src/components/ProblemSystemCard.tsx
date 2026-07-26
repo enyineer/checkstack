@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { formatDistanceToNow } from "date-fns";
 import { resolveRoute, type AccessRule } from "@checkstack/common";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";

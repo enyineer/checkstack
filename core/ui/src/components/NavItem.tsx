@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router";
 import { ChevronDown } from "lucide-react";
 import { cn, isNavRouteActive } from "../utils";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";

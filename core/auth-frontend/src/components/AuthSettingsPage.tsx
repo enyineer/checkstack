@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import {
   useApi,
   accessApiRef,
