@@ -1,0 +1,21 @@
+name: Cache & pull Git LFS
+description: >
+  Restore a Git-LFS object cache and pull only the objects missing from it, so
+  build jobs don't re-download the entire LFS store against GitHub's LFS
+  bandwidth quota on every run. Use AFTER `actions/checkout` with `lfs: false`;
+  a cache hit means `git lfs pull` fetches nothing (zero LFS bandwidth), and a
+  changed image only costs its own delta. The object store rarely changes, so
+  the `git-lfs-` restore-key almost always hits the previous run's cache.
+runs:
+  using: composite
+  steps:
+    - name: Restore Git LFS object cache
+      uses: actions/cache@v5
+      with:
+        path: .git/lfs
+        key: git-lfs-${{ github.sha }}
+        restore-keys: |
+          git-lfs-
+    - name: Pull Git LFS objects (delta only)
+      shell: bash
+      run: git lfs pull

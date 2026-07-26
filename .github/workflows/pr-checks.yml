@@ -494,7 +494,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS images (needed by the docs build) are pulled by the cached
+          # step below instead of during checkout - avoids re-downloading the
+          # whole LFS store every run.
+          lfs: false
+      - name: Cache & pull Git LFS
+        uses: ./.github/actions/lfs-cache
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/bun-install
       - name: Build frontend + public remotes + docs
@@ -753,12 +758,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          # The production image builds the Astro docs (served at /checkstack/*),
-          # whose logo/images are tracked via git-LFS. Without smudged LFS files
-          # the build context carries 128-byte LFS pointers and the docs build
-          # fails with Astro NoImageMetadata. (deploy-docs.yml + release.yml
-          # already check out with lfs: true for the same reason.)
-          lfs: true
+          # The production image builds the Astro docs whose logo/images are in
+          # git-LFS (128-byte pointers -> NoImageMetadata otherwise). They're
+          # pulled by the cached lfs-cache step below so we don't re-download the
+          # whole LFS store on every PR. (deploy-docs.yml + release.yml use the
+          # same step.)
+          lfs: false
+
+      - name: Cache & pull Git LFS
+        uses: ./.github/actions/lfs-cache
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
