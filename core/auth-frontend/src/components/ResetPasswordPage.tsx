@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router";
 import { Lock, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
 import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";

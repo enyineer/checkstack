@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import { authRoutes } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";

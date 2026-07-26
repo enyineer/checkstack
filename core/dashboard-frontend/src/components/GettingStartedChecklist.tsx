@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Card, CardContent, cn } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";
 import { useTipState } from "@checkstack/tips-frontend";

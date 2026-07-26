@@ -20,7 +20,7 @@ import {
   type MetricStreamSummary,
 } from "@checkstack/metricstream-common";
 import { signalScopeMeta } from "@checkstack/signal-common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { CreateStreamDialog } from "../components/CreateStreamDialog";
 import { seriesUsageRatio, seriesUsageTone } from "../lib/usage-tone";
 

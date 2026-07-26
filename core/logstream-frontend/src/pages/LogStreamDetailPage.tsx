@@ -15,7 +15,7 @@ import {
   Radio,
   Settings,
 } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { LogstreamApi, type ImportantEvent } from "@checkstack/logstream-common";
 import { EXPLORE_PARAMS, EXPLORE_TAB_VALUE } from "../lib/explore-link";
 import { OverviewTab } from "../components/tabs/OverviewTab";

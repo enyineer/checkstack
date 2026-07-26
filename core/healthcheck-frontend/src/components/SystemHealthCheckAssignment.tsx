@@ -8,7 +8,7 @@ import {
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { RowAction } from "@checkstack/ui";
 import { Activity } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   CatalogSystemActionsSlot,
   catalogAccess,

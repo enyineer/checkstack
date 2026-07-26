@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router";
 import { History, ChevronLeft, ArrowUpRight } from "lucide-react";
 import {
   usePluginClient,

@@ -15,7 +15,7 @@ import {
   Radio,
   Settings,
 } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { TracestreamApi } from "@checkstack/tracestream-common";
 import { OverviewTab } from "../components/tabs/OverviewTab";
 import { TracesTab } from "../components/tabs/TracesTab";

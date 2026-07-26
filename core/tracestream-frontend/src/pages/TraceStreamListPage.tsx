@@ -18,7 +18,7 @@ import {
   type TraceStream,
   type TraceStreamSummary,
 } from "@checkstack/tracestream-common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { CreateStreamDialog } from "../components/CreateStreamDialog";
 
 /**

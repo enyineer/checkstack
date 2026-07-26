@@ -597,7 +597,7 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     return next();
   });
 
-  // Serve vendor scripts (externalized React, react-router-dom, etc.)
+  // Serve vendor scripts (externalized React, react-router, etc.)
   app.get("/vendor/*", async (c) => {
     const vendorPath = c.req.path.replace("/vendor/", "");
     const filePath = path.join(frontendDistPath, "vendor", vendorPath);

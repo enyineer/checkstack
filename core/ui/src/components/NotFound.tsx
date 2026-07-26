@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { ArrowLeft, BookOpen, Command, Search } from "lucide-react";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import { cn } from "../utils";

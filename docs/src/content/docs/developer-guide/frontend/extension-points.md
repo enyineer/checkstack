@@ -966,7 +966,7 @@ import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { qualifyAccessRuleId, resolveRoute } from "@checkstack/common";
 import { access, pluginMetadata, myRoutes } from "@checkstack/myplugin-common";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Settings } from "lucide-react";
 
 export const MyPluginMenuItems = ({

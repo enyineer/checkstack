@@ -51,7 +51,7 @@ import {
   cn,
 } from "@checkstack/ui";
 import { format, formatDistanceToNow } from "date-fns";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckRunsTable } from "./HealthCheckRunsTable";

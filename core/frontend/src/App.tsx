@@ -11,7 +11,7 @@ import {
   Link,
   Outlet,
   useNavigate,
-} from "react-router-dom";
+} from "react-router";
 import { Menu, AlertTriangle } from "lucide-react";
 import type { AccessRule } from "@checkstack/common";
 import {

@@ -26,7 +26,7 @@ import {
 } from "@checkstack/healthcheck-common";
 import { catalogResourceTypes } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { History } from "lucide-react";
 
 const HealthCheckHistoryPageContent = () => {

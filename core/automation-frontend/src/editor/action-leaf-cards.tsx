@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { resolveRoute } from "@checkstack/common";
 import { integrationRoutes } from "@checkstack/integration-common";
 import {

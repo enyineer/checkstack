@@ -43,7 +43,7 @@ interface VirtualListProps<T> {
 The selected item belongs in the route, not in component state, so deep links and back/forward work. Read the id from the params, and select by navigating - never by `setState`.
 
 ```tsx
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import { resolveRoute } from "@checkstack/common";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 

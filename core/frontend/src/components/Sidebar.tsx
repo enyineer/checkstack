@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router";
 import { pluginRegistry } from "@checkstack/frontend-api";
 import { useAccessRules, useManageableTypes } from "@checkstack/auth-frontend";
 import { openSearchPalette } from "@checkstack/command-frontend";

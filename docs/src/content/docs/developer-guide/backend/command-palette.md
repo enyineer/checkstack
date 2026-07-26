@@ -156,7 +156,7 @@ Users with the `"*"` (wildcard) access see all commands regardless of requiremen
 To support deep-linking from commands (e.g., "Create Incident" → opens create dialog), handle URL parameters in your frontend:
 
 ```tsx
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 function MyConfigPage() {
   const [searchParams, setSearchParams] = useSearchParams();

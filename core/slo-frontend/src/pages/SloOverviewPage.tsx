@@ -12,7 +12,7 @@ import {
   QueryErrorState,
 } from "@checkstack/ui";
 import { Target, ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { resolveRoute } from "@checkstack/common";
 
 const SloOverviewPageContent: React.FC = () => {

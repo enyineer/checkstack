@@ -1,7 +1,7 @@
 import React from "react";
 import { Button, Checkbox, Label } from "@checkstack/ui";
 import { ExternalLink, Trash2 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { resolveRoute } from "@checkstack/common";
 import { catalogRoutes } from "@checkstack/catalog-common";
 

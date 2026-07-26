@@ -20,7 +20,7 @@ import {
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { TracestreamApi, tracestreamAccess } from "@checkstack/tracestream-common";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 export interface CreateStreamDialogProps {
   open: boolean;

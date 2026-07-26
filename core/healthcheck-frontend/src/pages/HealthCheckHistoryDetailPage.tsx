@@ -43,7 +43,7 @@ import {
   cn,
   type DateRange,
 } from "@checkstack/ui";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import { History, MousePointerClick } from "lucide-react";
 import { type HealthCheckRunDetailed } from "../components/HealthCheckRunsTable";
 import { RunHistoryList } from "../components/RunHistoryList";

@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Workflow, FilePlus2, ArrowRight } from "lucide-react";
 import {
   usePluginClient,

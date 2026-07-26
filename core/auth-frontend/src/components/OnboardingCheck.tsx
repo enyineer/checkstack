@@ -1,7 +1,7 @@
 import { AuthApi } from "@checkstack/auth-common";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 /**
  * Onboarding guard that redirects to onboarding page if no users exist.

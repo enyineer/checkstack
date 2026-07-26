@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Lock, ArrowLeft, CheckCircle, AlertCircle, Key } from "lucide-react";
 import { passwordSchema } from "@checkstack/auth-common";
 import {
