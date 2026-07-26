@@ -34,6 +34,7 @@ import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import semver from "semver";
 import { z } from "zod";
+import { VulnsSchema, type Finding } from "./remediate-vulns";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const MANIFEST_PATH = path.join(ROOT, "security", "managed-overrides.json");
@@ -247,6 +248,29 @@ export function isRedundant({
   return resolvedVersions.every((v) => semver.gte(v, safeFloor));
 }
 
+/**
+ * FIXABLE findings present AFTER a prune that were NOT present before (matched
+ * by id|pkg|installed). `isRedundant` only guards the REMOVED package's own
+ * floor; it cannot see a DIFFERENT package (e.g. a transitive with no managed
+ * override) that a resolution shift drags down to a vulnerable version when the
+ * overrides come out. A prune that yields any of these has RE-INTRODUCED a
+ * fixable vulnerability and must NOT be surfaced as a PR. Pure - unit-tested;
+ * the Trivy re-scan that produces the inputs runs in the daily workflow.
+ */
+export function diffNewFixable({
+  baseline,
+  after,
+}: {
+  baseline: Finding[];
+  after: Finding[];
+}): Finding[] {
+  const key = (f: Finding) => `${f.id}|${f.pkg}|${f.installed}`;
+  const wasFixableBefore = new Set(
+    baseline.filter((f) => f.fixed !== "").map((f) => key(f)),
+  );
+  return after.filter((f) => f.fixed !== "" && !wasFixableBefore.has(key(f)));
+}
+
 interface RedundancyResult {
   name: string;
   redundant: boolean;
@@ -425,27 +449,69 @@ async function runPrune(): Promise<void> {
   console.log("Run `bun install` to update the lockfile.");
 }
 
+/**
+ * Post-prune safety gate. Given the BASELINE Trivy findings (overrides present)
+ * and the AFTER findings (overrides pruned + lockfile re-resolved), exit non-zero
+ * if the prune re-introduced any FIXABLE vulnerability. The daily workflow runs
+ * this before opening the prune PR and reverts the prune when it fails, so a
+ * prune that trades a redundant pin for a fresh CVE never surfaces.
+ */
+async function runVerifyPrune(): Promise<void> {
+  const [baselinePath, afterPath] = [process.argv[3], process.argv[4]];
+  if (!baselinePath || !afterPath) {
+    console.error(
+      "Usage: bun run scripts/audit-overrides.ts --verify-prune <baseline-vulns.json> <after-vulns.json>",
+    );
+    process.exit(2);
+  }
+  const baseline = VulnsSchema.parse(
+    JSON.parse(readFileSync(baselinePath, "utf8")),
+  );
+  const after = VulnsSchema.parse(JSON.parse(readFileSync(afterPath, "utf8")));
+
+  const introduced = diffNewFixable({ baseline, after });
+  if (introduced.length === 0) {
+    console.log("✓ Prune introduces no new fixable vulnerabilities.");
+    return;
+  }
+
+  console.error(
+    `❌ Prune re-introduces ${introduced.length} fixable vulnerabilit${introduced.length === 1 ? "y" : "ies"} — refusing to surface it:`,
+  );
+  for (const f of introduced) {
+    console.error(
+      `   - [${f.sev}] ${f.pkg} ${f.installed} -> fixed in ${f.fixed} (${f.id})`,
+    );
+  }
+  process.exit(1);
+}
+
 if (import.meta.main) {
   const mode = process.argv[2];
   switch (mode) {
   case "--check": {
     await runCheck();
-  
+
   break;
   }
   case "--redundant": {
     await runRedundant();
-  
+
   break;
   }
   case "--prune": {
     await runPrune();
-  
+
+  break;
+  }
+  case "--verify-prune": {
+    await runVerifyPrune();
+
   break;
   }
   default: {
     console.error(
-      "Usage: bun run scripts/audit-overrides.ts <--check | --redundant [--json] | --prune>",
+      "Usage: bun run scripts/audit-overrides.ts <--check | --redundant [--json] | --prune | --verify-prune <baseline> <after>>",
     );
     process.exit(1);
   }
