@@ -175,6 +175,12 @@ export const metricstreamContract = {
     userType: "authenticated",
     access: [metricstreamAccess.manage],
     instanceAccess: { idParam: "streamId" },
+    accessNote: {
+      summary:
+        "beyond MANAGE on the stream, every system you ADD to the links must be " +
+        "one you can READ (you cannot expose a stream to a system you cannot " +
+        "see); already-linked systems are unaffected.",
+    },
   })
     .input(SetSystemLinksSchema)
     .output(z.void()),

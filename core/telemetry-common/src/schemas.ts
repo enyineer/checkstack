@@ -249,12 +249,37 @@ export const TestSourceConfigSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   /**
    * When testing an EXISTING source whose secrets read back omitted, pass the
-   * source id so stored secret values fill the omitted keys. Requires manage
-   * on that source (checked in the handler).
+   * source id so stored secret values fill the omitted keys. On the split
+   * contract this is required by {@link TestExistingSourceSchema} and enforced
+   * by the `idParam` instanceAccess mode; on this shared shape it stays optional
+   * because the SERVICE (`runConfigTest`) accepts both the inline and the
+   * secret-reuse cases.
    */
   sourceId: z.string().optional(),
 });
 export type TestSourceConfig = z.infer<typeof TestSourceConfigSchema>;
+
+/**
+ * Inline "test connection" input: a fresh-editor dry run with NO stored secrets
+ * to reuse. `testSourceConfig` uses this; authorized `typeScoped` (any source
+ * manager may run it before an instance exists).
+ */
+export const TestSourceConfigInlineSchema = z.object({
+  sourceTypeId: z.string().min(1),
+  config: z.record(z.string(), z.unknown()),
+});
+export type TestSourceConfigInline = z.infer<typeof TestSourceConfigInlineSchema>;
+
+/**
+ * Secret-reuse "test connection" input: dry-runs an EXISTING source, filling
+ * omitted secret keys from its stored values. `testExistingSource` uses this;
+ * `sourceId` is REQUIRED and authorized by the `idParam` instanceAccess mode
+ * (MANAGE on that source), so the handler never re-checks the grant.
+ */
+export const TestExistingSourceSchema = TestSourceConfigInlineSchema.extend({
+  sourceId: z.string().min(1),
+});
+export type TestExistingSource = z.infer<typeof TestExistingSourceSchema>;
 
 export const TestSourceConfigResultSchema = z.object({
   /** False when the type has no pull seam (webhook/listener types). */

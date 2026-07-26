@@ -53,6 +53,13 @@ export const maintenanceContract = {
     // maintenance's own id. Without this override the shared rule's
     // `idParam: "systemId"` finds nothing on `{ id }` and skips the check (G9).
     instanceAccess: { idParam: "id" },
+    accessNote: {
+      summary:
+        "the base read is gated above; ADDITIONALLY the response is audience-" +
+        "graded in the handler: internal-audience updates and edit history are " +
+        "shown only to a caller who can MANAGE the maintenance, everyone else sees " +
+        "the public-audience subset.",
+    },
   })
     .input(z.object({ id: z.string() }))
     .output(MaintenanceDetailSchema.nullable()),
@@ -124,6 +131,12 @@ export const maintenanceContract = {
     userType: "public",
     access: [maintenanceAccess.maintenance.read],
     instanceAccess: { recordKey: "updates" },
+    accessNote: {
+      summary:
+        "per-record read is gated above; ADDITIONALLY each maintenance's updates " +
+        "are audience-graded in the handler - internal-audience updates appear " +
+        "only to a caller who can MANAGE that maintenance.",
+    },
   })
     .route({ method: "POST" })
     .input(z.object({ maintenanceIds: z.array(z.string()) }))

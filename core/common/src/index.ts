@@ -8,6 +8,7 @@ export * from "./plugin-metadata";
 export * from "./plugin-source";
 export * from "./client-definition";
 export * from "./access-utils";
+export * from "./access-modes";
 export * from "./icons";
 export * from "./transport-client";
 export * from "./json-schema";

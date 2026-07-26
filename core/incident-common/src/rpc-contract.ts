@@ -66,6 +66,13 @@ export const incidentContract = {
     // incident id and this input carries `id` (no `systemId`), so without this
     // override the middleware would find no id and SKIP the check (G9 bug).
     instanceAccess: { idParam: "id" },
+    accessNote: {
+      summary:
+        "the base read is gated above; ADDITIONALLY the response is audience-" +
+        "graded in the handler: internal-audience updates, links and edit history " +
+        "are shown only to a caller who can MANAGE the incident (global manage or " +
+        "a manager of its system), everyone else sees the public-audience subset.",
+    },
   })
     .input(z.object({ id: z.string() }))
     .output(IncidentDetailSchema.nullable()),
@@ -128,6 +135,12 @@ export const incidentContract = {
     userType: "public",
     access: [incidentAccess.incident.read],
     instanceAccess: { recordKey: "updates" },
+    accessNote: {
+      summary:
+        "per-record read is gated above; ADDITIONALLY each incident's updates are " +
+        "audience-graded in the handler - internal-audience updates appear only to " +
+        "a caller who can MANAGE that incident.",
+    },
   })
     .route({ method: "POST" })
     .input(z.object({ incidentIds: z.array(z.string()) }))

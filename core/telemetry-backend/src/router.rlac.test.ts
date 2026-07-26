@@ -144,8 +144,8 @@ describe("update / delete / rotate gated on manage (idParam)", () => {
   });
 });
 
-describe("testSourceConfig (typeScoped + in-handler manage on sourceId)", () => {
-  it("a team manager may run a fresh-editor test (no sourceId)", async () => {
+describe("testSourceConfig (fresh editor, typeScoped)", () => {
+  it("a source manager (any grant) may run a fresh-editor test", async () => {
     const context = createMockRpcContext({ user: teamUser, ...grantAuth(["src-1"]) });
     const result = await call(
       buildRouter().testSourceConfig,
@@ -155,25 +155,38 @@ describe("testSourceConfig (typeScoped + in-handler manage on sourceId)", () => 
     expect(result.ok).toBe(true);
   });
 
-  it("denies reusing an ungranted source's stored secrets", async () => {
-    const context = createMockRpcContext({ user: teamUser, ...grantAuth(["src-1"]) });
+  it("a caller with no grant is FORBIDDEN", async () => {
+    const context = createMockRpcContext({ user: teamUser, ...grantAuth([]) });
     await expect(
       call(
         buildRouter().testSourceConfig,
-        { sourceTypeId: "p.type", config: {}, sourceId: "src-2" },
+        { sourceTypeId: "p.type", config: {} },
         { context },
       ),
-    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
+    ).rejects.toThrow(/FORBIDDEN|Missing access/i);
   });
+});
 
+describe("testExistingSource (secret reuse, idParam on sourceId)", () => {
   it("allows reusing a granted source's stored secrets", async () => {
     const context = createMockRpcContext({ user: teamUser, ...grantAuth(["src-1"]) });
     const result = await call(
-      buildRouter().testSourceConfig,
+      buildRouter().testExistingSource,
       { sourceTypeId: "p.type", config: {}, sourceId: "src-1" },
       { context },
     );
     expect(result.ok).toBe(true);
+  });
+
+  it("denies reusing an ungranted source's stored secrets (middleware idParam)", async () => {
+    const context = createMockRpcContext({ user: teamUser, ...grantAuth(["src-1"]) });
+    await expect(
+      call(
+        buildRouter().testExistingSource,
+        { sourceTypeId: "p.type", config: {}, sourceId: "src-2" },
+        { context },
+      ),
+    ).rejects.toThrow(/FORBIDDEN|Access denied/i);
   });
 });
 

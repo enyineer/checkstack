@@ -129,4 +129,24 @@ export interface ProcedureMetadata {
 
   /** Restrict service-to-service calls to specific plugin IDs */
   serviceScope?: string[];
+
+  /**
+   * Human-readable authorization note for authz the declarative modes CANNOT
+   * express and that is therefore enforced in the HANDLER (a compound OR, a
+   * graded verdict, a DB-derived set, ids buried in nested config). It is
+   * rendered into the generated API docs (via `buildAuthorizationSpec`) so the
+   * endpoint's real rule is visible rather than understated.
+   *
+   * DRIFT GUARD: this note is NOT self-verifying prose. Per
+   * `.claude/rules/rlac.md`, every handler-enforced authz check MUST live in an
+   * extracted, PURE decision function with BEHAVIORAL tests (allow + deny per
+   * principal), and the note MUST describe exactly what those tests pin. The
+   * tests are the guarantee; the note is the doc surface derived from them. Use
+   * ONLY for handler-enforced authz - a declared `instanceAccess` mode documents
+   * itself and needs no note.
+   */
+  accessNote?: {
+    /** One-paragraph statement of the authorization, for API-doc readers. */
+    summary: string;
+  };
 }

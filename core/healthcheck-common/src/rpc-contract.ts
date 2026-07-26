@@ -492,6 +492,16 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [],
+    // Handler-enforced compound authz (no declarative mode fits: one arm needs a
+    // DB-derived set and the outcome is graded). Backed by
+    // `resolveAssignmentRowScope` + `assignment-access.test.ts` - see
+    // `.claude/rules/rlac.md`.
+    accessNote: {
+      summary:
+        "authorized by global health-check configuration read (or manage), OR a " +
+        "team grant on the configuration (sees all rows); otherwise rows are " +
+        "scoped to the assigned systems the caller's teams may read.",
+    },
   })
     .input(z.object({ configId: z.string() }))
     .output(
@@ -825,6 +835,14 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [],
+    // Handler-enforced compound authz (no declarative mode fits). Backed by
+    // `resolveHistoryScope` + `history-access.test.ts` - see
+    // `.claude/rules/rlac.md`.
+    accessNote: {
+      summary:
+        "requires health-check MANAGE globally, OR a team manage grant on a " +
+        "referenced configuration or system; detailed run data is otherwise denied.",
+    },
   })
     .input(
       z.object({

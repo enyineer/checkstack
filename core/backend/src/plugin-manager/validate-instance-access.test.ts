@@ -90,6 +90,57 @@ describe("validateContractInstanceAccess", () => {
     expect(errors).toEqual([]);
   });
 
+  it("accepts the objectRef mode on its own", () => {
+    const errors = run(
+      fakeContract({
+        writeRel: {
+          instanceAccess: {
+            objectRef: { typeParam: "objectType", idParam: "objectId", action: "manage" },
+          },
+        },
+      }),
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("rejects objectRef combined with another mode", () => {
+    const errors = run(
+      fakeContract({
+        bad: {
+          instanceAccess: {
+            objectRef: { typeParam: "objectType", idParam: "objectId" },
+            idParam: "id",
+          },
+        },
+      }),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("multiple instanceAccess modes");
+    expect(errors[0]).toContain("objectRef");
+  });
+
+  it("cross-checks objectRef.typeParam / idParam against the input schema", () => {
+    const errors = run(
+      fakeContractWithSchema({
+        ok: {
+          instanceAccess: {
+            objectRef: { typeParam: "objectType", idParam: "objectId" },
+          },
+          inputSchema: z.object({ objectType: z.string(), objectId: z.string() }),
+        },
+        typo: {
+          instanceAccess: {
+            objectRef: { typeParam: "objectTpye", idParam: "objectId" },
+          },
+          inputSchema: z.object({ objectType: z.string(), objectId: z.string() }),
+        },
+      }),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("objectRef.typeParam");
+    expect(errors[0]).toContain("objectTpye");
+  });
+
   it("rejects typeScoped combined with another mode", () => {
     const errors = run(
       fakeContract({

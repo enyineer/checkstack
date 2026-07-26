@@ -144,6 +144,37 @@ gate-component sugar. The removed `useCanCreate` hook is replaced by
 `useGatedMutation`), which derives the same verdict from the create procedure's
 contract instead of hand-passed args that can drift.
 
+## Authz a mode can't express: behavioral tests are the drift guard
+
+Prefer a declarative `instanceAccess` mode ALWAYS - a mode is drift-free because
+the contract declaration IS the enforcement, and it self-documents in the API
+docs (`buildAuthorizationSpec`). But some authorization is irreducibly imperative
+and no mode can express it: a compound OR across resource types, a graded verdict
+(role vs. plain read), a DB-derived id set, or ids buried in polymorphic nested
+config. Those stay ENFORCED IN THE HANDLER. For them, two hard rules:
+
+1. **The drift guard is a BEHAVIORAL TEST, not a comment.** Extract the decision
+   into a PURE function and test its allow/deny (and any graded) outcome for each
+   principal kind: a global-rule holder, a team-grant holder, neither, and a
+   service. Change the handler's authz and the test breaks. That test - not any
+   prose - is the guarantee. Handler-enforced authz WITHOUT such a test is a
+   review blocker. (Examples already in-tree: `resolveAssignmentRowScope` +
+   `assignment-access.test.ts`, `resolveHistoryScope` + `history-access.test.ts`,
+   `resolve*Role` + `read-visibility.test.ts`, `assertAddedSystemsReadable` +
+   `system-links-auth.test.ts`.)
+
+2. **Surface it in the API docs with `accessNote`.** Add
+   `accessNote: { summary: "..." }` to the proc `meta`; `buildAuthorizationSpec`
+   renders it as an explicitly *handler-enforced* addendum so the endpoint stops
+   understating its rule. The note is DOCUMENTATION, not a guarantee - it can go
+   stale on its own, so its claims MUST be exactly what the behavioral tests
+   (rule 1) pin. Use `accessNote` ONLY for handler-enforced authz; a declared
+   mode documents itself and must NOT carry a note.
+
+A pure business rule (GitOps lock), a config/IO read (TLS material), an
+AI-projection filter, or the auth ReBAC ENGINE itself is not resource
+authorization - it needs neither a mode nor an `accessNote`.
+
 ## Adding a new team-scoped resource - checklist
 
 1. `*-common/access.ts`: `accessPair("<noun>", ...)` + `resourceType(

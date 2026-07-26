@@ -10,7 +10,8 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import type { AnyContractRouter } from "@orpc/contract";
 import type { PluginManager } from "./plugin-manager";
 import type { AuthService } from "@checkstack/backend-api";
-import type { AccessRule } from "@checkstack/common";
+import type { AccessRule, InstanceAccessConfig, AuthorizationSpec } from "@checkstack/common";
+import { buildAuthorizationSpec } from "@checkstack/common";
 
 /**
  * Check if a user has a specific access rule.
@@ -35,17 +36,36 @@ function hasAccess(
 interface ExposedProcedureMeta {
   userType?: string;
   accessRules?: string[];
+  /**
+   * The full authorization model, derived from the contract's `access` +
+   * `instanceAccess` via the shared mode-descriptor registry. Surfaces the
+   * team-grant / per-object dimension the flat `accessRules` list cannot - so an
+   * integrator sees the REAL rule, not just the global one.
+   */
+  authorization?: AuthorizationSpec;
 }
 
 /**
  * Extract procedure metadata from a contract using oRPC internal structure.
  * Returns the raw `meta` block stored on the contract procedure builder.
  */
-function extractRawProcedureMeta(
-  contract: unknown
-): { userType?: string; access?: AccessRule[] } | undefined {
+function extractRawProcedureMeta(contract: unknown):
+  | {
+      userType?: string;
+      access?: AccessRule[];
+      instanceAccess?: InstanceAccessConfig;
+      accessNote?: { summary: string };
+    }
+  | undefined {
   const orpcData = (contract as Record<string, unknown>)?.["~orpc"] as
-    | { meta?: { userType?: string; access?: AccessRule[] } }
+    | {
+        meta?: {
+          userType?: string;
+          access?: AccessRule[];
+          instanceAccess?: InstanceAccessConfig;
+          accessNote?: { summary: string };
+        };
+      }
     | undefined;
   return orpcData?.meta;
 }
@@ -58,7 +78,7 @@ function extractRawProcedureMeta(
  * `accessRules: string[]` of qualified IDs (`{pluginId}.{ruleId}`) so the
  * OpenAPI consumer (API docs UI, third-party clients) gets a plain list.
  */
-function buildMetadataLookup(
+export function buildMetadataLookup(
   contracts: Map<string, AnyContractRouter>
 ): Map<string, ExposedProcedureMeta> {
   const lookup = new Map<string, ExposedProcedureMeta>();
@@ -71,11 +91,13 @@ function buildMetadataLookup(
       if (!raw) continue;
 
       const accessRules = raw.access?.map((rule) => `${pluginId}.${rule.id}`);
+      const authorization = buildAuthorizationSpec(raw, pluginId);
 
       const operationId = `${pluginId}.${procedureName}`;
       lookup.set(operationId, {
         userType: raw.userType,
         ...(accessRules && accessRules.length > 0 ? { accessRules } : {}),
+        authorization,
       });
     }
   }
@@ -121,7 +143,10 @@ export async function generateOpenApiSpec({
   })) as {
     paths?: Record<
       string,
-      Record<string, { operationId?: string; "x-orpc-meta"?: unknown }>
+      Record<
+        string,
+        { operationId?: string; description?: string; "x-orpc-meta"?: unknown }
+      >
     >;
   };
 
@@ -135,12 +160,20 @@ export async function generateOpenApiSpec({
       const prefixedPath = `/rest${path.startsWith("/") ? path : `/${path}`}`;
       prefixedPaths[prefixedPath] = methods;
 
-      // Add metadata to each operation
+      // Add metadata to each operation, and fold the authorization summary into
+      // the human-readable description so it renders in any OpenAPI viewer.
       for (const operation of Object.values(methods)) {
         if (operation.operationId) {
           const meta = metadataLookup.get(operation.operationId);
           if (meta) {
             operation["x-orpc-meta"] = meta;
+            const summary = meta.authorization?.summary;
+            if (summary) {
+              const base = operation.description
+                ? `${operation.description}\n\n`
+                : "";
+              operation.description = `${base}**Authorization.** ${summary}`;
+            }
           }
         }
       }

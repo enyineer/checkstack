@@ -1,13 +1,10 @@
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import {
   autoAuthMiddleware,
   correlationMiddleware,
   type RpcContext,
 } from "@checkstack/backend-api";
-import {
-  telemetryContract,
-  telemetryResourceTypes,
-} from "@checkstack/telemetry-common";
+import { telemetryContract } from "@checkstack/telemetry-common";
 import type { TelemetryService } from "./service";
 
 /**
@@ -17,11 +14,10 @@ import type { TelemetryService } from "./service";
  * `instanceAccess`, so handlers never re-check the source grant
  * (see `.claude/rules/rlac.md`).
  *
- * The ONE check instanceAccess cannot express is `testSourceConfig` with a
- * `sourceId`: it is a `typeScoped` endpoint (no id to scope on for the fresh
- * -editor case), so when the caller reuses an EXISTING source's stored secrets
- * the handler must additionally verify MANAGE on that source before merging
- * them - mirroring the idParam middleware by hand.
+ * "Test connection" is split so BOTH cases are contract-declared: the fresh
+ * -editor dry run (`testSourceConfig`, `typeScoped`) and the secret-reuse dry run
+ * (`testExistingSource`, `idParam: "sourceId"`). Neither re-checks a grant by
+ * hand - the previous in-handler manage check on `sourceId` was removed.
  */
 export function createTelemetryRouter({
   service,
@@ -83,53 +79,18 @@ export function createTelemetryRouter({
       service.rotatePushToken({ id: input.id }),
     ),
 
-    testSourceConfig: os.testSourceConfig.handler(async ({ input, context }) => {
-      if (input.sourceId) {
-        await assertCanManageSource({ context, sourceId: input.sourceId });
-      }
-      return service.runConfigTest(input);
-    }),
+    // Fresh-editor dry run (no stored secrets): typeScoped, middleware-enforced.
+    testSourceConfig: os.testSourceConfig.handler(async ({ input }) =>
+      service.runConfigTest(input),
+    ),
+
+    // Secret-reuse dry run: MANAGE on `sourceId` is enforced by the `idParam`
+    // instanceAccess mode (see the contract), so this is a thin pass-through -
+    // no hand-rolled per-source check.
+    testExistingSource: os.testExistingSource.handler(async ({ input }) =>
+      service.runConfigTest(input),
+    ),
   });
 }
 
 export type TelemetryRouter = ReturnType<typeof createTelemetryRouter>;
-
-/** Manage-rule qualified id (`telemetry.source.manage`). */
-const MANAGE_RULE_ID = `${telemetryResourceTypes.source}.manage`;
-
-/**
- * Verify the caller may MANAGE a specific source instance, mirroring the
- * idParam instanceAccess middleware: a global manage rule OR a team grant on
- * the instance. Services are trusted. Used by `testSourceConfig` when it reuses
- * an existing source's stored secrets.
- */
-async function assertCanManageSource({
-  context,
-  sourceId,
-}: {
-  context: RpcContext;
-  sourceId: string;
-}): Promise<void> {
-  const user = context.user;
-  if (!user) {
-    throw new ORPCError("UNAUTHORIZED", { message: "Authentication required" });
-  }
-  if (user.type === "service") return;
-
-  const accessRules = user.accessRules ?? [];
-  const hasGlobalAccess =
-    accessRules.includes("*") || accessRules.includes(MANAGE_RULE_ID);
-  const { hasAccess } = await context.auth.check({
-    userId: user.id,
-    userType: user.type,
-    objectType: telemetryResourceTypes.source,
-    objectId: sourceId,
-    action: "manage",
-    hasGlobalAccess,
-  });
-  if (!hasAccess) {
-    throw new ORPCError("FORBIDDEN", {
-      message: `Access denied to source ${sourceId}`,
-    });
-  }
-}

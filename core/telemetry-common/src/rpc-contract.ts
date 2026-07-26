@@ -9,7 +9,8 @@ import {
   SourceTypeDescriptorSchema,
   WebhookInfoSchema,
   PushInfoSchema,
-  TestSourceConfigSchema,
+  TestSourceConfigInlineSchema,
+  TestExistingSourceSchema,
   TestSourceConfigResultSchema,
   BindableStreamSchema,
 } from "./schemas";
@@ -177,12 +178,12 @@ export const telemetryContract = {
   // ==========================================================================
 
   /**
-   * Dry-run a pull-mode config without persisting anything (the editor's
-   * "Test connection"). `typeScoped` at manage level: reached from the editor
-   * BEFORE an instance exists, so there is no id to scope on, but the caller
-   * must be a source manager (global rule, any grant, or create-capability).
-   * When `sourceId` is passed to reuse stored secrets, the handler verifies
-   * manage on that source explicitly.
+   * Dry-run a fresh (inline) config without persisting anything (the editor's
+   * "Test connection", no stored secrets to reuse). `typeScoped` at manage
+   * level: reached from the editor BEFORE an instance exists, so there is no id
+   * to scope on, but the caller must be a source manager (global rule, any
+   * grant, or create-capability). Reusing an existing source's stored secrets is
+   * the separate `testExistingSource` (a real id → `idParam` mode).
    */
   testSourceConfig: proc({
     operationType: "mutation",
@@ -190,7 +191,24 @@ export const telemetryContract = {
     access: [telemetryAccess.manage],
     instanceAccess: { typeScoped: {} },
   })
-    .input(TestSourceConfigSchema)
+    .input(TestSourceConfigInlineSchema)
+    .output(TestSourceConfigResultSchema),
+
+  /**
+   * Dry-run an EXISTING source's config, filling omitted secret keys from its
+   * stored values. `sourceId` is required and authorized by the `idParam`
+   * instanceAccess mode (MANAGE on that source) - the middleware enforces it, so
+   * the handler is a thin pass-through (no hand-rolled per-source check). This
+   * split replaced the old "typeScoped + in-handler manage on sourceId" shape so
+   * the authorization is contract-declared and self-documenting.
+   */
+  testExistingSource: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [telemetryAccess.manage],
+    instanceAccess: { idParam: "sourceId" },
+  })
+    .input(TestExistingSourceSchema)
     .output(TestSourceConfigResultSchema),
 };
 
