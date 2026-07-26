@@ -153,19 +153,20 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
  * When a shortcut is triggered, it navigates to the command's route.
  * Should be used once at the app root level.
  *
- * @param commands - Array of commands with shortcuts
+ * The command list is ALREADY access-filtered by the server (global rules OR a
+ * team grant on the command's `manageCapability` type), so this hook does not
+ * re-check access. It previously took a `userAccessRules` argument and re-tested
+ * the GLOBAL rules - which both call sites defeated by passing `["*"]`, and which
+ * would have dropped team-scoped users' shortcuts had they not.
+ *
+ * @param commands - Array of commands with shortcuts (server-filtered)
  * @param navigate - Navigation function to call when a command is triggered
- * @param userAccessRules - Array of access rule IDs the user has
  */
 export function useGlobalShortcuts(
   commands: SearchResult[],
   navigate: (route: string) => void,
-  userAccessRules: string[]
 ): void {
   useEffect(() => {
-    // Check if user has wildcard access rule (admin)
-    const hasWildcard = userAccessRules.includes("*");
-
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't trigger in input fields
       const target = event.target as HTMLElement;
@@ -181,13 +182,14 @@ export function useGlobalShortcuts(
       for (const command of commands) {
         if (!command.shortcuts || !command.route) continue;
 
-        // Check access rules (skip if user has wildcard)
-        if (!hasWildcard && command.requiredAccessRules?.length) {
-          const hasAccess = command.requiredAccessRules.every((rule) =>
-            userAccessRules.includes(rule)
-          );
-          if (!hasAccess) continue;
-        }
+        // NO access re-check here. The server already filtered this list by the
+        // caller's global rules OR a team grant on the command's declared
+        // `manageCapability` type. Re-checking the GLOBAL rules only (as this
+        // did) contradicted that and silently dropped the shortcuts of
+        // team-scoped users - who hold no global `*.manage` rule but are
+        // authorized via their team - so "Create Incident" had a visible palette
+        // entry whose keyboard shortcut did nothing. The destination route
+        // carries its own guard regardless.
 
         for (const shortcut of command.shortcuts) {
           const parsed = parseShortcut(shortcut);
@@ -202,7 +204,7 @@ export function useGlobalShortcuts(
 
     globalThis.addEventListener("keydown", handleKeyDown);
     return () => globalThis.removeEventListener("keydown", handleKeyDown);
-  }, [commands, navigate, userAccessRules]);
+  }, [commands, navigate]);
 }
 
 /**
@@ -309,7 +311,7 @@ export function GlobalShortcuts(): React.ReactNode {
 
   // For now, pass "*" as access rule since the backend already filters
   // The commands returned from getCommands are already filtered
-  useGlobalShortcuts(commands, navigate, ["*"]);
+  useGlobalShortcuts(commands, navigate);
 
   // This component renders nothing - it only registers event listeners
   return;

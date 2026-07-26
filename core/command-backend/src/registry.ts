@@ -35,6 +35,14 @@ export interface CommandDefinition {
   route: string;
   /** Access rules required (will be auto-qualified with plugin ID) */
   requiredAccessRules?: AccessRule[];
+  /**
+   * Team-capability gate, mirroring a route's `manageCapability`. When set, a
+   * team-scoped caller who can create/manage `objectType` (or its `parentType`)
+   * still sees this command even without the global `requiredAccessRules`.
+   * Declare it on any command whose target surface is team-scopable, or the
+   * palette hides the action from the people allowed to run it.
+   */
+  manageCapability?: { objectType: string; parentType?: string };
 }
 
 /**
@@ -173,6 +181,7 @@ function createCommandProvider(
     requiredAccessRules: cmd.requiredAccessRules?.map((rule) =>
       qualifyAccessRuleId(pluginMetadata, rule)
     ),
+    manageCapability: cmd.manageCapability,
   }));
 
   return {

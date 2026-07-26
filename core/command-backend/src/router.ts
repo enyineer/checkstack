@@ -39,6 +39,63 @@ function getUserAccessRules(context: RpcContext): string[] {
   return [];
 }
 
+/**
+ * Resolve which of the `manageCapability` types declared by the candidate items
+ * the caller can actually create/manage through a TEAM grant.
+ *
+ * Without this the palette filters on global rules only, so a team-scoped user
+ * (a create-capability grant, no global `*.manage`) loses the very commands they
+ * are allowed to run. Only the DISTINCT declared types are probed - a handful per
+ * request - and `includeCreator` matches the `typeScoped` middleware, so a team
+ * member who may CREATE the type qualifies before owning an instance.
+ * Fails CLOSED: an auth error yields no team types, leaving global-rule gating.
+ */
+async function resolveManageableTypes({
+  context,
+  items,
+  logger,
+}: {
+  context: RpcContext;
+  items: SearchResult[];
+  logger: Logger;
+}): Promise<Set<string>> {
+  const user = context.user;
+  if (!user || (user.type !== "user" && user.type !== "application")) {
+    return new Set();
+  }
+
+  const declared = new Set<string>();
+  for (const item of items) {
+    const capability = item.manageCapability;
+    if (!capability) continue;
+    declared.add(capability.objectType);
+    if (capability.parentType) declared.add(capability.parentType);
+  }
+  if (declared.size === 0) return new Set();
+
+  const granted = await Promise.all(
+    [...declared].map(async (objectType) => {
+      try {
+        const { hasGrant } = await context.auth.hasAnyTypeGrant({
+          userId: user.id,
+          userType: user.type as "user" | "application",
+          objectType,
+          action: "manage",
+          includeCreator: true,
+        });
+        return hasGrant ? objectType : null;
+      } catch (error) {
+        logger.debug(
+          `command palette: type-grant probe failed for ${objectType}: ${extractErrorMessage(error)}`,
+        );
+        return null;
+      }
+    }),
+  );
+
+  return new Set(granted.filter((t): t is string => t !== null));
+}
+
 export const createCommandRouter = ({ logger }: { logger: Logger }) => {
   /**
    * Search across all registered search providers.
@@ -70,9 +127,15 @@ export const createCommandRouter = ({ logger }: { logger: Logger }) => {
       })
     );
 
-    // Flatten and filter by access rules
+    // Flatten, then filter by the global rules OR a team grant on a declared
+    // manageCapability type (so team-scoped users keep their commands).
     const allResults = providerResults.flat();
-    return filterByAccessRules(allResults, userAccessRules);
+    const manageableTypes = await resolveManageableTypes({
+      context,
+      items: allResults,
+      logger,
+    });
+    return filterByAccessRules(allResults, userAccessRules, manageableTypes);
   });
 
   /**
@@ -105,7 +168,12 @@ export const createCommandRouter = ({ logger }: { logger: Logger }) => {
     );
 
     const allCommands = providerResults.flat();
-    return filterByAccessRules(allCommands, userAccessRules);
+    const manageableTypes = await resolveManageableTypes({
+      context,
+      items: allCommands,
+      logger,
+    });
+    return filterByAccessRules(allCommands, userAccessRules, manageableTypes);
   });
 
   return os.router({

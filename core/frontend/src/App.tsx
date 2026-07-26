@@ -233,7 +233,7 @@ function GlobalShortcuts() {
   const navigate = useNavigate();
 
   // Pass "*" as access since backend already filters by access
-  useGlobalShortcuts(commands, navigate, ["*"]);
+  useGlobalShortcuts(commands, navigate);
 
   // This component renders nothing - it only registers event listeners
   return <></>;
