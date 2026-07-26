@@ -107,6 +107,13 @@ export const statusPageContract = {
     userType: "authenticated",
     access: [statusPageAccess.page.manage],
     instanceAccess: { idParam: "id" },
+    accessNote: {
+      summary:
+        "beyond MANAGE on the page, you must additionally be able to READ every " +
+        "catalog resource that the page's widgets bind (you cannot publish what " +
+        "you cannot see) - each widget's own `assertBindingsReadable`. Behavioral " +
+        "tests: status-page-backend service/widget-registry/content-widgets tests.",
+    },
   })
     .input(z.object({ id: z.string() }))
     .output(StatusPageSchema),

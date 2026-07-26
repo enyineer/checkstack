@@ -174,6 +174,34 @@ export interface InstanceAccessConfig {
     /** Required capability level. Defaults to the access rule's own level. */
     action?: "read" | "manage";
   };
+
+  /**
+   * Scope this endpoint by access to the object NAMED BY THE INPUT - both its
+   * TYPE and its id come from the request body. Unlike `idParam` (whose resource
+   * TYPE is fixed from the access rule's `resource`), this is for the rare
+   * GENERIC-over-type endpoints that administer access on any resource type
+   * (e.g. the relation-tuple writes `writeRelation` / `removeRelation` /
+   * `setObjectPublic`).
+   *
+   * The endpoint's own `access` rule stays the GLOBAL admin OR-override (exactly
+   * as `idParam` treats its rule's qualified id): a caller holding that rule (or
+   * `*`) is allowed outright. Otherwise the per-object decision derives the
+   * object's OWN global rule as `${objectType}.${action}` (the RLAC keying
+   * convention already used by `create.parent`) and consults team grants via the
+   * same auth engine (`auth.check`). Team-private objects are respected: the
+   * global path is closed for them, so only a granted team (or the admin
+   * override) qualifies. Fail-closed when the params do not resolve.
+   *
+   * Mutually exclusive with all other modes and with `global`.
+   */
+  objectRef?: {
+    /** Input path to the object TYPE, e.g. "objectType". */
+    typeParam: string;
+    /** Input path to the object id, e.g. "objectId". */
+    idParam: string;
+    /** Required action on the referenced object. Defaults to "manage". */
+    action?: "read" | "manage";
+  };
 }
 
 /**

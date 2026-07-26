@@ -1342,13 +1342,18 @@ describe("Teams and Resource Access Control", () => {
   });
 
   // ==========================================================================
-  // TEAM-ACCESS DELEGATION AUTHZ (writeRelation / removeRelation /
-  // setObjectPublic / canManageObjectAccess). A caller may edit an object's team
-  // access only if they can MANAGE that object: a global teams.manage admin, the
-  // object's own `<type>.manage` rule (on a non-private object), or membership of
-  // a team with an editor/owner grant on it. A viewer-only team CANNOT elevate.
+  // TEAM-ACCESS DELEGATION AUTHZ — now declared on the CONTRACT via the
+  // `objectRef` instanceAccess mode and enforced by `autoAuthMiddleware` BEFORE
+  // the handler. Because the middleware decides via the S2S `auth.check`, these
+  // tests drive authorization through `context.auth.check` (+ the caller's
+  // access rules), NOT the DB grants the old handler read. A caller may edit an
+  // object's team access only if they can MANAGE that object: a global
+  // teams.manage admin (OR-override), the object's own `<type>.manage` rule (on a
+  // non-private object), or a team editor/owner grant on it. A viewer-only team
+  // CANNOT elevate. The verdict QUERY (`canManageObjectAccess`) still runs
+  // in-process in the handler, so those two cases keep reading DB grants.
   // ==========================================================================
-  describe("team-access delegation authz", () => {
+  describe("team-access delegation authz (objectRef mode, middleware-enforced)", () => {
     const makeRouter = (mockDb: AuthDatabase) =>
       createAuthRouter(
         mockDb,
@@ -1359,8 +1364,14 @@ describe("Teams and Resource Access Control", () => {
         () => undefined
       );
 
-    // For a NON-admin caller, canEditObjectAccess issues two selects:
-    //   1. userTeam (the caller's membership), 2. the object's relation tuples.
+    const grant = (subjectId: string, relation: string) => ({
+      relation,
+      subjectType: "team",
+      subjectId,
+    });
+
+    // Verdict-query path (canManageObjectAccess) still reads the DB in-process:
+    //   1. userTeam (membership), 2. the object's relation tuples.
     const seedAuthz = ({
       memberTeams,
       objectTuples,
@@ -1383,12 +1394,6 @@ describe("Teams and Resource Access Control", () => {
       return mockDb;
     };
 
-    const grant = (subjectId: string, relation: string) => ({
-      relation,
-      subjectType: "team",
-      subjectId,
-    });
-
     const writeInput = {
       objectType: "catalog.system",
       objectId: "sys-1",
@@ -1396,89 +1401,98 @@ describe("Teams and Resource Access Control", () => {
       relation: "editor" as const,
     };
 
-    it("lets a MEMBER of a team that MANAGES the object grant access", async () => {
-      // Caller is in team-1, which holds an editor (manage) grant on the object.
-      const mockDb = seedAuthz({
-        memberTeams: [{ teamId: "team-1" }],
-        objectTuples: [grant("team-1", "editor")],
-      });
+    it("lets a caller who can MANAGE the object grant access", async () => {
+      const mockDb = createMockDb();
       const context = createMockRpcContext({ user: mockScopedUser });
+      // S2S check says the caller manages this object (team editor/owner grant).
+      context.auth.check = mock().mockResolvedValue({ hasAccess: true });
       await call(makeRouter(mockDb).writeRelation, writeInput, { context });
-      expect(mockDb.transaction).toHaveBeenCalled(); // setTeamRelation ran
+      expect(mockDb.transaction).toHaveBeenCalled(); // handler ran
     });
 
-    it("FORBIDS a member of a VIEWER-ONLY team (no privilege elevation)", async () => {
-      // team-1 can only READ the object, so its members must not be able to grant
-      // manage - to themselves or anyone else.
-      const mockDb = seedAuthz({
-        memberTeams: [{ teamId: "team-1" }],
-        objectTuples: [grant("team-1", "viewer")],
-      });
+    it("FORBIDS a caller who cannot manage the object (viewer-only / no grant) - no elevation", async () => {
+      const mockDb = createMockDb();
       const context = createMockRpcContext({ user: mockScopedUser });
-      await expect(
-        call(
-          makeRouter(mockDb).writeRelation,
-          { ...writeInput, teamId: "team-1" },
-          { context }
-        )
-      ).rejects.toThrow(/manage access to this resource/);
-      expect(mockDb.transaction).not.toHaveBeenCalled();
-    });
-
-    it("FORBIDS a caller with no grant and no global rule", async () => {
-      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
-      const context = createMockRpcContext({ user: mockScopedUser });
+      context.auth.check = mock().mockResolvedValue({ hasAccess: false });
       await expect(
         call(makeRouter(mockDb).writeRelation, writeInput, { context })
-      ).rejects.toThrow(/manage access to this resource/);
-      expect(mockDb.transaction).not.toHaveBeenCalled();
+      ).rejects.toThrow(/need manage access/);
+      expect(mockDb.transaction).not.toHaveBeenCalled(); // denied before the handler
     });
 
-    it("lets a holder of the object's `<type>.manage` rule edit a PUBLIC object", async () => {
-      // No grants + no private marker => public, so the resource-manage global
-      // rule authorizes editing its team access.
-      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+    it("derives the object's `<type>.manage` rule and forwards it as hasGlobalAccess", async () => {
+      // A holder of catalog.system.manage: the middleware must derive that rule
+      // from objectType and pass hasGlobalAccess=true to the S2S check (which then
+      // authorizes on a public object).
+      const mockDb = createMockDb();
       const context = createMockRpcContext({
         user: { ...mockScopedUser, accessRules: ["catalog.system.manage"] },
       });
       await call(makeRouter(mockDb).writeRelation, writeInput, { context });
       expect(mockDb.transaction).toHaveBeenCalled();
+      expect(context.auth.check).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectType: "catalog.system",
+          objectId: "sys-1",
+          action: "manage",
+          hasGlobalAccess: true,
+        })
+      );
     });
 
-    it("still lets a global teams.manage admin edit (short-circuits per-object authz)", async () => {
-      // `*` satisfies teams.manage; no authz selects are issued.
+    it("a global teams.manage admin short-circuits (no per-object S2S check)", async () => {
       const mockDb = createMockDb();
-      const context = createMockRpcContext({ user: mockAdminUser });
+      const context = createMockRpcContext({ user: mockAdminUser }); // holds "*"
+      // Would DENY if consulted - proves the admin override runs first.
+      context.auth.check = mock().mockResolvedValue({ hasAccess: false });
       await call(makeRouter(mockDb).writeRelation, writeInput, { context });
       expect(mockDb.transaction).toHaveBeenCalled();
+      expect(context.auth.check).not.toHaveBeenCalled();
     });
 
-    it("removeRelation enforces the same delegation authz", async () => {
-      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+    it("removeRelation is gated by the same objectRef mode", async () => {
+      const mockDb = createMockDb();
       const context = createMockRpcContext({ user: mockScopedUser });
+      context.auth.check = mock().mockResolvedValue({ hasAccess: false });
       await expect(
         call(
           makeRouter(mockDb).removeRelation,
           { objectType: "catalog.system", objectId: "sys-1", teamId: "team-1" },
           { context }
         )
-      ).rejects.toThrow(/manage access to this resource/);
+      ).rejects.toThrow(/need manage access/);
       expect(mockDb.delete).not.toHaveBeenCalled();
     });
 
-    it("setObjectPublic enforces the same delegation authz", async () => {
-      const mockDb = seedAuthz({ memberTeams: [], objectTuples: [] });
+    it("setObjectPublic is gated by the same objectRef mode", async () => {
+      const mockDb = createMockDb();
       const context = createMockRpcContext({ user: mockScopedUser });
+      context.auth.check = mock().mockResolvedValue({ hasAccess: false });
       await expect(
         call(
           makeRouter(mockDb).setObjectPublic,
           { objectType: "catalog.system", objectId: "sys-1", isPublic: false },
           { context }
         )
-      ).rejects.toThrow(/manage access to this resource/);
+      ).rejects.toThrow(/need manage access/);
     });
 
-    it("canManageObjectAccess returns true for a managing member", async () => {
+    it("fails CLOSED when the object reference is missing", async () => {
+      const mockDb = createMockDb();
+      const context = createMockRpcContext({ user: mockScopedUser });
+      context.auth.check = mock().mockResolvedValue({ hasAccess: true });
+      await expect(
+        call(
+          makeRouter(mockDb).writeRelation,
+          { ...writeInput, objectType: "" },
+          { context }
+        )
+      ).rejects.toThrow(/missing object reference/);
+      expect(context.auth.check).not.toHaveBeenCalled();
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("canManageObjectAccess (verdict query) returns true for a managing member", async () => {
       const mockDb = seedAuthz({
         memberTeams: [{ teamId: "team-1" }],
         objectTuples: [grant("team-1", "editor")],
@@ -1492,7 +1506,7 @@ describe("Teams and Resource Access Control", () => {
       expect(result.allowed).toBe(true);
     });
 
-    it("canManageObjectAccess returns false for a viewer-only member", async () => {
+    it("canManageObjectAccess (verdict query) returns false for a viewer-only member", async () => {
       const mockDb = seedAuthz({
         memberTeams: [{ teamId: "team-1" }],
         objectTuples: [grant("team-1", "viewer")],

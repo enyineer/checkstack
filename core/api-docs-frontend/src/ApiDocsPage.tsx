@@ -11,6 +11,7 @@ import {
   type DataTableColumn,
   PageLayout,
   StatusPill,
+  Markdown,
   cn,
   usePerformance,
 } from "@checkstack/ui";
@@ -466,9 +467,9 @@ function EndpointCard({
         {isOpen && (
           <CardContent className="space-y-4 border-t border-border/60 bg-surface/40 pl-5 pt-4">
           {operation.description && (
-            <p className="text-sm text-muted-foreground">
-              {operation.description}
-            </p>
+            <div className="text-sm leading-relaxed text-muted-foreground">
+              <Markdown>{operation.description}</Markdown>
+            </div>
           )}
 
           {meta?.accessRules && meta.accessRules.length > 0 && (

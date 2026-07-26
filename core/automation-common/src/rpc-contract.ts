@@ -112,6 +112,12 @@ export const automationContract = {
     // `idField: "id"` points to the top-level `id` on the AutomationSchema
     // output, which is the automation's UUID string.
     instanceAccess: { create: { teamIdParam: "teamId", idField: "id" } },
+    accessNote: {
+      summary:
+        "additionally, if you set `runAs`, that service account must not hold " +
+        "access rules you lack - you cannot escalate by running an automation as " +
+        "a more-privileged principal (`isApplicationBindable`).",
+    },
   })
     .input(CreateAutomationInputSchema)
     .output(AutomationSchema),
@@ -122,6 +128,12 @@ export const automationContract = {
     access: [automationAccess.manage],
     // UpdateAutomationInputSchema has `.id` — the automation being updated.
     instanceAccess: { idParam: "id" },
+    accessNote: {
+      summary:
+        "additionally, if you change `runAs`, that service account must not hold " +
+        "access rules you lack - you cannot escalate by running an automation as " +
+        "a more-privileged principal (`isApplicationBindable`).",
+    },
   })
     .route({ method: "PATCH" })
     .input(UpdateAutomationInputSchema)

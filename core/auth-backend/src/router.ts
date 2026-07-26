@@ -2144,26 +2144,15 @@ export const createAuthRouter = (
     });
   };
 
-  const assertCanEditObjectAccess = async (args: {
-    user: AuthUser | undefined;
-    objectType: string;
-    objectId: string;
-  }): Promise<void> => {
-    if (!(await canEditObjectAccess(args))) {
-      throw new ORPCError("FORBIDDEN", {
-        message:
-          "You need manage access to this resource to change its team access.",
-      });
-    }
-  };
-
-  const writeRelation = os.writeRelation.handler(async ({ input, context }) => {
+  // NOTE (spike): per-object authorization for these three writes now lives in
+  // the contract via the `objectRef` instanceAccess mode and is enforced by
+  // `autoAuthMiddleware` BEFORE the handler runs - the handlers no longer
+  // hand-roll `assertCanEditObjectAccess`. `canEditObjectAccess` survives only as
+  // the shared predicate behind the `canManageObjectAccess` verdict query (which
+  // returns a boolean and so cannot be a middleware gate). Phase 3 of the plan
+  // derives that verdict from the same contract and removes the query.
+  const writeRelation = os.writeRelation.handler(async ({ input }) => {
     assertKnownResourceType(input.objectType);
-    await assertCanEditObjectAccess({
-      user: context.user,
-      objectType: input.objectType,
-      objectId: input.objectId,
-    });
     await tupleStore.setTeamRelation({
       objectType: input.objectType,
       objectId: input.objectId,
@@ -2172,36 +2161,22 @@ export const createAuthRouter = (
     });
   });
 
-  const removeRelation = os.removeRelation.handler(
-    async ({ input, context }) => {
-      await assertCanEditObjectAccess({
-        user: context.user,
-        objectType: input.objectType,
-        objectId: input.objectId,
-      });
-      await tupleStore.removeTeamFromObject({
-        objectType: input.objectType,
-        objectId: input.objectId,
-        teamId: input.teamId,
-      });
-    },
-  );
+  const removeRelation = os.removeRelation.handler(async ({ input }) => {
+    await tupleStore.removeTeamFromObject({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      teamId: input.teamId,
+    });
+  });
 
-  const setObjectPublic = os.setObjectPublic.handler(
-    async ({ input, context }) => {
-      assertKnownResourceType(input.objectType);
-      await assertCanEditObjectAccess({
-        user: context.user,
-        objectType: input.objectType,
-        objectId: input.objectId,
-      });
-      await tupleStore.setObjectPublic({
-        objectType: input.objectType,
-        objectId: input.objectId,
-        isPublic: input.isPublic,
-      });
-    },
-  );
+  const setObjectPublic = os.setObjectPublic.handler(async ({ input }) => {
+    assertKnownResourceType(input.objectType);
+    await tupleStore.setObjectPublic({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      isPublic: input.isPublic,
+    });
+  });
 
   const canManageObjectAccess = os.canManageObjectAccess.handler(
     async ({ input, context }) => ({

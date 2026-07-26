@@ -17,7 +17,7 @@ import {
   RpcContext,
 } from "@checkstack/backend-api";
 import type { AccessRule, InstanceAccessConfig } from "@checkstack/common";
-import { extractErrorMessage } from "@checkstack/common";
+import { extractErrorMessage, ACCESS_MODE_KEYS } from "@checkstack/common";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -927,15 +927,13 @@ export function validateContractInstanceAccess({
       continue;
     }
 
-    const modes: string[] = [];
-    if (ia.global) modes.push("global");
-    if (ia.idParam) modes.push("idParam");
-    if (ia.listKey) modes.push("listKey");
-    if (ia.recordKey) modes.push("recordKey");
-    if (ia.create) modes.push("create");
-    if (ia.parentScope) modes.push("parentScope");
-    if (ia.bulkManage) modes.push("bulkManage");
-    if (ia.typeScoped) modes.push("typeScoped");
+    // Derive the declared modes from the shared registry key list, so the
+    // validator, the middleware, and the docs cannot disagree on WHICH modes
+    // exist (adding a key to InstanceAccessConfig without ACCESS_MODE_KEYS is a
+    // compile-time error in access-modes.ts). Truthy check matches the historical
+    // per-mode `if (ia.x)` (e.g. `global: false` and empty configs are ignored/
+    // handled consistently).
+    const modes: string[] = ACCESS_MODE_KEYS.filter((k) => Boolean(ia[k]));
 
     if (modes.length === 0) {
       validationErrors.push(
@@ -961,6 +959,18 @@ export function validateContractInstanceAccess({
 
     if (ia.idParam) {
       flagMissingInputPath({ ...pathCtx, configKey: "idParam", path: ia.idParam });
+    }
+    if (ia.objectRef) {
+      flagMissingInputPath({
+        ...pathCtx,
+        configKey: "objectRef.typeParam",
+        path: ia.objectRef.typeParam,
+      });
+      flagMissingInputPath({
+        ...pathCtx,
+        configKey: "objectRef.idParam",
+        path: ia.objectRef.idParam,
+      });
     }
     if (ia.bulkManage) {
       flagMissingInputPath({

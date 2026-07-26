@@ -247,6 +247,12 @@ export const authContract = {
     operationType: "query",
     userType: "user",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a global `auth.teams.manage` admin, or a manager of at least one team; a " +
+        "plain member with no management role is denied (the user directory is " +
+        "reachable only by team administrators).",
+    },
   })
     .input(z.object({ query: z.string() }))
     .output(
@@ -663,6 +669,11 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a global `auth.teams.read` holder (or a service) sees every team; " +
+        "everyone else sees only the teams they are a member or manager of.",
+    },
   }).output(
     z.array(
       z.object({
@@ -679,6 +690,12 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "visible to a global `auth.teams.read` holder (or service), or a member " +
+        "or manager of the team in `teamId`; otherwise resolves to not-found (no " +
+        "existence leak).",
+    },
   })
     .input(z.object({ teamId: z.string() }))
     .output(
@@ -714,6 +731,11 @@ export const authContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a service, a global `auth.teams.manage` holder, or a MANAGER of the team " +
+        "in `id`. Enforced by `assertTeamManagementAccess`.",
+    },
   })
     .route({ method: "PATCH" })
     .input(
@@ -745,6 +767,11 @@ export const authContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a service, a global `auth.teams.manage` holder, or a MANAGER of the team " +
+        "in `teamId`. Enforced by `assertTeamManagementAccess`.",
+    },
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -753,6 +780,11 @@ export const authContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a service, a global `auth.teams.manage` holder, or a MANAGER of the team " +
+        "in `teamId`. Enforced by `assertTeamManagementAccess`.",
+    },
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
@@ -762,6 +794,11 @@ export const authContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a service, a global `auth.teams.manage` holder, or a MANAGER of the team " +
+        "in `teamId`. Enforced by `assertTeamManagementAccess`.",
+    },
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -770,6 +807,11 @@ export const authContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a service, a global `auth.teams.manage` holder, or a MANAGER of the team " +
+        "in `teamId`. Enforced by `assertTeamManagementAccess`.",
+    },
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
@@ -788,6 +830,13 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a global `auth.teams.read` holder sees every grant; otherwise the grant " +
+        "list is returned only if you have a STAKE (a member/manager of a team " +
+        "granted on the object), else an empty list - the public flag is always " +
+        "returned.",
+    },
   })
     .input(z.object({ objectType: z.string(), objectId: z.string() }))
     .output(
@@ -810,6 +859,13 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "same STAKE rule as listObjectRelations, applied PER object: a global " +
+        "`auth.teams.read` holder sees every grant; otherwise an object's grants " +
+        "are hidden (empty) unless you are a member/manager of one of its granted " +
+        "teams.",
+    },
   })
     .input(
       z.object({
@@ -837,17 +893,23 @@ export const authContract = {
 
   // Set a team's access relation on an object (replaces its existing relation
   // there). Replaces setResourceTeamAccess.
-  // Grant/downgrade a team's access on an object. Delegation authz: the caller
-  // must be able to MANAGE this specific object (a global `auth.teams.manage`
-  // admin, the object's own `<type>.manage` rule on a non-private object, or
-  // membership of a team with an editor/owner grant on it). `access: []` - the
-  // handler enforces the per-object verdict, so a resource-manager without the
-  // global teams rule isn't rejected by the middleware. A viewer-only team
-  // cannot reach this and so cannot elevate its own or another team's access.
+  // Grant/downgrade a team's access on an object. Delegation authz declared on
+  // the contract via the `objectRef` instance mode: `auth.teams.manage` is the
+  // global admin OR-override; otherwise the middleware requires MANAGE on the
+  // object named by `objectType`/`objectId` (the object's own `<type>.manage`
+  // rule on a non-private object, or a team editor/owner grant on it). A
+  // viewer-only team cannot reach this and so cannot elevate any team's access.
   writeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [],
+    access: [authAccess.teams.manage],
+    instanceAccess: {
+      objectRef: {
+        typeParam: "objectType",
+        idParam: "objectId",
+        action: "manage",
+      },
+    },
   })
     .input(
       z.object({
@@ -860,11 +922,18 @@ export const authContract = {
     .output(z.void()),
 
   // Remove all of a team's access relations on an object. Same per-object
-  // delegation authz as writeRelation (handler-enforced).
+  // delegation authz as writeRelation, declared via `objectRef`.
   removeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [],
+    access: [authAccess.teams.manage],
+    instanceAccess: {
+      objectRef: {
+        typeParam: "objectType",
+        idParam: "objectId",
+        action: "manage",
+      },
+    },
   })
     .route({ method: "DELETE" })
     .input(
@@ -877,11 +946,18 @@ export const authContract = {
     .output(z.void()),
 
   // Toggle the public marker (privacy). Same per-object delegation authz as
-  // writeRelation (handler-enforced).
+  // writeRelation, declared via `objectRef`.
   setObjectPublic: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [],
+    access: [authAccess.teams.manage],
+    instanceAccess: {
+      objectRef: {
+        typeParam: "objectType",
+        idParam: "objectId",
+        action: "manage",
+      },
+    },
   })
     .input(
       z.object({
@@ -923,6 +999,11 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a global `auth.teams.read` holder (or service), or a member/manager of " +
+        "the team in `teamId`; otherwise forbidden.",
+    },
   })
     .input(z.object({ teamId: z.string() }))
     .output(
@@ -1001,6 +1082,11 @@ export const authContract = {
     operationType: "query",
     userType: "authenticated",
     access: [], // team-scoped: handler authorizes (member/manager) - see auth-backend router
+    accessNote: {
+      summary:
+        "a global `auth.teams.read` holder (or service), or a member/manager of " +
+        "the team in `teamId`; otherwise forbidden.",
+    },
   })
     .input(z.object({ teamId: z.string() }))
     .output(z.object({ resourceTypes: z.array(z.string()) })),

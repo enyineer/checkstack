@@ -227,6 +227,13 @@ export const autoAuthMiddleware = os.middleware(
     const typeScopedRules = instanceRules.filter(
       (r) => r.instanceAccess?.typeScoped,
     );
+    // Object-ref rules scope by the object NAMED IN THE INPUT (both type and id
+    // from the request body) - for generic access-administration endpoints
+    // (writeRelation / removeRelation / setObjectPublic). The rule itself is the
+    // global admin OR-override.
+    const objectRefRules = instanceRules.filter(
+      (r) => r.instanceAccess?.objectRef,
+    );
 
     // 1. Handle anonymous endpoints - no auth required, no access checks
     if (requiredUserType === "anonymous") {
@@ -508,6 +515,60 @@ export const autoAuthMiddleware = os.middleware(
             message: `Access denied to ${ps.resourceType}:${parentId}`,
           });
         }
+      }
+    }
+
+    // Pre-check: Object-ref endpoints.
+    // "You may edit this if you can MANAGE the object named by the input." The
+    // object TYPE and id both come from the request body (generic-over-type
+    // access-administration endpoints). The rule's own qualified id is the global
+    // admin OR-override; otherwise derive the object's own global rule
+    // (`${objectType}.${action}`) and consult team grants via the same S2S check
+    // native scoping uses. Anonymous callers hold no grants, so they need the
+    // override. Fail CLOSED when the params do not resolve.
+    for (const rule of objectRefRules) {
+      const objectRef = rule.instanceAccess!.objectRef!;
+      const action = objectRef.action ?? "manage";
+
+      // Global admin override = this endpoint's own access rule (e.g. teams.manage).
+      const hasAdminOverride =
+        userAccessRules.includes("*") ||
+        userAccessRules.includes(rule.qualifiedId);
+      if (hasAdminOverride) continue;
+
+      const objectType = getNestedValue(input, objectRef.typeParam);
+      const objectId = getNestedValue(input, objectRef.idParam);
+      if (!objectType || !objectId) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Access denied: missing object reference ('${objectRef.typeParam}'/'${objectRef.idParam}')`,
+        });
+      }
+
+      // Team grants require a real (user/application) principal.
+      if (!userId || !userType) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Authentication required to manage access for ${objectType}:${objectId}`,
+        });
+      }
+
+      // The object's OWN global rule, derived by the RLAC keying convention.
+      const hasResourceGlobal =
+        userAccessRules.includes("*") ||
+        userAccessRules.includes(`${objectType}.${action}`);
+
+      const ok = await checkResourceAccessViaS2S({
+        auth: context.auth,
+        userId,
+        userType,
+        resourceType: objectType,
+        resourceId: objectId,
+        action,
+        hasGlobalAccess: hasResourceGlobal,
+      });
+      if (!ok) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `You need manage access to ${objectType}:${objectId} to change its team access`,
+        });
       }
     }
 
