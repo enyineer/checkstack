@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import {
   Card,
   CardHeader,
@@ -65,6 +66,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
   const [teamToDelete, setTeamToDelete] = useState<string>();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | undefined>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState<string>();
 
@@ -227,6 +229,22 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setSelectedTeamId(teamId);
     setMembersDialogOpen(true);
   };
+
+  // Deep link: `/teams?team=<id>` opens that team's members dialog directly, so
+  // the team name in a resource's "Who can change this" editor can take you
+  // straight to the team instead of dropping you on an unfiltered list. The
+  // param is cleared once consumed so closing the dialog doesn't reopen it, and
+  // it only fires for a team actually present in the (access-scoped) list.
+  useEffect(() => {
+    const requested = searchParams.get("team");
+    if (!requested) return;
+    if (!teams.some((t) => t.id === requested)) return;
+    setSelectedTeamId(requested);
+    setMembersDialogOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("team");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, teams, setSearchParams]);
 
   const handleAddMember = (userId: string) => {
     if (!selectedTeamId) return;
@@ -484,14 +502,25 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
           ) : teamDetailData ? (
             <div className="space-y-4">
               <p className="text-sm font-medium">Members</p>
-              {/* Add Member: search the directory and click a result to add. */}
+              {/* Add Member: search the directory and click a result to add.
+                  The field searches the whole user directory to ADD someone —
+                  it is not a filter over the member list below — and a user
+                  only exists in that directory once they have signed in at
+                  least once (SSO/LDAP accounts materialise on first login), so
+                  both facts are spelled out beneath it. */}
               {canManageThisTeam && (
-                <div className="flex gap-2">
-                  <UserPickerCombobox
-                    onSelect={(user) => handleAddMember(user.id)}
-                    excludeUserIds={teamDetailData.members.map((m) => m.id)}
-                    disabled={addingMember}
-                  />
+                <div className="space-y-1">
+                  <div className="flex gap-2">
+                    <UserPickerCombobox
+                      onSelect={(user) => handleAddMember(user.id)}
+                      excludeUserIds={teamDetailData.members.map((m) => m.id)}
+                      disabled={addingMember}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Adds a new member to this team. Only users who have signed in
+                    at least once can be found; current members are hidden.
+                  </p>
                 </div>
               )}
 
