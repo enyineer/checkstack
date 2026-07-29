@@ -18,6 +18,7 @@
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/automation-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/gitops-backend": "workspace:*",

@@ -23,6 +23,7 @@ import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
 import { resolveSatelliteConfigSecrets } from "./config-secret-resolver";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
+import { createSatelliteLivenessCache } from "./liveness-cache";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
 import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
@@ -146,13 +147,14 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
+        cacheManager: coreServices.cacheManager,
         wsRegistry: coreServices.wsRegistry,
         secretResolver: secretResolverRef,
         internalSecrets: internalSecretsRef,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
       },
-      init: async ({ logger, database, rpc, signalService }) => {
+      init: async ({ logger, database, rpc, signalService, cacheManager }) => {
         logger.debug("🛰️ Initializing Satellite Backend...");
 
         const service = new SatelliteService(
@@ -178,6 +180,7 @@ export default createBackendPlugin({
           service,
           signalService,
           logger,
+          livenessCache: createSatelliteLivenessCache({ cacheManager }),
         });
         rpc.registerRouter(router, satelliteContract);
 
