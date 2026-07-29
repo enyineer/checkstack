@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useMentions } from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
 import type {
   MaintenanceStatus,
@@ -9,7 +9,7 @@ import type {
 import { MaintenanceVisibilityEnum } from "@checkstack/maintenance-common";
 import {
   Button,
-  Textarea,
+  MarkdownEditor,
   Label,
   Select,
   SelectTrigger,
@@ -50,6 +50,11 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
 }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
   const toast = useToast();
+  // `#` opens a picker over every mentionable record type - incidents,
+  // maintenances, anything a plugin registers. The reference is stored as WHAT
+  // it points at, so it resolves correctly in the app, on a status page, and in
+  // an email, instead of freezing one URL that is wrong in two of the three.
+  const { onMentionSearch } = useMentions();
 
   const [message, setMessage] = useState(editing?.message ?? "");
   const [statusChange, setStatusChange] = useState<MaintenanceStatus | "">(
@@ -126,15 +131,17 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
     <div className="p-4 bg-surface-inset rounded-lg border space-y-3">
       <div className="grid gap-2">
         <Label htmlFor="updateMessage">Update Message</Label>
-        <Textarea
+        <MarkdownEditor
           id="updateMessage"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={setMessage}
+          onMentionSearch={onMentionSearch}
           placeholder="Describe the status update..."
-          rows={2}
+          rows={3}
         />
         <p className="text-xs text-muted-foreground">
-          Markdown supported (bold, links, lists).
+          Markdown supported, and <code>#</code> links another incident or
+          maintenance. Switch to Preview to check how it will render.
         </p>
       </div>
       <div className="grid gap-2">

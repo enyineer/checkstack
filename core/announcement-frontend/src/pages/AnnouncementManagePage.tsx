@@ -62,7 +62,7 @@ import {
   DialogFooter,
   Input,
   Label,
-  Textarea,
+  MarkdownEditor,
   toastError,
   cn,
   useSeedFormOnOpen,
@@ -224,13 +224,12 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
           {/* Message (Markdown) */}
           <div className="space-y-2">
             <Label htmlFor="ann-message">Message (Markdown)</Label>
-            <Textarea
+            <MarkdownEditor
               id="ann-message"
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={setMessage}
               placeholder="Write your announcement message in Markdown..."
               rows={6}
-              required
             />
           </div>
 
@@ -340,7 +339,10 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending}>
+            {/* The message is a MarkdownEditor, which is not a native form
+                control and so cannot carry `required`. Gate submission here
+                instead, or a blank announcement would save silently. */}
+            <Button type="submit" disabled={isPending || !message.trim()}>
               {isPending
                 ? "Saving..."
                 : isEdit

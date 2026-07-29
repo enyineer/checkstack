@@ -29,7 +29,7 @@ import {
   Button,
   Input,
   Label,
-  Textarea,
+  MarkdownEditor,
   Checkbox,
   useToast,
   Select,
@@ -357,10 +357,10 @@ export const IncidentEditor: React.FC<Props> = ({
 
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea
+              <MarkdownEditor
                 id="description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={setDescription}
                 placeholder="Details about the incident..."
                 rows={3}
               />
