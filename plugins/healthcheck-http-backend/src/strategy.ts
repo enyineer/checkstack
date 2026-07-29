@@ -30,6 +30,11 @@ import type {
   HttpRequest,
   HttpResponse,
 } from "./transport-client";
+import {
+  buildProxyUrl,
+  describeProxyUrlProblem,
+  resolveGuardedHost,
+} from "./proxy";
 
 // ============================================================================
 // SCHEMAS
@@ -91,8 +96,46 @@ export const httpHealthCheckConfigSchema = baseStrategyConfigSchema
     })
       .optional()
       .describe("Bearer token for Token authentication"),
+    // Templatable so a proxy can vary per environment (a staging proxy vs a
+    // production one) from a single check configuration.
+    proxyUrl: configString({ "x-templatable": true })
+      .optional()
+      .describe(
+        "Route requests through an HTTP proxy, e.g. http://proxy.internal:3128. " +
+          "The proxy becomes the egress policy boundary for this check: the SSRF " +
+          "denylist is applied to the PROXY host, and the target host is resolved " +
+          "by the proxy rather than by Checkstack. Leave empty to connect directly.",
+      ),
+    proxyUsername: configString({
+      "x-hidden-when": { proxyUrl: [""] },
+    })
+      .optional()
+      .describe("Username for proxy authentication (optional)"),
+    proxyPassword: configSecret({
+      id: "proxyPassword",
+      "x-hidden-when": { proxyUrl: [""] },
+    })
+      .optional()
+      .describe("Password for proxy authentication (optional)"),
   })
   .superRefine((data, ctx) => {
+    if (data.proxyUrl !== undefined && data.proxyUrl.trim().length > 0) {
+      const issue = describeProxyUrlProblem({ proxyUrl: data.proxyUrl });
+      if (issue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: issue,
+          path: ["proxyUrl"],
+        });
+      }
+    }
+    if (data.proxyPassword && !data.proxyUsername) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Proxy username is required when a proxy password is set",
+        path: ["proxyUsername"],
+      });
+    }
     if (data.authType === "basic") {
       if (!data.authUsername) {
         ctx.addIssue({
@@ -385,6 +428,17 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
     ];
     const lookupFn = this.lookupFn;
 
+    // Optional egress proxy. When set, this is the ONLY host this process
+    // connects to, so it - not the target - is what the SSRF denylist guards,
+    // and the target is left for the proxy to resolve. See `proxy.ts` for the
+    // full rationale.
+    const proxyUrl = buildProxyUrl({
+      proxyUrl: validatedConfig.proxyUrl,
+      username: validatedConfig.proxyUsername,
+      password: validatedConfig.proxyPassword,
+    });
+    const proxyOption = proxyUrl === undefined ? {} : { proxy: proxyUrl };
+
     // Connect-timing probe + its per-origin sample cache. Captured here (not via
     // `this`) because `exec` below is an object-literal method whose `this` is
     // the client, not the strategy.
@@ -422,9 +476,17 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           // denied range, and direct denied IP literals. The resolved IP is
           // reused only for the best-effort timing probe below.
           const requestUrl = new URL(request.url);
+          // Behind a proxy the guarded host is the PROXY's: it is the only host
+          // we connect to, and the target is frequently resolvable only by the
+          // proxy itself (split-horizon DNS), so pre-resolving it here would
+          // reject valid checks while proving nothing about the real egress.
+          const guarded = resolveGuardedHost({
+            targetUrl: requestUrl,
+            proxyUrl: validatedConfig.proxyUrl,
+          });
           const dnsStart = performance.now();
           const target = await resolveAndValidateHost({
-            host: requestUrl.hostname,
+            host: guarded.host,
             denyCidrs,
             ...(lookupFn === undefined ? {} : { lookupFn }),
           });
@@ -452,7 +514,15 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           const sampleFresh =
             cachedSample !== undefined &&
             nowMs() - cachedSample.at < sampleTtlMs;
-          if (!sampleFresh && !connectProbesInFlight.has(originKey)) {
+          // The probe opens a raw socket to the resolved TARGET ip. Behind a
+          // proxy that measures a path the request never takes, so it is
+          // skipped: omitting connectMs/tlsMs is honest, reporting a
+          // direct-connection timing for a proxied request is not.
+          if (
+            !guarded.viaProxy &&
+            !sampleFresh &&
+            !connectProbesInFlight.has(originKey)
+          ) {
             connectProbesInFlight.add(originKey);
             // Fire-and-forget: updates the cache for SUBSEQUENT runs. Its own
             // internal timeout bounds it; probeConnectTiming never rejects, but
@@ -487,6 +557,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
             headers: mergeAuthHeader({ headers: request.headers, authHeader }),
             body: request.body,
             signal: controller.signal,
+            ...proxyOption,
           });
           const ttfbMs = Math.max(0, performance.now() - fetchStart);
 

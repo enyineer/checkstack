@@ -7,6 +7,7 @@ import {
 } from "bun:test";
 import * as http from "node:http";
 import { AddressInfo } from "node:net";
+import { getConfigMeta } from "@checkstack/backend-api";
 import {
   buildAuthorizationHeader,
   HttpHealthCheckStrategy,
@@ -35,6 +36,16 @@ describe("HttpHealthCheckStrategy", () => {
   beforeAll(async () => {
     server = http.createServer((req, res) => {
       const url = req.url ?? "/";
+      if (url === "/proxy-auth-required") {
+        res.writeHead(407, { "content-type": "text/plain" });
+        res.end("proxy auth required");
+        return;
+      }
+      if (url === "/bad-gateway") {
+        res.writeHead(502, { "content-type": "text/plain" });
+        res.end("bad gateway");
+        return;
+      }
       if (url === "/notfound") {
         res.writeHead(404, { "content-type": "text/plain" });
         res.end("missing");
@@ -701,6 +712,161 @@ describe("HttpHealthCheckStrategy", () => {
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
       expect(aggregated.errorCount.count).toBe(0);
+    });
+  });
+
+  describe("proxy field contract (secret vs templatable)", () => {
+    /**
+     * `assertNoSecretTemplatableConflict` runs when the strategy is REGISTERED,
+     * so marking a field both `x-secret` and `x-templatable` does not fail a
+     * test - it fails BOOT, for the whole platform. These pin the intended
+     * shape of each proxy field so that combination cannot be introduced.
+     */
+    const shape = () => {
+      // `httpHealthCheckConfigSchema` is a ZodEffects (it has a superRefine),
+      // so reach the inner object to read per-field metadata.
+      const inner = (
+        httpHealthCheckConfigSchema as unknown as {
+          innerType?: () => { shape: Record<string, unknown> };
+          def?: { schema?: { shape: Record<string, unknown> } };
+          shape?: Record<string, unknown>;
+        }
+      );
+      return (
+        inner.def?.schema?.shape ??
+        inner.innerType?.().shape ??
+        inner.shape ??
+        {}
+      );
+    };
+
+    const metaOf = (field: string) =>
+      getConfigMeta(shape()[field] as Parameters<typeof getConfigMeta>[0]);
+
+    it("proxyUrl is templatable and is NOT a secret", () => {
+      // Templatable so one check can use a different proxy per environment.
+      const meta = metaOf("proxyUrl");
+      expect(meta?.["x-templatable"]).toBe(true);
+      expect(meta?.["x-secret"]).toBeFalsy();
+    });
+
+    it("proxyPassword is a secret and is NOT templatable", () => {
+      // A secret field must never be templatable: the two are resolved in
+      // separate ordered passes and the combination is rejected at load.
+      const meta = metaOf("proxyPassword");
+      expect(meta?.["x-secret"]).toBe(true);
+      expect(meta?.["x-templatable"]).toBeFalsy();
+    });
+
+    it("proxyPassword carries a stable secret id", () => {
+      // The stored secret is keyed by this id, not by field position - renaming
+      // or moving the field must not strand the stored value.
+      expect(metaOf("proxyPassword")?.["x-secret-id"]).toBe("proxyPassword");
+    });
+
+    it("no proxy field is both secret and templatable", () => {
+      for (const field of ["proxyUrl", "proxyUsername", "proxyPassword"]) {
+        const meta = metaOf(field);
+        expect(
+          Boolean(meta?.["x-secret"]) && Boolean(meta?.["x-templatable"]),
+        ).toBe(false);
+      }
+    });
+  });
+
+  describe("proxy configuration", () => {
+    it("accepts a valid proxy URL", () => {
+      const parsed = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        proxyUrl: "http://proxy.internal:3128",
+      });
+
+      expect(parsed.success).toBe(true);
+    });
+
+    it("rejects a proxy URL with no scheme", () => {
+      const parsed = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        proxyUrl: "proxy.internal:3128",
+      });
+
+      expect(parsed.success).toBe(false);
+    });
+
+    it("rejects a proxy password with no username", () => {
+      const parsed = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        proxyUrl: "http://proxy.internal:3128",
+        proxyPassword: "hunter2",
+      });
+
+      expect(parsed.success).toBe(false);
+    });
+
+    it("stays valid with no proxy at all (the field is additive)", () => {
+      // Every config stored before this field existed must keep validating,
+      // or the change would need a schema-version bump and a migration.
+      const parsed = httpHealthCheckConfigSchema.safeParse({ timeout: 5000 });
+
+      expect(parsed.success).toBe(true);
+    });
+
+    it("a proxy that returns 407 is a COMPLETED request, not a transport error", async () => {
+      // Collector rule: only a probe that could not complete is a transport
+      // failure. A proxy answering "407 Proxy Authentication Required" DID
+      // complete - it must surface as an assertable statusCode so the operator
+      // can assert on it, not short-circuit the run to unhealthy.
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/proxy-auth-required"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      expect(result.statusCode).toBe(407);
+
+      connectedClient.close();
+    });
+
+    it("a proxy that returns 502 is a COMPLETED request, not a transport error", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/bad-gateway"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      expect(result.statusCode).toBe(502);
+
+      connectedClient.close();
+    });
+
+    it("refuses a proxy pointed at a denied range, even for an allowed target", async () => {
+      // With a proxy configured the guard applies to the PROXY host - it is the
+      // only host this process connects to. Without this the denylist would be
+      // trivially bypassable by routing through a metadata endpoint.
+      const metadataLookup = async () => [
+        { address: "169.254.169.254", family: 4 },
+      ];
+      const proxied = new HttpHealthCheckStrategy(metadataLookup);
+      const connectedClient = await proxied.createClient({
+        timeout: 5000,
+        proxyUrl: "http://metadata.proxy.internal:3128",
+      });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "https://example.com/healthz",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow();
+
+      connectedClient.close();
     });
   });
 });

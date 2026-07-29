@@ -69,6 +69,65 @@ When the HTTP strategy runs on the core (rather than on a satellite), it applies
 
 Internal and private-network targets (RFC1918, your own VPC) remain allowed by default, because probing internal services is a normal monitoring job. Operators who want to block additional ranges can list extra CIDRs in the HTTP strategy config's `egressDenyCidrs`; those are added on top of the always-on metadata/link-local block.
 
+### Routing HTTP checks through a proxy
+
+Networks that require an outbound HTTP proxy - a filtering proxy for staff and
+student traffic, an audited egress gateway - can point a check at it. Set
+**Proxy URL** in the HTTP strategy config, plus a username and password if the
+proxy authenticates:
+
+```text
+http://proxy.internal:3128
+```
+
+#### Proxy credentials
+
+The proxy password is a **secret field**: encrypted at rest, redacted in the UI,
+and delivered to a satellite just in time for each run rather than persisted
+there. It also accepts a stored-secret reference, so the value need not be typed
+into the check at all:
+
+```text
+${{ secrets.PROXY_PASSWORD }}
+```
+
+The proxy **URL** is templatable, so `{{ environment.proxyUrl }}` lets one check
+use a different proxy per environment.
+
+> [!IMPORTANT]
+> The password is deliberately NOT `{{ }}`-templatable. Secret fields and
+> template fields are resolved in separate ordered passes, and marking a field
+> both is rejected when the plugin loads. The practical consequence: you can
+> point at a different proxy per environment, but every environment shares the
+> same proxy credential. If you need genuinely different credentials per
+> environment, use separate checks.
+
+An empty rendered proxy URL - for example `{{ environment.proxyUrl }}` in an
+environment that has no such field - means **no proxy**, and the check connects
+directly with the target guarded as usual. Bear that in mind when templating a
+proxy that is meant to be mandatory: a missing environment field degrades to a
+direct connection rather than to an error.
+
+Checking a service through the same proxy your users go through is a genuine
+monitoring signal: it tells you whether the proxy itself is healthy, not just
+the destination.
+
+> [!IMPORTANT]
+> A configured proxy becomes the **egress policy boundary** for that check. The
+> egress denylist above is applied to the **proxy** host, because that is the
+> only host Checkstack connects to, and the target host is resolved by the proxy
+> rather than by Checkstack. That is deliberate: a filtering proxy is often the
+> only thing that can resolve the target at all (split-horizon or internal-only
+> DNS), so pre-resolving it locally would reject valid checks while proving
+> nothing about the real egress path. Point checks only at proxies you trust.
+
+A proxy that answers with an error is a **completed** request, not a failed one.
+A `407 Proxy Authentication Required` or `502 Bad Gateway` is reported as a
+normal `statusCode` you can write an assertion against - only a failure to reach
+the proxy at all counts as a transport failure. Connection and TLS timings are
+omitted for proxied checks, since the direct-connection probe that measures them
+would time a path the request never takes.
+
 ## Scheduling
 
 The platform schedules each check independently. A check with `intervalSeconds: 60` runs once per minute on every system it is attached to. There is no fancy distributed cron: the backend keeps an internal scheduler that fires queue jobs at the right time.
