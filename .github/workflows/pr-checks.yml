@@ -56,6 +56,14 @@ jobs:
       - name: Check bundled docs index is up to date
         run: bun run generate:docs-index:check
 
+      # The About page shows the PLATFORM RELEASE version (the GitHub release /
+      # Docker tag) alongside the core package version. It is baked in at
+      # version time from core/release/package.json because @checkstack/release
+      # is private and therefore absent from node_modules in npm installs. This
+      # guard fails if the two drift. Run `bun run generate:release-version`.
+      - name: Check generated release version is up to date
+        run: bun run generate:release-version:check
+
       # RLAC drift guard: a frontend management route/nav gated on a team-scopable
       # `manage` rule MUST declare a matching `manageCapability`, or team-scoped
       # users (team grant, no global rule) silently lose the surface. The set of

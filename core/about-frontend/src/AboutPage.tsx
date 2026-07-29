@@ -25,9 +25,24 @@ interface PluginInfo {
 }
 
 interface AboutInfo {
+  /**
+   * The platform release version: what the GitHub release is tagged with, what
+   * the Docker image is tagged with, and what a release announcement names.
+   * Optional so a frontend talking to an older backend degrades to showing the
+   * core version alone rather than rendering "vundefined".
+   */
+  releaseVersion?: string;
+  /**
+   * `@checkstack/backend`'s own package version. Moves only when that package
+   * changes, so it is usually BEHIND the release version - which is exactly
+   * why both are shown, explicitly labelled.
+   */
   coreVersion: string;
   plugins: PluginInfo[];
 }
+
+/** Where a release tag lives, so the shown number is verifiable in one click. */
+const RELEASE_TAG_URL = "https://github.com/enyineer/checkstack/releases/tag/v";
 
 /**
  * Formats a raw package name for display.
@@ -248,22 +263,53 @@ export function AboutPage() {
 
           {aboutInfo && (
             <div className="space-y-6">
-              {/* Core Version: number-led stat panel with a health accent. */}
-              <div className={cn(PANEL_BASE, "pl-5")}>
-                <span
-                  aria-hidden
-                  className="absolute inset-y-0 left-0 w-1 bg-status-ok"
-                />
-                <p className="text-3xl font-bold tabular-nums leading-none text-foreground">
-                  v{aboutInfo.coreVersion}
-                </p>
-                <div className="mt-2">
-                  <p className="text-xs font-medium text-foreground">
-                    Checkstack Core
+              {/* Two versions, side by side and labelled. The RELEASE number
+                  leads because it is the one users can match against a GitHub
+                  release, a Docker tag, or a changelog; the core package
+                  version is the supporting detail that used to be shown alone
+                  and could not be reconciled with any of those. */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {aboutInfo.releaseVersion && (
+                  <div className={cn(PANEL_BASE, "pl-5")}>
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 left-0 w-1 bg-primary"
+                    />
+                    <p className="text-3xl font-bold tabular-nums leading-none text-foreground">
+                      v{aboutInfo.releaseVersion}
+                    </p>
+                    <div className="mt-2">
+                      <p className="text-xs font-medium text-foreground">
+                        Checkstack Release
+                      </p>
+                      <a
+                        href={`${RELEASE_TAG_URL}${aboutInfo.releaseVersion}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Release notes and Docker tag
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                <div className={cn(PANEL_BASE, "pl-5")}>
+                  <span
+                    aria-hidden
+                    className="absolute inset-y-0 left-0 w-1 bg-status-ok"
+                  />
+                  <p className="text-3xl font-bold tabular-nums leading-none text-foreground">
+                    v{aboutInfo.coreVersion}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Backend platform engine
-                  </p>
+                  <div className="mt-2">
+                    <p className="text-xs font-medium text-foreground">
+                      Checkstack Core
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Backend platform engine package
+                    </p>
+                  </div>
                 </div>
               </div>
 
