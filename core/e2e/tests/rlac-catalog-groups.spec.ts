@@ -135,7 +135,7 @@ test("a system-creator team may also create & manage its own groups and environm
 
     // Add the member by email.
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page.getByRole("button", { name: new RegExp(MEMBER.name) }).click();
     await expect(page.getByText("Member added successfully")).toBeVisible({

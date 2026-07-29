@@ -133,18 +133,26 @@ test("a team with automation-create rights gets the full create flow incl. servi
       timeout: NAV,
     });
 
-    await page
-      .getByRole("row", { name: new RegExp(TEAM_NAME) })
-      .getByRole("button", { name: /Manage/i })
-      .click();
+    // The success toast fires BEFORE the teams list has refetched, so the new
+    // row can lag behind it. Under full-suite load that lag has exceeded the
+    // test timeout, which then reads as "the Manage button does not exist".
+    // Reload if the row has not appeared rather than waiting indefinitely on a
+    // refetch that may already have settled elsewhere.
     const manage = page.getByRole("dialog");
-    await expect(
-      manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
-    ).toBeVisible();
+    await expect(async () => {
+      const row = page.getByRole("row", { name: new RegExp(TEAM_NAME) });
+      if (!(await row.isVisible().catch(() => false))) {
+        await page.reload();
+      }
+      await row.getByRole("button", { name: /Manage/i }).click();
+      await expect(
+        manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
+      ).toBeVisible();
+    }).toPass({ timeout: NAV });
 
     // Add the member.
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page.getByRole("button", { name: new RegExp(MEMBER.name) }).click();
     await expect(page.getByText("Member added successfully")).toBeVisible({

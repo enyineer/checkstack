@@ -143,7 +143,7 @@ test("a team member managing a check can open its editor and manage its anomaly 
 
     // Add the member by email (combobox results are buttons in a portal).
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page.getByRole("button", { name: new RegExp(MEMBER.name) }).click();
     await expect(page.getByText("Member added successfully")).toBeVisible({

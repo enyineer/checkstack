@@ -80,10 +80,34 @@ test.describe("Status pages", () => {
     // 2. In the builder, add a Heading content widget and fill its text.
     await expect(page).toHaveURL(/\/statuspage\/[^/]+$/, { timeout: 30_000 });
 
-    // The "Add a block…" select lists the registered widget types.
-    await page.getByRole("combobox", { name: /Add a block/i }).click();
-    await page.getByRole("option", { name: "Heading" }).click();
-    await page.getByRole("button", { name: "Add" }).click();
+    // The "Add a block…" select lists the registered widget types. The "Add"
+    // button is `disabled={!addType}`, so it only becomes clickable once the
+    // selection has actually landed.
+    //
+    // Retry the whole open-and-pick: clicking an option while the select is
+    // still running its open animation can land before the item is
+    // interactive, leaving `addType` unset - and the symptom is then a
+    // confusing 30s timeout on the "Add" BUTTON rather than on the select.
+    // Asserting the trigger reflects the choice makes the failure land where
+    // the cause is.
+    const blockSelect = page.getByRole("combobox", { name: /Add a block/i });
+    const headingOption = page.getByRole("option", { name: "Heading" });
+    await expect(async () => {
+      // Only open the popover if it is not ALREADY open: the builder's
+      // live-preview re-render intermittently leaves it open (see
+      // `support/status-page-seed.ts`, which avoids this control entirely for
+      // that reason), and blindly clicking the trigger would toggle it shut and
+      // oscillate on every retry.
+      if (!(await headingOption.isVisible().catch(() => false))) {
+        await blockSelect.click();
+      }
+      await headingOption.click();
+      await expect(blockSelect).toContainText("Heading");
+    }).toPass({ timeout: 30_000 });
+
+    const addBlockButton = page.getByRole("button", { name: "Add" });
+    await expect(addBlockButton).toBeEnabled();
+    await addBlockButton.click();
 
     // Fill the heading text (the block's inline editor input).
     await page.getByPlaceholder("Heading text").fill(HEADING_TEXT);

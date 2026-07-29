@@ -144,7 +144,7 @@ test("a team member manages only the systems their team is granted", async ({
 
     // Add the member by email (combobox results are buttons in a portal).
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page
       .getByRole("button", { name: new RegExp(MEMBER.name) })
