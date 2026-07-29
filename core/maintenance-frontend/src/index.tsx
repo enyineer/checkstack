@@ -2,6 +2,7 @@ import {
   createFrontendPlugin,
   createSlotExtension,
   DashboardSlot,
+  NavbarRightSlot,
 } from "@checkstack/frontend-api";
 import { Wrench } from "lucide-react";
 import {
@@ -17,7 +18,14 @@ import {
   catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
+import { MaintenanceMentionRegistrar } from "./components/MaintenanceMentionRegistrar";
+import { registerMaintenanceMentions } from "./utils/mentions";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
+
+// Registered at MODULE scope so every already-written maintenance mention
+// resolves as soon as this plugin loads. The search half installs later (see
+// the registrar).
+registerMaintenanceMentions();
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -72,6 +80,12 @@ export default createFrontendPlugin({
   // No APIs needed - components use usePluginClient() directly
   apis: [],
   extensions: [
+    // App-level slot, NOT a per-row one: this is a headless singleton issuing a
+    // single query, and a per-row slot would mount it once per visible system.
+    createSlotExtension(NavbarRightSlot, {
+      id: "maintenance.mention-registrar",
+      component: MaintenanceMentionRegistrar,
+    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "maintenance.system-maintenance-badge",
       component: SystemMaintenanceBadge,

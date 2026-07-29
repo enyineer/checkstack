@@ -11,6 +11,7 @@ import {
   accessApiRef,
   useApi,
   ExtensionSlot,
+  useMentions,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
@@ -37,6 +38,7 @@ import {
   useToast,
   toastError,
   MarkdownBlock,
+  ReferencedItems,
   LinksEditor,
 } from "@checkstack/ui";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
@@ -65,6 +67,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const maintenanceClient = usePluginClient(MaintenanceApi);
+  const { resolveMention } = useMentions();
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
@@ -263,11 +266,40 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 <h4 className="text-sm font-medium text-muted-foreground mb-1">
                   Description
                 </h4>
-                <MarkdownBlock size="sm" className="text-foreground">
+                <MarkdownBlock
+                  size="sm"
+                  className="text-foreground"
+                  resolveMention={resolveMention}
+                >
                   {maintenance.description}
                 </MarkdownBlock>
               </div>
             )}
+
+            {/* Derived from the authored text on every render - nothing is
+                stored twice, so an edit that drops a reference drops it here
+                too. */}
+            <ReferencedItems
+              documents={[
+                maintenance.description ?? "",
+                ...maintenance.updates.map((update) => update.message),
+              ]}
+              resolve={(ref) => {
+                const url = resolveMention(ref);
+                // The label comes from the authored link text, so no lookup is
+                // needed - and an unresolvable reference is OMITTED rather than
+                // listed as a dead chip that still confirms it exists.
+                return url ? { ...ref, url } : undefined;
+              }}
+              renderLink={(reference) => (
+                <Link
+                  to={reference.url}
+                  className="inline-flex items-center rounded-full border border-border/70 bg-surface-inset px-2.5 py-0.5 text-xs font-medium text-foreground hover:border-primary/40"
+                >
+                  {reference.label}
+                </Link>
+              )}
+            />
 
             <div className="grid grid-cols-2 gap-4">
               <div>

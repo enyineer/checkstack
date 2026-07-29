@@ -1,5 +1,5 @@
 import React from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router";
 import {
   usePluginClient,
   accessApiRef,
@@ -7,6 +7,7 @@ import {
   useQueryClient,
   wrapInSuspense,
   ExtensionSlot,
+  useMentions,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { IncidentApi } from "../api";
@@ -30,6 +31,7 @@ import {
   toastError,
   cn,
   MarkdownBlock,
+  ReferencedItems,
   LinksEditor,
 } from "@checkstack/ui";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
@@ -57,6 +59,7 @@ const IncidentDetailPageContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const incidentClient = usePluginClient(IncidentApi);
+  const { resolveMention } = useMentions();
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const queryClient = useQueryClient();
@@ -259,11 +262,40 @@ const IncidentDetailPageContent: React.FC = () => {
                   <h4 className="text-xs font-medium text-muted-foreground mb-1">
                     Description
                   </h4>
-                  <MarkdownBlock size="sm" className="text-foreground">
+                  <MarkdownBlock
+                    size="sm"
+                    className="text-foreground"
+                    resolveMention={resolveMention}
+                  >
                     {incident.description}
                   </MarkdownBlock>
                 </div>
               )}
+
+              {/* Derived from the authored text on every render - nothing is
+                  stored twice, so an edit that drops a reference drops it here
+                  too. */}
+              <ReferencedItems
+                documents={[
+                  incident.description ?? "",
+                  ...incident.updates.map((update) => update.message),
+                ]}
+                resolve={(ref) => {
+                  const url = resolveMention(ref);
+                  // The label comes from the authored link text, so no lookup
+                  // is needed - and an unresolvable reference is OMITTED rather
+                  // than listed as a dead chip that still confirms it exists.
+                  return url ? { ...ref, url } : undefined;
+                }}
+                renderLink={(reference) => (
+                  <Link
+                    to={reference.url}
+                    className="inline-flex items-center rounded-full border border-border/70 bg-surface-inset px-2.5 py-0.5 text-xs font-medium text-foreground hover:border-primary/40"
+                  >
+                    {reference.label}
+                  </Link>
+                )}
+              />
 
               <div className="border-t border-border/60 pt-4">
                 <h4 className="text-xs font-medium text-muted-foreground mb-1">
@@ -340,6 +372,7 @@ const IncidentDetailPageContent: React.FC = () => {
             <IncidentUpdatesSection
               incidentId={incident.id}
               currentStatus={incident.status}
+              severity={incident.severity}
               updates={incident.updates}
               onChanged={handleUpdatesChanged}
               emptyDescription="No status updates have been posted for this incident."

@@ -13,3 +13,5 @@ export * from "./use-plugin-route";
 export * from "./runtime-config";
 export * from "./bootstrap";
 export * from "./orpc-query";
+export * from "./mentions";
+export * from "./use-mentions";

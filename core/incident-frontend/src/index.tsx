@@ -1,6 +1,7 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
+  NavbarRightSlot,
 } from "@checkstack/frontend-api";
 import {
   incidentRoutes,
@@ -16,7 +17,14 @@ import {
 } from "@checkstack/catalog-common";
 import { AlertTriangle } from "lucide-react";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
+import { IncidentMentionRegistrar } from "./components/IncidentMentionRegistrar";
+import { registerIncidentMentions } from "./utils/mentions";
 import { SystemIncidentBadge } from "./components/SystemIncidentBadge";
+
+// Registered at MODULE scope so every already-written incident mention
+// resolves as soon as this plugin loads - before, and independently of,
+// anything React renders. The search half installs later (see the registrar).
+registerIncidentMentions();
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -79,6 +87,13 @@ export default createFrontendPlugin({
   // No APIs needed - components use usePluginClient() directly
   apis: [],
   extensions: [
+    // Mounted on the app-level navbar slot, NOT a per-row slot: this is a
+    // headless singleton that issues one query, and a per-row slot would mount
+    // (and query) once per visible system.
+    createSlotExtension(NavbarRightSlot, {
+      id: "incident.mention-registrar",
+      component: IncidentMentionRegistrar,
+    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "incident.system-incident-badge",
       component: SystemIncidentBadge,
