@@ -1,72 +1,60 @@
-import { useEffect, useState } from "react";
-import { Moon, Sun } from "lucide-react";
-import { Toggle, useTheme, useToast } from "@checkstack/ui";
+import { useState } from "react";
+import { Palette } from "lucide-react";
+import { useTheme, useToast, type Theme } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { ThemeApi } from "@checkstack/theme-common";
 import { extractErrorMessage } from "@checkstack/common";
+import { ThemeModeSelector } from "./ThemeModeSelector";
 
 /**
- * Theme toggle menu item for logged-in users (displayed in UserMenu).
+ * Theme selector for logged-in users (displayed in UserMenu).
  *
- * Saves theme to both backend (for persistence across devices) and
+ * Saves the theme to both the backend (for persistence across devices) and
  * local storage (for continuity when logging out).
  *
- * Theme initialization is handled by ThemeSynchronizer component.
+ * Theme initialization is handled by ThemeSynchronizer.
  */
 export const ThemeToggleMenuItem = () => {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const themeClient = usePluginClient(ThemeApi);
   const setThemeMutation = themeClient.setTheme.useMutation();
-
-  const [isDark, setIsDark] = useState(resolvedTheme === "dark");
   const toast = useToast();
 
-  // Update local state when theme changes (e.g., from ThemeSynchronizer)
-  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- one-way mirror of the global resolved theme (a primitive) into local toggle display; the user never edits this state, so there is nothing to wipe.
-  useEffect(() => {
-    setIsDark(resolvedTheme === "dark");
-  }, [resolvedTheme]);
+  // Only used to restore the previous choice if the save fails. The displayed
+  // value comes straight from the provider, so there is no local mirror of the
+  // theme to fall out of sync with it.
+  const [saving, setSaving] = useState(false);
 
-  const handleToggle = async (checked: boolean) => {
-    const newTheme = checked ? "dark" : "light";
+  const handleSelect = async (nextTheme: Theme) => {
+    if (nextTheme === theme) return;
+    const previous = theme;
 
-    // Update UI immediately
-    setIsDark(checked);
-    setTheme(newTheme); // Also updates local storage via ThemeProvider
+    // Apply immediately - the choice should feel instant even if the round-trip
+    // is slow. Also persists to local storage via ThemeProvider.
+    setTheme(nextTheme);
+    setSaving(true);
 
-    // Save to backend
     try {
-      await setThemeMutation.mutateAsync({ theme: newTheme });
+      await setThemeMutation.mutateAsync({ theme: nextTheme });
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Failed to save theme preference");
-      toast.error(message);
-      // Revert on error
-      setIsDark(!checked);
-      setTheme(checked ? "light" : "dark");
+      toast.error(extractErrorMessage(error, "Failed to save theme preference"));
+      setTheme(previous);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-between w-full px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground rounded-sm transition-colors">
-      <div className="flex flex-col flex-1 items-start">
-        <div className="flex items-center w-full">
-          {isDark ? (
-            <Moon className="h-4 w-4 text-muted-foreground shrink-0 mr-3" />
-          ) : (
-            <Sun className="h-4 w-4 text-muted-foreground shrink-0 mr-3" />
-          )}
-          <span className="flex-1 text-left">Dark Mode</span>
-        </div>
+    <div className="flex items-center justify-between gap-3 w-full px-4 py-2 text-sm text-popover-foreground rounded-sm">
+      <div className="flex items-center min-w-0">
+        <Palette className="h-4 w-4 text-muted-foreground shrink-0 mr-3" />
+        <span className="truncate">Theme</span>
       </div>
-      <div className="ml-2 shrink-0 flex items-center">
-        <Toggle
-          checked={isDark}
-          onCheckedChange={handleToggle}
-          disabled={setThemeMutation.isPending}
-          aria-label="Toggle dark mode"
-        />
-      </div>
+      <ThemeModeSelector
+        value={theme}
+        onChange={(next) => void handleSelect(next)}
+        disabled={saving}
+      />
     </div>
   );
 };
