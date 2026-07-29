@@ -40,8 +40,10 @@ export class SatelliteService {
     name: string;
     region: string;
     tags: Record<string, string>;
+    /** Offline tolerance override; omit to follow the platform default. */
+    offlineThresholdMs?: number;
   }): Promise<{ satellite: SatelliteWithStatus; plaintextToken: string }> {
-    const { name, region, tags } = props;
+    const { name, region, tags, offlineThresholdMs } = props;
 
     // Generate a cryptographically random token with a recognizable prefix
     const randomBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -61,6 +63,7 @@ export class SatelliteService {
         region,
         tags,
         tokenHash,
+        offlineThresholdMs: offlineThresholdMs ?? null,
       })
       .returning();
 
@@ -71,6 +74,7 @@ export class SatelliteService {
       tags: row.tags,
       capabilities: row.capabilities,
       lastHeartbeatAt: row.lastHeartbeatAt ?? undefined,
+      offlineThresholdMs: row.offlineThresholdMs ?? undefined,
       version: row.version ?? undefined,
       createdAt: row.createdAt,
       status: "offline",
@@ -95,11 +99,20 @@ export class SatelliteService {
     name?: string;
     region?: string;
     tags?: Record<string, string>;
+    /**
+     * `null` clears the override (back to the platform default); `undefined`
+     * leaves the current value untouched. The two must stay distinguishable,
+     * or clearing an override would be impossible.
+     */
+    offlineThresholdMs?: number | null;
   }): Promise<SatelliteWithStatus | undefined> {
     const updates: Partial<typeof satellites.$inferInsert> = {};
     if (props.name !== undefined) updates.name = props.name;
     if (props.region !== undefined) updates.region = props.region;
     if (props.tags !== undefined) updates.tags = props.tags;
+    if (props.offlineThresholdMs !== undefined) {
+      updates.offlineThresholdMs = props.offlineThresholdMs;
+    }
     if (Object.keys(updates).length === 0) return this.getSatellite(props.id);
 
     const [row] = await this.db
@@ -235,11 +248,18 @@ export class SatelliteService {
    */
   async getOnlineSatelliteIds(): Promise<string[]> {
     const rows = await this.db
-      .select({ id: satellites.id, lastHeartbeatAt: satellites.lastHeartbeatAt })
+      .select({
+        id: satellites.id,
+        lastHeartbeatAt: satellites.lastHeartbeatAt,
+        offlineThresholdMs: satellites.offlineThresholdMs,
+      })
       .from(satellites);
 
     return rows
-      .filter((row) => computeStatus(row.lastHeartbeatAt) === "online")
+      .filter((row) => computeStatus({
+        lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
+      }) === "online")
       .map((row) => row.id);
   }
 
@@ -267,6 +287,7 @@ export class SatelliteService {
         name: satellites.name,
         region: satellites.region,
         lastHeartbeatAt: satellites.lastHeartbeatAt,
+        offlineThresholdMs: satellites.offlineThresholdMs,
         lastConnectionEvent: satellites.lastConnectionEvent,
       })
       .from(satellites)
@@ -278,6 +299,7 @@ export class SatelliteService {
         name: row.name,
         region: row.region,
         lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
         lastConnectionEvent: row.lastConnectionEvent,
       });
       if (state) out[row.id] = state;
@@ -298,6 +320,7 @@ export class SatelliteService {
       name: string;
       region: string;
       lastHeartbeatAt: Date | null;
+      offlineThresholdMs: number | null;
       lastConnectionEvent: SatelliteConnectionEvent | null;
     }>
   > {
@@ -307,6 +330,7 @@ export class SatelliteService {
         name: satellites.name,
         region: satellites.region,
         lastHeartbeatAt: satellites.lastHeartbeatAt,
+        offlineThresholdMs: satellites.offlineThresholdMs,
         lastConnectionEvent: satellites.lastConnectionEvent,
       })
       .from(satellites);
@@ -358,7 +382,10 @@ export class SatelliteService {
     }
 
     return {
-      status: computeStatus(row.lastHeartbeatAt),
+      status: computeStatus({
+        lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
+      }),
       name: row.name,
       region: row.region,
       lastSeenAt: row.lastHeartbeatAt
@@ -381,9 +408,13 @@ export class SatelliteService {
       tags: row.tags,
       capabilities: row.capabilities,
       lastHeartbeatAt: row.lastHeartbeatAt ?? undefined,
+      offlineThresholdMs: row.offlineThresholdMs ?? undefined,
       version: row.version ?? undefined,
       createdAt: row.createdAt,
-      status: computeStatus(row.lastHeartbeatAt),
+      status: computeStatus({
+        lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
+      }),
     };
   }
 }

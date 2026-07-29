@@ -4,6 +4,7 @@ import {
   persistRunAndReact,
 } from "./queue-executor";
 import { reconcileHealthCheckJobs } from "./schedule-reconciler";
+import { SatelliteApi } from "@checkstack/satellite-common";
 import { setupRetentionJob } from "./retention-job";
 import * as schema from "./schema";
 import {
@@ -523,6 +524,15 @@ export default createBackendPlugin({
           cache,
           secretResolver,
           internalSecrets,
+          // Lets a satellite-ONLY check notice that none of its satellites are
+          // online and record a degraded run, instead of silently recording
+          // nothing and leaving its last status on screen forever. Resolved by
+          // RPC so this plugin keeps no direct dependency on satellite-backend.
+          getOnlineSatelliteIds: async () => {
+            const satelliteClient = rpcClient.forPlugin(SatelliteApi);
+            const result = await satelliteClient.getOnlineSatelliteIds();
+            return result.satelliteIds;
+          },
         });
 
         // Setup retention job for tiered storage (daily aggregation)

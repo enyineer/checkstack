@@ -1,0 +1,1 @@
+ALTER TABLE "satellites" ADD COLUMN "offline_threshold_ms" integer;

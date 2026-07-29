@@ -68,3 +68,10 @@ export {
 } from "./constants";
 export * from "./plugin-metadata";
 export { satelliteRoutes } from "./routes";
+export {
+  satelliteTarget,
+  satelliteConnectionSubscription,
+  satelliteCollapseKey,
+  createSatelliteSubject,
+  type SatelliteResource,
+} from "./notifications";

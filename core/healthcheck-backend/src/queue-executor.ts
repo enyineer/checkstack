@@ -78,6 +78,10 @@ import {
   type HealthEntityState,
 } from "./health-entity";
 import { encodeHealthEntityId } from "./health-entity-id";
+import {
+  buildUnobservableRun,
+  resolveSatelliteOnlyOutcome,
+} from "./satellite-liveness";
 import type { EntityHandle } from "@checkstack/automation-backend";
 
 type Db = SafeDatabase<typeof schema>;
@@ -859,6 +863,15 @@ async function executeHealthCheckJob(props: {
    * is skipped and the run executes exactly as before (full timeout, no lane).
    */
   slowCheckRuntime?: SlowCheckRuntime | null;
+  /**
+   * Resolves the ids of every currently-online satellite.
+   *
+   * Injected rather than imported so this module keeps no dependency on the
+   * satellite plugin, and so the unobservable-check path is testable without
+   * one. When absent, satellite-only checks behave exactly as they did before:
+   * the core stays silent and lets the satellites report.
+   */
+  getOnlineSatelliteIds?: () => Promise<string[]>;
 }): Promise<void> {
   const {
     payload,
@@ -878,6 +891,7 @@ async function executeHealthCheckJob(props: {
     secretResolver,
     internalSecrets,
     slowCheckRuntime,
+    getOnlineSatelliteIds,
   } = props;
   const { configId, systemId } = payload;
 
@@ -951,16 +965,87 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
-    // If includeLocal is false and satellites are assigned, skip local execution
-    // (satellites handle execution, local core doesn't run this check)
+    // If includeLocal is false and satellites are assigned, the SATELLITES
+    // execute this check and the core does not.
+    //
+    // But "the core does not run it" is not the same as "nothing needs to
+    // happen". If every assigned satellite is offline, nobody runs it, and
+    // returning silently (as this once did) leaves the check displaying its
+    // last known status forever - a dead probe reading exactly like a passing
+    // one. So an unobservable check records a `degraded` run instead.
     if (
       !configRow.includeLocal &&
       configRow.satelliteIds &&
       configRow.satelliteIds.length > 0
     ) {
-      logger.debug(
-        `Health check ${configId} for system ${systemId} is satellite-only, skipping local execution`,
+      const satelliteIds = configRow.satelliteIds;
+      // Left UNSET (not empty) when liveness cannot be resolved: an empty list
+      // would read as "every satellite is offline" and mark the whole fleet's
+      // satellite-only checks degraded on a transient lookup failure.
+      let onlineSatelliteIds: string[] | undefined;
+      if (getOnlineSatelliteIds) {
+        try {
+          onlineSatelliteIds = await getOnlineSatelliteIds();
+        } catch (error) {
+          logger.warn(
+            `Could not resolve satellite liveness for ${configId}/${systemId}; treating as executing`,
+            error,
+          );
+        }
+      }
+
+      const outcome = resolveSatelliteOnlyOutcome({
+        satelliteIds,
+        ...(onlineSatelliteIds === undefined ? {} : { onlineSatelliteIds }),
+      });
+
+      if (outcome === "satellites-executing") {
+        logger.debug(
+          `Health check ${configId} for system ${systemId} is satellite-only, skipping local execution`,
+        );
+        return;
+      }
+
+      logger.warn(
+        `Health check ${configId} for system ${systemId} has no online satellite ` +
+          `(${satelliteIds.length} assigned); recording a degraded run so the gap is visible`,
       );
+
+      let unobservableSystemName = systemId;
+      try {
+        const system = await catalogClient.getSystem({ systemId });
+        if (system) unobservableSystemName = system.name;
+      } catch {
+        // Fall back to the id; a missing display name must not swallow the run.
+      }
+
+      await persistRunAndReact({
+        db,
+        service,
+        cache,
+        signalService,
+        notificationClient,
+        catalogClient,
+        maintenanceClient,
+        incidentClient,
+        ...(getHealthEntity ? { getHealthEntity } : {}),
+        getEmitHook,
+        collectorRegistry,
+        advisoryLock,
+        logger,
+        systemId,
+        systemName: unobservableSystemName,
+        configId,
+        ...(configRow.configName ? { configName: configRow.configName } : {}),
+        // The job payload already names the single (config, system, env) slice
+        // this tick owns, so the stale run lands on exactly the slice the
+        // satellites would have reported for.
+        ...buildUnobservableRun({
+          environmentId: payload.environmentId,
+          satelliteIds,
+        }),
+        runTimestamp: new Date(),
+      });
       return;
     }
 
@@ -1772,6 +1857,15 @@ export async function setupHealthCheckWorker(props: {
    * don't exercise the bulkhead), or a concrete runtime to drive it.
    */
   slowCheckRuntime?: SlowCheckRuntime | null;
+  /**
+   * Resolves the ids of every currently-online satellite.
+   *
+   * Injected rather than imported so this module keeps no dependency on the
+   * satellite plugin, and so the unobservable-check path is testable without
+   * one. When absent, satellite-only checks behave exactly as they did before:
+   * the core stays silent and lets the satellites report.
+   */
+  getOnlineSatelliteIds?: () => Promise<string[]>;
 }): Promise<void> {
   const {
     db,
@@ -1790,6 +1884,7 @@ export async function setupHealthCheckWorker(props: {
     cache,
     secretResolver,
     internalSecrets,
+    getOnlineSatelliteIds,
   } = props;
 
   // Resolve the slow-check runtime once at startup unless the caller supplied
@@ -1826,6 +1921,7 @@ export async function setupHealthCheckWorker(props: {
         secretResolver,
         internalSecrets,
         slowCheckRuntime,
+        ...(getOnlineSatelliteIds ? { getOnlineSatelliteIds } : {}),
       });
     },
     {

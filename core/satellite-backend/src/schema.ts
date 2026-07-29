@@ -3,6 +3,7 @@ import {
   text,
   jsonb,
   uuid,
+  integer,
   timestamp,
 } from "drizzle-orm/pg-core";
 
@@ -36,6 +37,23 @@ export const satellites = pgTable("satellites", {
    * if the pod that owned the socket crashed without writing offline.
    */
   lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  /**
+   * How long this satellite may go without a heartbeat before it counts as
+   * offline, in milliseconds. NULL means "use the platform default"
+   * ({@link OFFLINE_THRESHOLD_MS}), which is what every satellite created
+   * before this column existed keeps doing.
+   *
+   * Per-satellite because tolerance is a property of the LINK, not of the
+   * platform: a satellite on a flaky VPN or a metered uplink needs minutes of
+   * grace, while one in the same datacentre should be reported offline in
+   * seconds. A single global value forces the loosest satellite's tolerance on
+   * every other one.
+   *
+   * Read it wherever `computeStatus` is called - all three readers (the entity
+   * read, the admin list, the heartbeat monitor) MUST use the same value or
+   * they will disagree about whether the same satellite is online.
+   */
+  offlineThresholdMs: integer("offline_threshold_ms"),
   /** Satellite version reported on connect/heartbeat */
   version: text("version"),
   /**

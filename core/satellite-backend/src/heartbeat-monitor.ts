@@ -22,6 +22,22 @@ export interface SatelliteHeartbeatEntitySink {
 }
 
 /**
+ * Notifies subscribers that a satellite lost its heartbeat.
+ *
+ * Called from the same guarded branch as the entity mirror, so it inherits the
+ * monitor's idempotency: the durable `lastConnectionEvent` flip means the
+ * branch is entered exactly once per offline edge, cluster-wide, no matter how
+ * many pods run the check.
+ */
+export interface SatelliteOfflineNotifier {
+  notifyOffline: (props: {
+    satelliteId: string;
+    name: string;
+    region: string;
+  }) => Promise<void>;
+}
+
+/**
  * Monitors satellite heartbeats and detects the online→offline transition from
  * DURABLE state alone — no pod-local baseline.
  *
@@ -61,6 +77,7 @@ export class HeartbeatMonitor {
     private signalService: SignalService,
     private logger: Logger,
     private entitySink?: SatelliteHeartbeatEntitySink,
+    private notifier?: SatelliteOfflineNotifier,
   ) {}
 
   /**
@@ -73,7 +90,10 @@ export class HeartbeatMonitor {
     const liveIds = new Set(rows.map((r) => r.id));
 
     for (const row of rows) {
-      const status = computeStatus(row.lastHeartbeatAt);
+      const status = computeStatus({
+        lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
+      });
       const lostHeartbeat = this.hasLostHeartbeat({
         status,
         lastConnectionEvent: row.lastConnectionEvent,
@@ -103,6 +123,25 @@ export class HeartbeatMonitor {
           name: row.name,
           region: row.region,
         });
+      }
+
+      // Tell subscribers BEFORE mirroring: the mirror is what makes this branch
+      // unreachable again, so notifying after it would be lost if the mirror
+      // succeeded and the process died before the notification went out.
+      // Notification failure must never block the entity edge, hence the catch.
+      if (this.notifier) {
+        try {
+          await this.notifier.notifyOffline({
+            satelliteId: row.id,
+            name: row.name,
+            region: row.region,
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to notify subscribers that satellite ${row.name} went offline:`,
+            error,
+          );
+        }
       }
 
       // Drive the entity edge. The mutate is idempotent: it flips

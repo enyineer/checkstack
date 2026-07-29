@@ -14,11 +14,22 @@ import {
   Button,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   useToast,
   toastError,
   useSeedFormOnOpen,
 } from "@checkstack/ui";
 import { CapabilityExplainer } from "./CapabilityExplainer";
+import {
+  DEFAULT_THRESHOLD_VALUE,
+  fromSelectValue,
+  optionsWithCurrent,
+  toSelectValue,
+} from "./offline-threshold.logic";
 
 interface Props {
   satellite: SatelliteWithStatus | undefined;
@@ -41,6 +52,7 @@ export const EditSatelliteDialog: React.FC<Props> = ({
 
   const [name, setName] = useState("");
   const [region, setRegion] = useState("");
+  const [thresholdValue, setThresholdValue] = useState(DEFAULT_THRESHOLD_VALUE);
 
   // Seed once when the dialog opens (satellite becomes defined) so an
   // in-flight background refetch of `satellite` doesn't wipe in-progress edits.
@@ -48,6 +60,9 @@ export const EditSatelliteDialog: React.FC<Props> = ({
     if (satellite) {
       setName(satellite.name);
       setRegion(satellite.region);
+      setThresholdValue(
+        toSelectValue({ offlineThresholdMs: satellite.offlineThresholdMs }),
+      );
     }
   });
 
@@ -77,6 +92,9 @@ export const EditSatelliteDialog: React.FC<Props> = ({
       id: satellite.id,
       name: name.trim(),
       region: region.trim(),
+      // `null` clears the override back to the platform default - distinct
+      // from omitting the field, which would leave it unchanged.
+      offlineThresholdMs: fromSelectValue({ value: thresholdValue }),
     });
   };
 
@@ -116,6 +134,37 @@ export const EditSatelliteDialog: React.FC<Props> = ({
               A descriptive identifier for the geographic location, e.g.
               &quot;eu-west-1&quot;, &quot;us-east-2&quot;, or
               &quot;datacenter-fra&quot;.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="edit-sat-threshold">Offline after</Label>
+            <Select value={thresholdValue} onValueChange={setThresholdValue}>
+              <SelectTrigger id="edit-sat-threshold">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {optionsWithCurrent({
+                  offlineThresholdMs: satellite.offlineThresholdMs,
+                }).map((option) => (
+                  <SelectItem
+                    key={option.value ?? DEFAULT_THRESHOLD_VALUE}
+                    value={
+                      option.value === null
+                        ? DEFAULT_THRESHOLD_VALUE
+                        : String(option.value)
+                    }
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              How long this satellite may go without a heartbeat before it is
+              reported offline. Raise it for a link known to be flaky; a
+              satellite reported offline stops being sent health checks, and
+              notifies anyone subscribed to its connectivity.
             </p>
           </div>
 

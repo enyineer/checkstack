@@ -149,9 +149,37 @@ gap caused by a satellite outage is visible rather than silent.
 
 ## Heartbeats and online status
 
-The satellite emits a heartbeat on its WebSocket connection. The core keeps a `last_heartbeat_at` per satellite. A satellite is considered **online** while its connection is open; if the connection drops or stops heartbeating, it goes **offline** and the core stops queuing jobs to it. Pending jobs surface as failed runs with a clear "satellite offline" message instead of silently never executing.
+The satellite emits a heartbeat on its WebSocket connection. The core keeps a `last_heartbeat_at` per satellite. A satellite is considered **online** while its connection is open; if the connection drops or stops heartbeating, it goes **offline** and the core stops queuing jobs to it.
+
+### What happens to the checks it was running
+
+A check assigned only to satellites (**Include local** off) is executed by those satellites and not by the core. If every satellite assigned to it is offline, nobody runs it - so the core records a **degraded** run carrying a "no assigned satellite is online" message.
+
+Degraded, not unhealthy: the target may be perfectly fine, and what actually failed is our ability to observe it. Marking it unhealthy would raise incident-grade alarms about healthy services every time a satellite host reboots.
+
+> [!IMPORTANT]
+> This is why the state matters. Recording nothing at all - which is what happened before - left the check displaying its last known status indefinitely, so a probe that had stopped running looked exactly like one that was passing. If a check's satellites are all down, you should see that, not a stale green.
+
+Checks also surface how old their last run is. When a check has been silent for five intervals (and at least ten minutes), its **last run** stat is highlighted and labelled stale, so an ageing status is visible even when no run was recorded to explain it.
 
 The satellites list in **Infrastructure -> Satellites** shows current online state, last heartbeat timestamp, satellite version, and tags.
+
+### How long before a satellite counts as offline
+
+By default a satellite is reported offline once its heartbeat is 45 seconds old (three heartbeat intervals). That is right for a satellite on a reliable link and too twitchy for one on a metered or intermittent uplink, so the tolerance is **per satellite**: edit it and pick an **Offline after** value, from 2 minutes up to 24 hours, or leave it on the platform default.
+
+The value is a property of the link, not of the platform. Raising it for one flaky satellite does not make every other satellite slower to report.
+
+> [!NOTE]
+> The same threshold governs every reader - the satellites list, the automation entity, and the background heartbeat monitor - so they can never disagree about whether a given satellite is online.
+
+### Being told when a satellite goes offline
+
+A satellite going quiet is consequential and easy to miss: the checks it executes simply stop producing runs, so the systems it probes keep displaying their last known status.
+
+Subscribe to it directly. Under **Notification settings**, each satellite offers a **Satellite connectivity** subscription that notifies you when it stops heartbeating (a warning) and when it comes back (informational). Notifications are collapsed per satellite, so a flapping link replaces its own previous notice instead of stacking one per transition.
+
+If you want different routing or richer conditions, the same transitions are also available as automation triggers - `satellite.connected`, `satellite.disconnected`, and `satellite.heartbeat_lost` - which you can wire to any automation action. Use a subscription for "tell me", and an automation for "do something".
 
 ## Tags
 
