@@ -160,7 +160,10 @@ Degraded, not unhealthy: the target may be perfectly fine, and what actually fai
 > [!IMPORTANT]
 > This is why the state matters. Recording nothing at all - which is what happened before - left the check displaying its last known status indefinitely, so a probe that had stopped running looked exactly like one that was passing. If a check's satellites are all down, you should see that, not a stale green.
 
-Checks also surface how old their last run is. When a check has been silent for five intervals (and at least ten minutes), its **last run** stat is highlighted and labelled stale, so an ageing status is visible even when no run was recorded to explain it.
+Checks also surface how old their last run is. When a check has been silent for five intervals (and at least ten minutes), its **last run** stat is highlighted and labelled stale, so an ageing status is visible even when no run was recorded to explain it. A paused check is never stale, and neither is a retired slice - one whose environment was removed from the system, or whose satellite was unassigned - because it stopped on purpose.
+
+> [!NOTE]
+> These degraded runs do **not** send a notification each. One satellite going offline degrades every check assigned to it at once, so alerting per check would bury the actual cause under its own symptoms. The satellite's **Satellite connectivity** subscription reports the offline satellite once; the degraded runs are still recorded, so the dashboard and the check's history stay accurate.
 
 The satellites list in **Infrastructure -> Satellites** shows current online state, last heartbeat timestamp, satellite version, and tags.
 

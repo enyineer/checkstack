@@ -36,7 +36,22 @@ so a transient lookup failure cannot mark the whole fleet degraded at once.
 
 Checks also surface staleness: a last run older than five intervals (minimum ten
 minutes) is highlighted, so an ageing status is visible even with no run to
-explain it. Paused checks are never stale.
+explain it. Paused checks are never stale, and neither is a RETIRED slice - one
+whose environment was removed or whose satellite was unassigned - because
+warning about something you retired on purpose trains operators to ignore the
+badge.
+
+The unobservable run does NOT notify subscribers. One offline satellite degrades
+every check assigned to it in the same tick, and `healthy -> degraded` is an
+escalation, so notifying per check would turn a single root cause into one alert
+per check. The satellite's own connectivity subscription reports the cause once;
+the runs are still recorded, so health and the UI stay honest.
+
+Satellite liveness is cached on the shared platform cache with a 5s TTL. The
+executor asks per tick of every satellite-only check and the read is a full
+scan, so the uncached version scaled with the number of such checks. The TTL is
+well below the smallest offline threshold the schema allows, so a cached answer
+can lag a transition by one tick but never span one.
 
 Corrects the user guide, which claimed offline satellites produced failed runs -
 they produced nothing at all.
