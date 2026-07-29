@@ -349,6 +349,8 @@ describe("Queue-Based Health Check Executor", () => {
         satelliteIds: string[];
         paused: boolean;
       }>;
+      /** Records every subscriber notification the run would deliver. */
+      onNotify?: (input: unknown) => void;
     }) => {
       const mockDb = createMockDb();
       const mockLogger = createMockLogger();
@@ -422,7 +424,10 @@ describe("Queue-Based Health Check Executor", () => {
           typeof setupHealthCheckWorker
         >[0]["catalogClient"],
         notificationClient: {
-          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+          notifyForSubscription: (input: unknown) => {
+            opts.onNotify?.(input);
+            return Promise.resolve({ notifiedCount: 0 });
+          },
         } as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["notificationClient"],
@@ -578,6 +583,26 @@ describe("Queue-Based Health Check Executor", () => {
       expect(mockLogger.warn).not.toHaveBeenCalledWith(
         expect.stringContaining("no online satellite"),
       );
+    });
+
+    it("does NOT notify subscribers for the unobservable run", async () => {
+      // One offline satellite degrades EVERY check assigned to it in the same
+      // tick, and healthy -> degraded is an escalation, so notifying per check
+      // turns a single root cause into one alert per check. The satellite's own
+      // connectivity subscription reports the cause once. The RUN is still
+      // recorded - only the per-check alert is withheld.
+      const notified: unknown[] = [];
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => [],
+        onNotify: (input) => notified.push(input),
+      });
+
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+      expect(notified).toHaveLength(0);
     });
   });
 

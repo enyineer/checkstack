@@ -632,6 +632,20 @@ export async function persistRunAndReact(params: {
   sourceLabel: string;
   /** Timestamp used for the hourly aggregate bucket (the run's execution time). */
   runTimestamp: Date;
+  /**
+   * Record the run and its transition, but do NOT notify subscribers.
+   *
+   * For a run whose cause is a single shared failure that is ALREADY notified
+   * elsewhere. The unobservable-run path is the case: one satellite going
+   * offline makes every check assigned to it degrade at once, and
+   * `healthy -> degraded` is an escalation, so without this a single satellite
+   * outage fans out into one notification per check. The satellite's own
+   * connectivity subscription names the actual root cause once.
+   *
+   * The run, the transition and the health state are still written, so the UI
+   * stays honest - only the per-check alert is withheld.
+   */
+  suppressSubscriberNotification?: boolean;
 }): Promise<void> {
   const {
     db,
@@ -659,6 +673,7 @@ export async function persistRunAndReact(params: {
     sourceId,
     sourceLabel,
     runTimestamp,
+    suppressSubscriberNotification = false,
   } = params;
 
   const envEntityId = encodeHealthEntityId({ systemId, environmentId });
@@ -766,22 +781,30 @@ export async function persistRunAndReact(params: {
       toStatus: newState.status,
     });
 
-    await notifyStateChange({
-      notificationClient,
-      systemId,
-      systemName,
-      configurationId: configId,
-      configurationName: configName,
-      previousStatus: previousStatus === "unknown" ? "healthy" : previousStatus,
-      newStatus: newState.status,
-      environmentId,
-      environmentName,
-      service,
-      catalogClient,
-      maintenanceClient,
-      incidentClient,
-      logger,
-    });
+    if (suppressSubscriberNotification) {
+      logger.debug(
+        `Recorded ${newState.status} for ${configId}/${systemId} without notifying: ` +
+          "the underlying cause is notified once at its source",
+      );
+    } else {
+      await notifyStateChange({
+        notificationClient,
+        systemId,
+        systemName,
+        configurationId: configId,
+        configurationName: configName,
+        previousStatus:
+          previousStatus === "unknown" ? "healthy" : previousStatus,
+        newStatus: newState.status,
+        environmentId,
+        environmentName,
+        service,
+        catalogClient,
+        maintenanceClient,
+        incidentClient,
+        logger,
+      });
+    }
 
     if (!isFannedOut) {
       await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
@@ -1045,6 +1068,10 @@ async function executeHealthCheckJob(props: {
           satelliteIds,
         }),
         runTimestamp: new Date(),
+        // One offline satellite degrades EVERY check assigned to it in the same
+        // tick. Notifying per check would turn a single root cause into a
+        // storm; the satellite's connectivity subscription reports it once.
+        suppressSubscriberNotification: true,
       });
       return;
     }
