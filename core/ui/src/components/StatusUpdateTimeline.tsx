@@ -3,13 +3,53 @@ import { Calendar, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { Badge } from "./Badge";
 import { EmptyState } from "./EmptyState";
-import { Markdown } from "./Markdown";
+import { Markdown, type MentionResolver } from "./Markdown";
 
 export interface TimelineItem {
   /** Unique identifier for the item */
   id: string;
   /** Date/time of the item for sorting */
   date: Date | string;
+}
+
+/**
+ * The timeline's rail axis, as a Tailwind `left-*` class.
+ *
+ * Every dot and the rail itself centre on THIS axis. Exported so a plugin
+ * writing a custom `renderDot` cannot re-derive the offset slightly differently
+ * - which is exactly how the rail and its dots drifted apart before.
+ */
+export const TIMELINE_RAIL_LEFT = "left-4";
+
+export interface TimelineDotProps {
+  /**
+   * Tone classes for the dot - typically `pillToneStyles[tone].dot`. Positioning
+   * and sizing are owned by this component; pass colour only.
+   */
+  className?: string;
+  /** Rendered inside the dot (an icon). Enlarges it to fit. */
+  children?: React.ReactNode;
+}
+
+/**
+ * A dot on the timeline rail, centred on {@link TIMELINE_RAIL_LEFT}.
+ *
+ * Use this rather than hand-positioning a `<span>` in a `renderDot`: the
+ * centring maths is subtle (translate, not a hard-coded left edge) and four
+ * separate copies of it had already diverged.
+ */
+export function TimelineDot({
+  className = "",
+  children,
+}: TimelineDotProps): React.ReactElement {
+  const size = children ? "size-6" : "size-3";
+  return (
+    <span
+      className={`absolute top-0.5 -translate-x-1/2 inline-flex items-center justify-center rounded-full border-2 border-background ${TIMELINE_RAIL_LEFT} ${size} ${className}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export interface TimelineProps<T extends TimelineItem> {
@@ -81,10 +121,8 @@ export function Timeline<T extends TimelineItem>({
     : "";
 
   const defaultDot = (index: number) => (
-    <div
-      className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-background ${
-        index === 0 ? "bg-primary" : "bg-muted-foreground/30"
-      }`}
+    <TimelineDot
+      className={index === 0 ? "bg-primary" : "bg-muted-foreground/30"}
     />
   );
 
@@ -92,8 +130,13 @@ export function Timeline<T extends TimelineItem>({
     <div className={`${containerClass} ${className}`.trim()}>
       {showTimeline ? (
         <div className="relative">
-          {/* Timeline line */}
-          <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-border" />
+          {/* The rail. `-translate-x-1/2` centres its 2px width ON the rail
+              axis; anchoring the left EDGE at `left-4` (as this once did) put
+              the rail's centre at 16.25px while every dot centres at 16px, so
+              each dot sat a hair off the line it hangs from. */}
+          <div
+            className={`absolute top-2 bottom-2 w-0.5 -translate-x-1/2 bg-border ${TIMELINE_RAIL_LEFT}`}
+          />
 
           <div className="space-y-6">
             {sortedItems.map((item, index) => (
@@ -174,6 +217,22 @@ export interface StatusUpdateTimelineProps<
    * capability gating, so the timeline stays presentation-only.
    */
   renderActions?: (item: T) => React.ReactNode;
+  /**
+   * Optional per-item rail dot. Forwarded straight to {@link Timeline}.
+   *
+   * The owning plugin decides WHICH dimension gets the hue - see the "at most
+   * one coloured dimension per row" rule in `status-tone.ts`. A domain with
+   * both an urgency and a lifecycle (incidents) colours the URGENCY here;
+   * a domain with only a lifecycle (maintenance) colours that. Build the dot
+   * with {@link TimelineDot} so it stays centred on the rail.
+   */
+  renderDot?: (item: T, index: number) => React.ReactNode;
+  /**
+   * Resolves cross-entity mentions in update messages for THIS context. Omit on
+   * a surface where references should not be linkable - they then render as
+   * plain text (see `MentionResolver`).
+   */
+  resolveMention?: MentionResolver;
   /** Empty state title */
   emptyTitle?: string;
   /** Empty state description */
@@ -199,6 +258,8 @@ export function StatusUpdateTimeline<
   renderStatusBadge,
   renderMeta,
   renderActions,
+  renderDot,
+  resolveMention,
   emptyTitle = "No status updates",
   emptyDescription = "No status updates have been posted yet.",
   maxHeight,
@@ -225,6 +286,7 @@ export function StatusUpdateTimeline<
       maxHeight={maxHeight}
       showTimeline={showTimeline}
       className={className}
+      {...(renderDot ? { renderDot } : {})}
       renderItem={(update) => (
         <StatusUpdateTimelineItem
           update={update}
@@ -232,6 +294,7 @@ export function StatusUpdateTimeline<
           renderBadge={renderBadge}
           renderMeta={renderMeta}
           renderActions={renderActions}
+          {...(resolveMention ? { resolveMention } : {})}
         />
       )}
     />
@@ -252,6 +315,7 @@ interface StatusUpdateTimelineItemProps<
   renderBadge: (status: TStatus) => React.ReactNode;
   renderMeta?: (item: T) => React.ReactNode;
   renderActions?: (item: T) => React.ReactNode;
+  resolveMention?: MentionResolver;
 }
 
 function StatusUpdateTimelineItem<
@@ -263,6 +327,7 @@ function StatusUpdateTimelineItem<
   renderBadge,
   renderMeta,
   renderActions,
+  resolveMention,
 }: StatusUpdateTimelineItemProps<TStatus, T>): React.ReactElement {
   const [historyOpen, setHistoryOpen] = useState(false);
   const history = update.editHistory ?? [];
@@ -281,7 +346,12 @@ function StatusUpdateTimelineItem<
             render as intended. Sanitized inside <Markdown> (rehype-sanitize),
             which matters because this timeline is also reached from the
             public status page. */}
-        <Markdown className="text-foreground">{update.message}</Markdown>
+        <Markdown
+          className="text-foreground"
+          {...(resolveMention ? { resolveMention } : {})}
+        >
+          {update.message}
+        </Markdown>
         <div className="flex shrink-0 items-center gap-1.5">
           {renderMeta?.(update)}
           {update.statusChange && renderBadge(update.statusChange as TStatus)}
@@ -364,7 +434,10 @@ function StatusUpdateTimelineItem<
                   </>
                 )}
               </div>
-              <Markdown className="text-foreground/80">
+              <Markdown
+                className="text-foreground/80"
+                {...(resolveMention ? { resolveMention } : {})}
+              >
                 {snapshot.message}
               </Markdown>
             </div>

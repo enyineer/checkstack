@@ -430,7 +430,17 @@ const UpdatesTimeline: React.FC<{
     <ol className="mt-3 space-y-3 border-l border-border pl-4">
       {updates.map((u, i) => (
         <li key={i} className="relative">
-          <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
+          {/* The dot takes the SAME tone as the status label below it, so the
+              rail reads as a coloured history at a glance. An update that
+              changes nothing keeps the neutral rail colour - the hue always
+              means "the status moved here". */}
+          <span
+            className={`absolute -left-[21px] top-1 size-2 rounded-full ${
+              u.statusChange
+                ? pillToneStyles[status.tone(u.statusChange)].dot
+                : "bg-border"
+            }`}
+          />
           {u.statusChange && (
             // The status change on its OWN line, COLOURED by its status (the
             // reported bug rendered it in the muted grey `text-muted-foreground`,
