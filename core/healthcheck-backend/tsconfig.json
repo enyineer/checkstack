@@ -68,6 +68,9 @@
       "path": "../satellite-backend"
     },
     {
+      "path": "../satellite-common"
+    },
+    {
       "path": "../script-packages-backend"
     },
     {

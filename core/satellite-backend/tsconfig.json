@@ -32,6 +32,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../notification-common"
+    },
+    {
       "path": "../queue-api"
     },
     {

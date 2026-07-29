@@ -1111,6 +1111,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
+        "@checkstack/satellite-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/sdk": "workspace:*",
         "@checkstack/secrets-backend": "workspace:*",
@@ -1886,6 +1887,7 @@
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
@@ -1916,6 +1918,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@orpc/contract": "^1.14.4",
         "zod": "^4.2.1",
