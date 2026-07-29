@@ -130,6 +130,7 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
             capabilities jsonb NOT NULL DEFAULT '[]',
             token_hash text NOT NULL,
             last_heartbeat_at timestamp,
+            offline_threshold_ms integer,
             version text,
             last_connection_event text,
             created_at timestamp NOT NULL DEFAULT now()
