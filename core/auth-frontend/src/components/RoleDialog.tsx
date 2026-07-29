@@ -22,11 +22,28 @@ import {
 import { Check } from "lucide-react";
 import type { Role, AccessRuleEntry } from "../api";
 import { useAccessRules } from "../hooks/useAccessRules";
+import { buildClonedName } from "@checkstack/common";
+import {
+  getCategorySelectionState,
+  groupAccessRulesByCategory,
+  setCategorySelection,
+} from "./role-rules.logic";
+
+/**
+ * What the dialog is doing with `role`.
+ *
+ * `clone` seeds every field from `role` but SAVES AS A CREATE, so the mode has
+ * to be explicit - inferring "editing" from `role` being present (as this
+ * dialog used to) cannot express "seeded from a role, but new".
+ */
+export type RoleDialogMode = "create" | "edit" | "clone";
 
 interface RoleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The role being edited, or the role a clone is seeded from. */
   role?: Role;
+  mode?: RoleDialogMode;
   accessRulesList: AccessRuleEntry[];
   /** Whether current user has this role (prevents access elevation) */
   isUserRole?: boolean;
@@ -42,11 +59,19 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   open,
   onOpenChange,
   role,
+  mode = role ? "edit" : "create",
   accessRulesList,
   isUserRole = false,
   onSave,
 }) => {
-  const [name, setName] = useState(role?.name || "");
+  const isCloning = mode === "clone";
+  const seededName = role
+    ? isCloning
+      ? buildClonedName({ name: role.name })
+      : role.name
+    : "";
+
+  const [name, setName] = useState(seededName);
   const [description, setDescription] = useState(role?.description || "");
   const [selectedAccessRules, setSelectedAccessRules] = useState<Set<string>>(
     new Set(role?.accessRules || []),
@@ -56,13 +81,16 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   // Seed form state once per dialog open (not on every `role` reference
   // change) so a background refetch of the role list can't wipe in-progress edits.
   useSeedFormOnOpen(open, () => {
-    setName(role?.name || "");
+    setName(seededName);
     setDescription(role?.description || "");
     setSelectedAccessRules(new Set(role?.accessRules || []));
   });
 
-  const isEditing = !!role;
-  const isAdminRole = role?.id === "admin";
+  const isEditing = mode === "edit";
+  // A clone always starts from a blank slate identity-wise: the admin and
+  // anonymous roles are special because of their ID, and a copy of one is just
+  // an ordinary role, so none of their restrictions carry over.
+  const isAdminRole = !isCloning && role?.id === "admin";
   // A platform admin (wildcard `*`) already holds every access rule, so editing
   // a role they belong to cannot elevate them - exempt them from the own-role
   // lock so they can configure roles they were automatically added to (the
@@ -75,21 +103,15 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   // The anonymous role may only hold rules that a PUBLIC endpoint actually uses;
   // granting an authenticated-only rule to it is inert (the server rejects
   // unauthenticated callers before checking rules). Mirrors the backend guardrail.
-  const isAnonymousRole = role?.id === "anonymous";
+  const isAnonymousRole = !isCloning && role?.id === "anonymous";
   const isBlockedForAnonymous = (perm: AccessRuleEntry): boolean =>
     isAnonymousRole &&
     perm.anonymousUsable === false &&
     !selectedAccessRules.has(perm.id);
 
-  // Group access rules by plugin
-  const accessRulesByPlugin: Record<string, AccessRuleEntry[]> = {};
-  for (const perm of accessRulesList) {
-    const [plugin] = perm.id.split(".");
-    if (!accessRulesByPlugin[plugin]) {
-      accessRulesByPlugin[plugin] = [];
-    }
-    accessRulesByPlugin[plugin].push(perm);
-  }
+  // Categories (one per plugin), alphabetised at both levels so a reader can
+  // jump to "Satellite" or "Dependency" instead of scanning registration order.
+  const categories = groupAccessRulesByCategory({ rules: accessRulesList });
 
   const handleToggleAccessRule = (accessRuleId: string) => {
     const newSelected = new Set(selectedAccessRules);
@@ -105,12 +127,36 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
     setSelectedAccessRules(newSelected);
   };
 
+  /**
+   * Bulk-select or clear one category. Routed through the same
+   * `isBlockedForAnonymous` guard the single checkbox uses, so the bulk action
+   * can never be a way around a restriction the per-rule toggle enforces.
+   */
+  const handleSetCategorySelection = (props: {
+    rules: AccessRuleEntry[];
+    select: boolean;
+  }) => {
+    const { rules, select } = props;
+    setSelectedAccessRules(
+      setCategorySelection({
+        selected: selectedAccessRules,
+        selectableIds: rules
+          .filter((perm) => !isBlockedForAnonymous(perm))
+          .map((perm) => perm.id),
+        categoryIds: rules.map((perm) => perm.id),
+        select,
+      }),
+    );
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
     onSave({
-      ...(isEditing && { id: role.id }),
+      // Only a genuine edit carries an id. A clone is seeded from `role` but
+      // must save as a CREATE, so its id is deliberately dropped here.
+      ...(isEditing && role ? { id: role.id } : {}),
       name,
       description: description || undefined,
       accessRules: [...selectedAccessRules],
@@ -132,11 +178,19 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <form onSubmit={handleSave}>
           <DialogHeader>
-            <DialogTitle>{isEditing ? "Edit Role" : "Create Role"}</DialogTitle>
+            <DialogTitle>
+              {isEditing
+                ? "Edit Role"
+                : isCloning
+                  ? "Clone Role"
+                  : "Create Role"}
+            </DialogTitle>
             <DialogDescription className="sr-only">
               {isEditing
                 ? "Modify the settings and access rules for this role"
-                : "Create a new role with specific access rules"}
+                : isCloning
+                  ? "Create a new role starting from an existing role's access rules"
+                  : "Create a new role with specific access rules"}
             </DialogDescription>
           </DialogHeader>
 
@@ -171,6 +225,15 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                 Select access rules to grant to this role. Access rules are
                 organized by plugin.
               </p>
+              {isCloning && role && (
+                <Alert variant="info" className="mb-3">
+                  <AlertDescription>
+                    Starting from <strong>{role.name}</strong>. This creates a
+                    new role - the original is left untouched, and the two are
+                    not linked afterwards.
+                  </AlertDescription>
+                </Alert>
+              )}
               {isAdminRole && (
                 <Alert variant="info" className="mb-3">
                   <AlertDescription>
@@ -200,16 +263,16 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
               <div className="border rounded-lg">
                 <Accordion
                   type="multiple"
-                  defaultValue={Object.keys(accessRulesByPlugin)}
+                  defaultValue={categories.map((category) => category.pluginId)}
                   className="w-full"
                 >
-                  {Object.entries(accessRulesByPlugin).map(
-                    ([plugin, perms]) => (
-                      <AccordionItem key={plugin} value={plugin}>
+                  {categories.map(
+                    ({ pluginId, label, rules: perms }) => (
+                      <AccordionItem key={pluginId} value={pluginId}>
                         <AccordionTrigger className="px-4 hover:no-underline">
                           <div className="flex items-center justify-between flex-1 pr-2">
                             <span className="font-semibold capitalize">
-                              {plugin.replaceAll("-", " ")}
+                              {label}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               {
@@ -222,6 +285,34 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                           </div>
                         </AccordionTrigger>
                         <AccordionContent className="px-4">
+                          {/* Bulk actions live INSIDE the content, not in the
+                              header: AccordionTrigger renders a <button>, and a
+                              nested button is invalid markup that also swallows
+                              the trigger's keyboard behaviour. All categories
+                              start expanded, so this is no less reachable. */}
+                          {!accessRulesDisabled && (
+                            <CategoryBulkActions
+                              label={label}
+                              state={getCategorySelectionState({
+                                selected: selectedAccessRules,
+                                selectableIds: perms
+                                  .filter((p) => !isBlockedForAnonymous(p))
+                                  .map((p) => p.id),
+                              })}
+                              onSelectAll={() =>
+                                handleSetCategorySelection({
+                                  rules: perms,
+                                  select: true,
+                                })
+                              }
+                              onClear={() =>
+                                handleSetCategorySelection({
+                                  rules: perms,
+                                  select: false,
+                                })
+                              }
+                            />
+                          )}
                           <div
                             className={`space-y-${
                               accessRulesDisabled ? "2" : "3"
@@ -348,3 +439,51 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
     </Dialog>
   );
 };
+
+interface CategoryBulkActionsProps {
+  /** Category name, used to keep the accessible labels distinguishable. */
+  label: string;
+  state: ReturnType<typeof getCategorySelectionState>;
+  onSelectAll: () => void;
+  onClear: () => void;
+}
+
+/**
+ * "Select all" / "Clear" for one access-rule category.
+ *
+ * Both actions are always offered rather than toggling one button between two
+ * meanings: from a partial selection the author usually knows which way they
+ * want to go, and a single toggle would make them guess. Each is disabled when
+ * it would be a no-op, so the current state is readable from the controls.
+ */
+const CategoryBulkActions: React.FC<CategoryBulkActionsProps> = ({
+  label,
+  state,
+  onSelectAll,
+  onClear,
+}) => (
+  <div className="flex items-center gap-1 border-b border-border/60 pb-2">
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-7 text-xs"
+      onClick={onSelectAll}
+      disabled={state === "all"}
+      aria-label={`Select all ${label} access rules`}
+    >
+      Select all
+    </Button>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-7 text-xs"
+      onClick={onClear}
+      disabled={state === "none"}
+      aria-label={`Clear all ${label} access rules`}
+    >
+      Clear
+    </Button>
+  </div>
+);
