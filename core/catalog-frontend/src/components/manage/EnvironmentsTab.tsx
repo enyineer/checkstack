@@ -26,7 +26,7 @@ import {
   catalogAccess,
   catalogResourceTypes,
 } from "@checkstack/catalog-common";
-import { Plus, Boxes, Pencil, Trash2, Trash } from "lucide-react";
+import { Plus, Boxes, Pencil, Copy, Trash2, Trash } from "lucide-react";
 import type { Environment, System } from "../../api";
 import { AssignMenu } from "./AssignMenu";
 import { MembershipChips } from "./MembershipChips";
@@ -48,6 +48,7 @@ export interface EnvironmentsTabProps {
   ) => void;
   onAddEnvironment: () => void;
   onEditEnvironment: (environment: Environment) => void;
+  onCloneEnvironment: (environment: Environment) => void;
   onDeleteEnvironment: (id: string) => void;
   onBulkDeleteEnvironments: (ids: string[]) => void;
   onClearFilters: () => void;
@@ -251,10 +252,12 @@ export function EnvironmentsTab(
         <EnvironmentActions
           environment={environment}
           canManage={canManageEnvironment(environment.id)}
+          canCreate={canCreate}
           isLocked={
             getLock({ kind: "Environment", entityId: environment.id }).isLocked
           }
           onEditEnvironment={props.onEditEnvironment}
+          onCloneEnvironment={props.onCloneEnvironment}
           onDeleteEnvironment={props.onDeleteEnvironment}
         />
       ),
@@ -394,8 +397,10 @@ export function EnvironmentsTab(
                 <EnvironmentActions
                   environment={environment}
                   canManage={canManageEnvironment(environment.id)}
+                  canCreate={canCreate}
                   isLocked={isLocked}
                   onEditEnvironment={props.onEditEnvironment}
+                  onCloneEnvironment={props.onCloneEnvironment}
                   onDeleteEnvironment={props.onDeleteEnvironment}
                 />
               </div>
@@ -488,15 +493,24 @@ function EnvironmentMembers({
 function EnvironmentActions({
   environment,
   canManage,
+  canCreate,
   isLocked,
   onEditEnvironment,
+  onCloneEnvironment,
   onDeleteEnvironment,
 }: {
   environment: Environment;
   /** Manage grant on THIS environment gates edit/delete (backend-enforced). */
   canManage: boolean;
+  /**
+   * Whether the caller may CREATE environments. Cloning writes a new one, so it
+   * is gated on create - not on manage of the source. Resolved once at tab
+   * level and passed down: the verdict is row-independent.
+   */
+  canCreate: boolean;
   isLocked: boolean;
   onEditEnvironment: (environment: Environment) => void;
+  onCloneEnvironment: (environment: Environment) => void;
   onDeleteEnvironment: (id: string) => void;
 }): React.ReactElement {
   // A GitOps-managed environment is edited/deleted through its source repo; the
@@ -516,6 +530,15 @@ function EnvironmentActions({
           disabled={isLocked}
           title={lockTitle}
           onClick={() => onEditEnvironment(environment)}
+        />
+      )}
+      {/* A GitOps lock on the source does not block cloning - the copy is a
+          new, unmanaged environment. */}
+      {canCreate && (
+        <RowAction
+          icon={Copy}
+          label={`Clone ${environment.name}`}
+          onClick={() => onCloneEnvironment(environment)}
         />
       )}
       {canManage && (

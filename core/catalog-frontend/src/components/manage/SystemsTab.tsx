@@ -24,7 +24,7 @@ import {
   GitOpsSourceBadge,
   type ProvenanceLock,
 } from "@checkstack/gitops-frontend";
-import { Plus, Server, Pencil, Trash2, Trash } from "lucide-react";
+import { Plus, Server, Pencil, Copy, Trash2, Trash } from "lucide-react";
 import type { Environment, Group, System } from "../../api";
 import { CatalogApi } from "../../api";
 import { AssignMenu } from "./AssignMenu";
@@ -49,6 +49,7 @@ export interface SystemsTabProps {
   /** systemId -> the environment ids it's attached to. */
   systemEnvMap: Map<string, string[]>;
   onAddSystem: () => void;
+  onCloneSystem: (system: System) => void;
   onEditSystem: (system: System) => void;
   onDeleteSystem: (id: string) => void;
   onBulkDeleteSystems: (ids: string[]) => void;
@@ -68,6 +69,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     systemGroupMap,
     systemEnvMap,
     onAddSystem,
+    onCloneSystem,
     onBulkDeleteSystems,
     onAddToGroup,
     onRemoveFromGroup,
@@ -254,9 +256,11 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
         <SystemActions
           system={system}
           canManage={canAccess(system.id)}
+          canCreate={canCreate}
           isLocked={getLock({ kind: "System", entityId: system.id }).isLocked}
           visibleSystemIds={visibleSystemIds}
           onEdit={props.onEditSystem}
+          onClone={onCloneSystem}
           onDelete={props.onDeleteSystem}
         />
       ),
@@ -385,6 +389,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
             <SystemMobileCard
               system={system}
               canManage={canAccess(system.id)}
+              canCreate={canCreate}
               lock={getLock({ kind: "System", entityId: system.id })}
               allGroups={allGroups}
               allEnvironments={allEnvironments}
@@ -394,6 +399,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
               selected={selected.has(system.id)}
               onToggleSelected={() => toggle(system.id)}
               onEdit={props.onEditSystem}
+              onClone={onCloneSystem}
               onDelete={props.onDeleteSystem}
               onAddToGroup={onAddToGroup}
               onRemoveFromGroup={onRemoveFromGroup}
@@ -496,20 +502,30 @@ interface SystemActionsProps {
   system: System;
   /** Whether the current user may manage (edit/delete) this system. */
   canManage: boolean;
+  /**
+   * Whether the current user may CREATE systems. Cloning writes a new system,
+   * so it is gated on create - not on manage of the source. Passed down from
+   * the tab rather than resolved per row: the verdict is row-independent, and a
+   * hook here would cost an observer per row x filler.
+   */
+  canCreate: boolean;
   isLocked: boolean;
   /** Ids of every visible row, so slot fillers can bulk-fetch without N+1. */
   visibleSystemIds: string[];
   onEdit: (system: System) => void;
+  onClone: (system: System) => void;
   onDelete: (id: string) => void;
 }
 
-/** Shared edit/delete action cluster used by row and mobile card. */
+/** Shared edit/clone/delete action cluster used by row and mobile card. */
 function SystemActions({
   system,
   canManage,
+  canCreate,
   isLocked,
   visibleSystemIds,
   onEdit,
+  onClone,
   onDelete,
 }: SystemActionsProps): React.ReactElement {
   const lockTitle = isLocked ? "Managed by GitOps" : undefined;
@@ -532,6 +548,15 @@ function SystemActions({
           onClick={() => onEdit(system)}
         />
       )}
+      {/* Cloning reads the source and writes a NEW system, so a GitOps lock on
+          the source does not block it - the copy is not GitOps-managed. */}
+      {canCreate && (
+        <RowAction
+          icon={Copy}
+          label={`Clone ${system.name}`}
+          onClick={() => onClone(system)}
+        />
+      )}
       {canManage && (
         <RowAction
           icon={Trash2}
@@ -549,6 +574,7 @@ function SystemActions({
 interface SystemMobileCardProps {
   system: System;
   canManage: boolean;
+  canCreate: boolean;
   lock: ProvenanceLock;
   allGroups: Group[];
   allEnvironments: Environment[];
@@ -559,6 +585,7 @@ interface SystemMobileCardProps {
   selected: boolean;
   onToggleSelected: () => void;
   onEdit: (system: System) => void;
+  onClone: (system: System) => void;
   onDelete: (id: string) => void;
   onAddToGroup: (systemId: string, groupId: string) => void;
   onRemoveFromGroup: (groupId: string, systemId: string) => void;
@@ -569,6 +596,7 @@ interface SystemMobileCardProps {
 function SystemMobileCard({
   system,
   canManage,
+  canCreate,
   lock,
   allGroups,
   allEnvironments,
@@ -578,6 +606,7 @@ function SystemMobileCard({
   selected,
   onToggleSelected,
   onEdit,
+  onClone,
   onDelete,
   onAddToGroup,
   onRemoveFromGroup,
@@ -648,9 +677,11 @@ function SystemMobileCard({
         <SystemActions
           system={system}
           canManage={canManage}
+          canCreate={canCreate}
           isLocked={isLocked}
           visibleSystemIds={visibleSystemIds}
           onEdit={onEdit}
+          onClone={onClone}
           onDelete={onDelete}
         />
       </div>

@@ -44,6 +44,7 @@ const CatalogLearnMore = () => (
   </a>
 );
 import { SystemEditor } from "./SystemEditor";
+import type { CatalogEditorMode } from "./catalog-clone.logic";
 import { GroupEditor } from "./GroupEditor";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { useCatalogBrowseState } from "../hooks/useCatalogBrowseState";
@@ -85,9 +86,16 @@ export const CatalogConfigPage = () => {
   // Dialog state
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<System | undefined>();
+  // `editingSystem` alone cannot distinguish an edit from a clone - both carry a
+  // source record - so the mode is tracked explicitly and decides which
+  // mutation the save handler runs.
+  const [systemEditorMode, setSystemEditorMode] =
+    useState<CatalogEditorMode>("create");
   const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | undefined>();
   const [isEnvironmentEditorOpen, setIsEnvironmentEditorOpen] = useState(false);
+  const [environmentEditorMode, setEnvironmentEditorMode] =
+    useState<CatalogEditorMode>("create");
   const [editingEnvironment, setEditingEnvironment] = useState<
     Environment | undefined
   >();
@@ -362,7 +370,8 @@ export const CatalogConfigPage = () => {
     teamId?: string;
     metadata?: Record<string, string>;
   }) => {
-    if (editingSystem) {
+    // A clone has an `editingSystem` (its source) but must CREATE.
+    if (systemEditorMode === "edit" && editingSystem) {
       updateSystemMutation.mutate({
         id: editingSystem.id,
         data: {
@@ -456,7 +465,8 @@ export const CatalogConfigPage = () => {
     teamId?: string;
     metadata?: Record<string, string>;
   }) => {
-    if (editingEnvironment) {
+    // A clone has an `editingEnvironment` (its source) but must CREATE.
+    if (environmentEditorMode === "edit" && editingEnvironment) {
       // Edit never carries teamId (create-only); strip it defensively.
       const { teamId: _teamId, ...updateData } = data;
       updateEnvironmentMutation.mutate({
@@ -605,10 +615,17 @@ export const CatalogConfigPage = () => {
           onRemoveFromEnvironment={handleRemoveSystemEnvironment}
           onAddSystem={() => {
             setEditingSystem(undefined);
+            setSystemEditorMode("create");
             setIsSystemEditorOpen(true);
           }}
           onEditSystem={(s) => {
             setEditingSystem(s);
+            setSystemEditorMode("edit");
+            setIsSystemEditorOpen(true);
+          }}
+          onCloneSystem={(s) => {
+            setEditingSystem(s);
+            setSystemEditorMode("clone");
             setIsSystemEditorOpen(true);
           }}
           onDeleteSystem={handleDeleteSystem}
@@ -655,10 +672,17 @@ export const CatalogConfigPage = () => {
           onAttachSystemToEnvironments={handleAttachSystemToEnvironments}
           onAddEnvironment={() => {
             setEditingEnvironment(undefined);
+            setEnvironmentEditorMode("create");
             setIsEnvironmentEditorOpen(true);
           }}
           onEditEnvironment={(env) => {
             setEditingEnvironment(env);
+            setEnvironmentEditorMode("edit");
+            setIsEnvironmentEditorOpen(true);
+          }}
+          onCloneEnvironment={(env) => {
+            setEditingEnvironment(env);
+            setEnvironmentEditorMode("clone");
             setIsEnvironmentEditorOpen(true);
           }}
           onDeleteEnvironment={handleDeleteEnvironment}
@@ -673,8 +697,14 @@ export const CatalogConfigPage = () => {
         onClose={() => {
           setIsSystemEditorOpen(false);
           setEditingSystem(undefined);
+          // Reset the mode too. Every open path sets it today, so a stale
+          // "clone" is currently unreachable - but leaving it set means a
+          // future open path that forgets would silently render a Clone dialog
+          // with no source record.
+          setSystemEditorMode("create");
         }}
         onSave={handleSaveSystem}
+        mode={systemEditorMode}
         initialData={
           editingSystem
             ? {
@@ -706,8 +736,10 @@ export const CatalogConfigPage = () => {
         onClose={() => {
           setIsEnvironmentEditorOpen(false);
           setEditingEnvironment(undefined);
+          setEnvironmentEditorMode("create");
         }}
         onSave={handleSaveEnvironment}
+        mode={environmentEditorMode}
         initialData={
           editingEnvironment
             ? {
