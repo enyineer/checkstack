@@ -20,6 +20,8 @@ import {
 import { useSecretNames } from "@checkstack/secrets-frontend";
 import {
   EnvironmentPreviewPicker,
+  SystemPreviewPicker,
+  type PreviewSystem,
   type Environment,
 } from "@checkstack/catalog-frontend";
 import { AssertionBuilder } from "../AssertionBuilder";
@@ -56,6 +58,15 @@ interface CollectorSectionProps {
   previewEnvironmentId: string | null;
   /** Called when the author picks (or clears) a preview environment. */
   onPreviewEnvironmentChange: (environmentId: string | null) => void;
+  /**
+   * Systems offered in the preview picker, so `{{ system.metadata.<key> }}`
+   * resolves. Empty disables the picker.
+   */
+  previewSystems: ReadonlyArray<PreviewSystem>;
+  /** Currently selected preview system id (shared across collectors). */
+  previewSystemId: string | null;
+  /** Called when the author picks (or clears) a preview system. */
+  onPreviewSystemChange: (systemId: string | null) => void;
   /**
    * Sample context for previewing `x-templatable` fields, built from the
    * selected environment's custom fields plus curated check/system metadata.
@@ -96,6 +107,9 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   onRemove,
   previewEnvironments,
   previewEnvironmentId,
+  previewSystems,
+  previewSystemId,
+  onPreviewSystemChange,
   onPreviewEnvironmentChange,
   templatePreviewContext,
   templateCompletionProvider,
@@ -167,11 +181,18 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
             </div>
             {/* Only offer the preview picker when a templatable field exists. */}
             {schemaHasTemplatableFields(collectorDef.configSchema) && (
-              <EnvironmentPreviewPicker
-                environments={previewEnvironments}
-                selectedId={previewEnvironmentId}
-                onSelect={onPreviewEnvironmentChange}
-              />
+              <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+                <EnvironmentPreviewPicker
+                  environments={previewEnvironments}
+                  selectedId={previewEnvironmentId}
+                  onSelect={onPreviewEnvironmentChange}
+                />
+                <SystemPreviewPicker
+                  systems={previewSystems}
+                  selectedId={previewSystemId}
+                  onSelect={onPreviewSystemChange}
+                />
+              </div>
             )}
           </div>
           {(() => {

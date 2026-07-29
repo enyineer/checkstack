@@ -178,9 +178,13 @@ const HealthCheckIDEPageContent = () => {
     loaded: collectorsLoaded,
   } = useCollectors(activeStrategyId ?? "", { enabled: configPlaneReader });
 
-  // Fetch systems for assignment (only in create mode)
+  // Systems, for the assignment picker (create mode) AND the "System:" preview
+  // picker (both modes). This used to be create-mode only, which is why editing
+  // an existing check offered no `{{ system.metadata.* }}` preview or
+  // autocomplete at all. `getSystems` returns only systems the caller may read,
+  // so the picker can never offer one the backend would refuse.
   const { data: systemsData, isLoading: systemsLoading } =
-    catalogClient.getSystems.useQuery({}, { enabled: !isEditMode });
+    catalogClient.getSystems.useQuery({});
   const systems = useMemo(
     () =>
       (systemsData?.systems ?? []).map((s) => ({
@@ -232,6 +236,13 @@ const HealthCheckIDEPageContent = () => {
   const [previewEnvironmentId, setPreviewEnvironmentId] = useState<
     string | null
   >(null);
+
+  // Selected preview system, same shape as the environment above. Defaults to
+  // the system the editor was opened from so create-from-system keeps behaving
+  // exactly as it did before the picker existed.
+  const [previewSystemId, setPreviewSystemId] = useState<string | null>(
+    systemIdFromUrl ?? null,
+  );
 
   // Owning-team selection for create mode only. null = global (no team).
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
@@ -497,9 +508,14 @@ const HealthCheckIDEPageContent = () => {
   // --- Template preview context ---
 
   // Build the sample `{ environment, check, system }` context fed to the
-  // collector config form so `{{ environment.* }}` previews live. `undefined`
-  // until an environment is picked, so the preview line stays hidden. Shape
-  // mirrors the backend run-time render context (see `queue-executor.ts`).
+  // collector config form so `{{ environment.* }}` and `{{ system.metadata.* }}`
+  // preview live. Shape mirrors the backend run-time render context (see
+  // `queue-executor.ts`).
+  //
+  // `undefined` only when NEITHER an environment nor a system is picked, so the
+  // preview line stays hidden. Requiring an environment (as this once did) meant
+  // picking a system alone previewed nothing, even though `system.metadata.*` is
+  // fully resolvable without one.
   const templatePreviewContext = useMemo<
     Record<string, unknown> | undefined
   >(() => {
@@ -507,21 +523,24 @@ const HealthCheckIDEPageContent = () => {
       environments: previewEnvironments,
       selectedId: previewEnvironmentId,
     });
-    if (!selectedEnv) return;
 
-    const selectedSystem = systemIdFromUrl
-      ? systems.find((s) => s.id === systemIdFromUrl)
+    const selectedSystem = previewSystemId
+      ? systems.find((s) => s.id === previewSystemId)
       : undefined;
-    const systemMeta = systemIdFromUrl
+    const systemMeta = previewSystemId
       ? {
-          id: systemIdFromUrl,
-          name: selectedSystem?.name ?? systemIdFromUrl,
+          id: previewSystemId,
+          name: selectedSystem?.name ?? previewSystemId,
           metadata: selectedSystem?.metadata ?? {},
         }
       : undefined;
 
+    if (!selectedEnv && !systemMeta) return;
+
     return buildTemplatePreviewContext({
-      environmentFields: environmentToPreviewFields(selectedEnv),
+      environmentFields: selectedEnv
+        ? environmentToPreviewFields(selectedEnv)
+        : {},
       check: {
         id: configId ?? "new",
         name: formState.name || "Health check",
@@ -532,7 +551,7 @@ const HealthCheckIDEPageContent = () => {
   }, [
     previewEnvironments,
     previewEnvironmentId,
-    systemIdFromUrl,
+    previewSystemId,
     systems,
     configId,
     formState.name,
@@ -549,11 +568,12 @@ const HealthCheckIDEPageContent = () => {
       environments: previewEnvironments,
       selectedId: previewEnvironmentId,
     });
-    // Only a concrete single system (opened from a system) can enumerate its
-    // `system.metadata.<key>` completions; a shared-config authoring flow has
-    // none, and edit mode does not load the systems list.
-    const selectedSystem = systemIdFromUrl
-      ? systems.find((s) => s.id === systemIdFromUrl)
+    // Completions for `system.metadata.<key>` come from whichever system the
+    // author picked in the preview picker. Previously this could only ever be
+    // the system the editor was opened FROM, so a shared-config flow and every
+    // edit-mode session got no system completions at all.
+    const selectedSystem = previewSystemId
+      ? systems.find((s) => s.id === previewSystemId)
       : undefined;
     return createReferenceCompletionProvider(
       buildHealthCheckTemplateProperties({
@@ -563,7 +583,7 @@ const HealthCheckIDEPageContent = () => {
         systemFields: selectedSystem?.metadata,
       }),
     );
-  }, [previewEnvironments, previewEnvironmentId, systemIdFromUrl, systems]);
+  }, [previewEnvironments, previewEnvironmentId, previewSystemId, systems]);
 
   // --- Save ---
 
@@ -850,6 +870,9 @@ const HealthCheckIDEPageContent = () => {
               previewEnvironments={previewEnvironments}
               previewEnvironmentId={previewEnvironmentId}
               onPreviewEnvironmentChange={setPreviewEnvironmentId}
+              previewSystems={systems}
+              previewSystemId={previewSystemId}
+              onPreviewSystemChange={setPreviewSystemId}
               templatePreviewContext={templatePreviewContext}
               templateCompletionProvider={templateCompletionProvider}
               ownerTeamId={ownerTeamId}

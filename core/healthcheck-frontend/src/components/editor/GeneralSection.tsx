@@ -11,6 +11,8 @@ import {
 } from "@checkstack/ui";
 import {
   EnvironmentPreviewPicker,
+  SystemPreviewPicker,
+  type PreviewSystem,
   type Environment,
 } from "@checkstack/catalog-frontend";
 import { AlertTriangle, BookOpen } from "lucide-react";
@@ -28,6 +30,12 @@ interface GeneralSectionProps {
   previewEnvironments?: ReadonlyArray<Environment>;
   /** Selected preview environment id (shared with the collector forms). */
   previewEnvironmentId?: string | null;
+  /** Systems offered in the preview picker (see CollectorSection). */
+  previewSystems?: ReadonlyArray<PreviewSystem>;
+  /** Currently selected preview system id. */
+  previewSystemId?: string | null;
+  /** Called when the author picks (or clears) a preview system. */
+  onPreviewSystemChange?: (systemId: string | null) => void;
   /** Called when the author picks (or clears) a preview environment. */
   onPreviewEnvironmentChange?: (environmentId: string | null) => void;
   /**
@@ -77,6 +85,9 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
   storedSecretKeys,
   previewEnvironments = [],
   previewEnvironmentId = null,
+  previewSystems = [],
+  previewSystemId = null,
+  onPreviewSystemChange,
   onPreviewEnvironmentChange,
   templatePreviewContext,
   templateCompletionProvider,
@@ -168,11 +179,18 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
                 templatable, so host/port previews resolve against a sample
                 environment exactly as the collector forms do. */}
             {schemaHasTemplatableFields(strategy.configSchema) && (
-              <EnvironmentPreviewPicker
-                environments={previewEnvironments}
-                selectedId={previewEnvironmentId}
-                onSelect={(id) => onPreviewEnvironmentChange?.(id)}
-              />
+              <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+                <EnvironmentPreviewPicker
+                  environments={previewEnvironments}
+                  selectedId={previewEnvironmentId}
+                  onSelect={(id) => onPreviewEnvironmentChange?.(id)}
+                />
+                <SystemPreviewPicker
+                  systems={previewSystems}
+                  selectedId={previewSystemId}
+                  onSelect={(id) => onPreviewSystemChange?.(id)}
+                />
+              </div>
             )}
           </div>
           <DynamicForm
