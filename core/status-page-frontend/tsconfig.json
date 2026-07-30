@@ -20,6 +20,9 @@
       "path": "../status-page-common"
     },
     {
+      "path": "../test-utils-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

@@ -594,3 +594,124 @@ describe("SatelliteService", () => {
     });
   });
 });
+
+/**
+ * DRIFT GUARD: every read path must honour the satellite's OWN threshold.
+ *
+ * `computeStatus` is called from five places - the heartbeat monitor, the
+ * reactive entity read, and three service reads. Making the threshold
+ * per-satellite means each of them has to supply it; a site that forgets
+ * silently falls back to the global default, and then the admin list, the
+ * entity state and the monitor disagree about whether the SAME satellite is
+ * online. Nothing about that failure is loud: each site looks correct in
+ * isolation and its own unit tests still pass.
+ *
+ * `status.test.ts` proves `resolveOfflineThresholdMs` is correct; it cannot
+ * prove the callers pass it. These drive the real service reads with a
+ * heartbeat that is stale by the GLOBAL default but fresh by the satellite's
+ * own longer threshold - so any site that dropped the argument reports offline
+ * and fails here.
+ */
+describe("per-satellite offline threshold is honoured by every read path", () => {
+  // Comfortably past the 45s global default, comfortably inside 10 minutes.
+  const STALE_BY_DEFAULT_FRESH_BY_CUSTOM_MS = 5 * 60_000;
+  const CUSTOM_THRESHOLD_MS = 30 * 60_000;
+
+  /**
+   * Local DB stub: these reads differ in shape - some select without a
+   * `where`, some with one - so the chain has to be awaitable at BOTH points.
+   * The shared helper above only resolves after `.where()`.
+   */
+  function serviceWithRows(rows: unknown[]) {
+    const chain = {
+      where: () => Promise.resolve(rows),
+      // Thenable, so `await db.select().from(...)` resolves too.
+      then: (onFulfilled: (value: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(onFulfilled),
+    };
+    const db = {
+      select: () => ({ from: () => chain }),
+    } as unknown as ConstructorParameters<typeof SatelliteService>[0];
+    return new SatelliteService(db);
+  }
+
+  const tolerantRow = () => ({
+    id: "sat-tolerant",
+    name: "Tolerant",
+    region: "eu",
+    lastHeartbeatAt: new Date(
+      Date.now() - STALE_BY_DEFAULT_FRESH_BY_CUSTOM_MS,
+    ),
+    offlineThresholdMs: CUSTOM_THRESHOLD_MS,
+    lastConnectionEvent: "connected" as const,
+    capabilities: null,
+  });
+
+  it("sanity: the fixture IS stale by the global default", () => {
+    // If this ever stops holding, the tests below would pass vacuously.
+    expect(STALE_BY_DEFAULT_FRESH_BY_CUSTOM_MS).toBeGreaterThan(
+      OFFLINE_THRESHOLD_MS,
+    );
+    expect(STALE_BY_DEFAULT_FRESH_BY_CUSTOM_MS).toBeLessThan(
+      CUSTOM_THRESHOLD_MS,
+    );
+  });
+
+  it("getOnlineSatelliteIds counts it as ONLINE", async () => {
+    const service = serviceWithRows([tolerantRow()]);
+
+    expect(await service.getOnlineSatelliteIds()).toEqual(["sat-tolerant"]);
+  });
+
+  it("getManyConnectionStates reports it ONLINE", async () => {
+    const service = serviceWithRows([tolerantRow()]);
+
+    const states = await service.getManyConnectionStates(["sat-tolerant"]);
+    expect(states["sat-tolerant"]?.status).toBe("online");
+  });
+
+  it("listSatellites reports it ONLINE", async () => {
+    // The fifth call site: `toSatelliteWithStatus`, which backs every
+    // list/get read the admin UI shows.
+    const service = serviceWithRows([tolerantRow()]);
+
+    const rows = await service.listSatellites();
+    expect(rows.find((r) => r.id === "sat-tolerant")?.status).toBe("online");
+  });
+
+  it("listConnectionLiveness carries the threshold to its caller", async () => {
+    // This read deliberately does NOT compute status - it returns raw rows and
+    // the caller decides. Dropping the column here would silently make every
+    // consumer fall back to the global default.
+    const service = serviceWithRows([tolerantRow()]);
+
+    const rows = await service.listConnectionLiveness();
+    expect(rows.find((r) => r.id === "sat-tolerant")?.offlineThresholdMs).toBe(
+      CUSTOM_THRESHOLD_MS,
+    );
+  });
+
+  it("a satellite with NO custom threshold still uses the global default", async () => {
+    // The other direction: per-satellite support must not accidentally make
+    // every satellite tolerant.
+    const service = serviceWithRows([
+      { ...tolerantRow(), offlineThresholdMs: null },
+    ]);
+
+    expect(await service.getOnlineSatelliteIds()).toEqual([]);
+  });
+
+  it("a SHORTER custom threshold marks it offline sooner than the default", async () => {
+    // Tolerance cuts both ways: a satellite that must heartbeat aggressively
+    // goes offline before the global default would.
+    const service = serviceWithRows([
+      {
+        ...tolerantRow(),
+        lastHeartbeatAt: new Date(Date.now() - 20_000),
+        offlineThresholdMs: 10_000,
+      },
+    ]);
+
+    expect(await service.getOnlineSatelliteIds()).toEqual([]);
+  });
+});

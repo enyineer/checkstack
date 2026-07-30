@@ -1,6 +1,7 @@
 import {
   afterAll,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -868,5 +869,228 @@ describe("HttpHealthCheckStrategy", () => {
 
       connectedClient.close();
     });
+  });
+});
+
+/**
+ * The proxy, exercised for REAL.
+ *
+ * Everything around `fetch({ proxy })` was already covered - the URL we build,
+ * the SSRF host we guard, the secret/templatable field contracts. The one line
+ * the whole feature depends on had never run: no test had ever routed a request
+ * through an actual proxy, so "Bun honours the `proxy` option the way we think"
+ * was an assumption, not a fact. These tests stand up a real proxy and assert
+ * the request arrives THERE.
+ *
+ * A proxied plain-HTTP request arrives in absolute form (`GET http://host/path`)
+ * rather than as a CONNECT tunnel, so the proxy can observe and assert on it -
+ * which is exactly what makes "did it actually go through the proxy?" provable
+ * rather than inferred from a successful response.
+ */
+describe("HTTP proxy (real proxy server)", () => {
+  interface ProxyRecord {
+    url: string;
+    auth: string | null;
+    host: string | null;
+  }
+
+  let proxy: http.Server;
+  let proxyPort = 0;
+  let seen: ProxyRecord[] = [];
+  /** When set, the proxy refuses with 407 instead of forwarding. */
+  let requireAuth = false;
+
+  // Self-contained origin + strategy, so this block does not depend on the
+  // fixtures of the describe above it.
+  let origin: http.Server;
+  let originPort = 0;
+  const localStrategy = new HttpHealthCheckStrategy(async () => [
+    { address: "127.0.0.1", family: 4 },
+  ]);
+  const localUrl = (path: string) => `http://127.0.0.1:${originPort}${path}`;
+
+  beforeAll(async () => {
+    origin = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("Hello World");
+    });
+    await new Promise<void>((resolve) =>
+      origin.listen(0, "127.0.0.1", resolve),
+    );
+    originPort = (origin.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    origin.close();
+  });
+
+  beforeAll(async () => {
+    proxy = http.createServer((req, res) => {
+      seen.push({
+        url: req.url ?? "",
+        auth: (req.headers["proxy-authorization"] as string) ?? null,
+        host: (req.headers["host"] as string) ?? null,
+      });
+
+      if (requireAuth && !req.headers["proxy-authorization"]) {
+        res.writeHead(407, { "content-type": "text/plain" });
+        res.end("proxy auth required");
+        return;
+      }
+
+      // Absolute-form target: forward it to the origin and pipe the answer
+      // back, so a proxied request is end-to-end functional, not just observed.
+      let target: URL;
+      try {
+        target = new URL(req.url ?? "");
+      } catch {
+        res.writeHead(400);
+        res.end("bad request");
+        return;
+      }
+
+      const upstream = http.request(
+        {
+          hostname: target.hostname,
+          port: target.port,
+          path: `${target.pathname}${target.search}`,
+          method: req.method ?? "GET",
+        },
+        (upstreamRes) => {
+          res.writeHead(
+            upstreamRes.statusCode ?? 502,
+            upstreamRes.headers as Record<string, string>,
+          );
+          upstreamRes.pipe(res);
+        },
+      );
+      upstream.on("error", () => {
+        res.writeHead(502);
+        res.end("upstream failed");
+      });
+      req.pipe(upstream);
+    });
+
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    proxyPort = (proxy.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    proxy.close();
+  });
+
+  beforeEach(() => {
+    seen = [];
+    requireAuth = false;
+  });
+
+  const proxyUrl = () => `http://127.0.0.1:${proxyPort}`;
+
+  it("routes the request THROUGH the proxy, not directly", async () => {
+    const connected = await localStrategy.createClient({
+      timeout: 5000,
+      proxyUrl: proxyUrl(),
+    });
+
+    const result = await connected.client.exec({
+      url: localUrl("/text"),
+      method: "GET",
+      timeout: 5000,
+    });
+
+    // The response came back...
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toContain("Hello World");
+    // ...AND the proxy is the one that served it. Without this the test would
+    // pass just as happily on a direct connection.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe(localUrl("/text"));
+  });
+
+  it("does NOT use the proxy when none is configured", async () => {
+    const connected = await localStrategy.createClient({ timeout: 5000 });
+
+    const result = await connected.client.exec({
+      url: localUrl("/text"),
+      method: "GET",
+      timeout: 5000,
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("sends Proxy-Authorization when credentials are configured", async () => {
+    requireAuth = true;
+    const connected = await localStrategy.createClient({
+      timeout: 5000,
+      proxyUrl: proxyUrl(),
+      proxyUsername: "scout",
+      proxyPassword: "hunter2",
+    });
+
+    const result = await connected.client.exec({
+      url: localUrl("/text"),
+      method: "GET",
+      timeout: 5000,
+    });
+
+    expect(result.statusCode).toBe(200);
+    const expected = `Basic ${Buffer.from("scout:hunter2").toString("base64")}`;
+    expect(seen[0]?.auth).toBe(expected);
+  });
+
+  it("a 407 from the proxy is a COMPLETED request, not a transport failure", async () => {
+    // The collector rule: only a probe that could not complete may fail. A
+    // proxy refusing auth answered, so it is an assertable status code.
+    requireAuth = true;
+    const connected = await localStrategy.createClient({
+      timeout: 5000,
+      proxyUrl: proxyUrl(),
+    });
+
+    const result = await connected.client.exec({
+      url: localUrl("/text"),
+      method: "GET",
+      timeout: 5000,
+    });
+
+    expect(result.statusCode).toBe(407);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("a request to an UNREACHABLE proxy fails as a transport error", async () => {
+    // The other half of the same rule: the probe genuinely could not complete.
+    const connected = await localStrategy.createClient({
+      timeout: 5000,
+      // Port 1 on loopback: nothing listens, connection refused.
+      proxyUrl: "http://127.0.0.1:1",
+    });
+
+    await expect(
+      connected.client.exec({
+        url: localUrl("/text"),
+        method: "GET",
+        timeout: 5000,
+      }),
+    ).rejects.toThrow();
+    expect(seen).toHaveLength(0);
+  });
+
+  it("an empty proxy URL falls back to a DIRECT connection", async () => {
+    // A templated proxy that renders empty must not become a broken request.
+    const connected = await localStrategy.createClient({
+      timeout: 5000,
+      proxyUrl: "   ",
+    });
+
+    const result = await connected.client.exec({
+      url: localUrl("/text"),
+      method: "GET",
+      timeout: 5000,
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(seen).toHaveLength(0);
   });
 });

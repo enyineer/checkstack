@@ -29,6 +29,9 @@
       "path": "../notification-frontend"
     },
     {
+      "path": "../test-utils-frontend"
+    },
+    {
       "path": "../tips-frontend"
     },
     {
