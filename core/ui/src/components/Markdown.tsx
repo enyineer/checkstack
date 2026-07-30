@@ -1,9 +1,11 @@
-import ReactMarkdown from "react-markdown";
+import type { ComponentProps } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { cn } from "../utils";
+import { MENTION_SCHEME, parseMentionHref } from "@checkstack/common";
 
 /**
  * Allow a SAFE subset of raw HTML in rendered markdown so model output that uses
@@ -15,7 +17,97 @@ import { cn } from "../utils";
  * elements, so the XSS surface stays closed even though chat content is
  * model-generated. Order matters: raw MUST run before sanitize.
  */
-const rehypePlugins = [rehypeRaw, rehypeSanitize];
+/**
+ * The sanitizer's URL-protocol allow-list, plus the mention scheme.
+ *
+ * A sanitizer drops any `href` whose protocol is not allow-listed, and
+ * `checkstack:` is obviously not in the default list. Without this the mention
+ * href never survives to reach {@link makeAnchorRenderer}, which then sees an
+ * ordinary link with no href and emits a bare `<a>`: the label still renders,
+ * so the page LOOKS right while every cross-entity reference is silently
+ * inert. That failure mode is invisible - no error, no missing text, just no
+ * link - which is why `Markdown.mentions.test.tsx` pins it.
+ *
+ * Allowing this scheme adds no XSS surface. It is inert in a browser (it
+ * navigates nowhere and executes nothing), it is never emitted as a live href -
+ * the anchor renderer either replaces it with a resolved in-app URL or renders
+ * plain text - and the executable protocols the default schema refuses
+ * (`javascript:`, `data:`) stay refused.
+ */
+const mentionSafeSchema = {
+  ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [
+      ...(defaultSchema.protocols?.href ?? []),
+      // Protocol names are listed WITHOUT the trailing colon.
+      MENTION_SCHEME.replace(":", ""),
+    ],
+  },
+};
+
+const rehypePlugins: ComponentProps<typeof ReactMarkdown>["rehypePlugins"] = [
+  rehypeRaw,
+  [rehypeSanitize, mentionSafeSchema],
+];
+
+/**
+ * Keep the mention scheme intact through react-markdown's OWN url filter.
+ *
+ * `react-markdown` blanks any href outside its safe-protocol list BEFORE the
+ * rehype plugins run, so extending the sanitizer alone is not enough - the href
+ * arrives as `""` and the anchor renderer never sees a mention. That is why
+ * cross-entity references rendered as plain text everywhere despite the
+ * sanitizer being configured for them.
+ *
+ * Everything that is NOT a mention still goes through
+ * {@link defaultUrlTransform}, so `javascript:` and friends stay blocked. The
+ * mention href itself is never emitted to the DOM: the anchor renderer either
+ * swaps in a resolved in-app URL or drops the link entirely.
+ */
+const urlTransform = (url: string): string =>
+  url.startsWith(MENTION_SCHEME) ? url : defaultUrlTransform(url);
+
+/**
+ * The anchor renderer, shared by both components.
+ *
+ * An ordinary href renders as a normal external link. A MENTION href is handed
+ * to `resolveMention`; if that returns nothing, the label is rendered as plain
+ * text rather than as a link to an unresolvable target.
+ */
+function makeAnchorRenderer({
+  resolveMention,
+}: {
+  resolveMention?: MentionResolver;
+}): NonNullable<Components["a"]> {
+  return function MarkdownAnchor({ href, children }) {
+    const mention = parseMentionHref({ href });
+
+    if (mention) {
+      const resolved = resolveMention?.(mention);
+      if (!resolved) {
+        // Deliberately NOT a link: see MentionResolver's contract.
+        return <span className="font-medium text-foreground">{children}</span>;
+      }
+      return (
+        <a href={resolved} className="text-primary hover:underline">
+          {children}
+        </a>
+      );
+    }
+
+    return (
+      <a
+        href={href}
+        className="text-primary hover:underline"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {children}
+      </a>
+    );
+  };
+}
 
 /** Shared `<details>`/`<summary>` renderers: a styled, click-to-expand fold. */
 const disclosureComponents: Pick<Components, "details" | "summary"> = {
@@ -31,6 +123,21 @@ const disclosureComponents: Pick<Components, "details" | "summary"> = {
   ),
 };
 
+/**
+ * Resolves a cross-entity mention (`checkstack:<type>/<id>`) to a URL for THIS
+ * render context - an app route in the admin UI, that page's own URL on a
+ * status page, an absolute URL in an email.
+ *
+ * Returning `undefined` means "not linkable here", and the label renders as
+ * plain text. That is a confidentiality requirement: an internal-only incident
+ * referenced from a public status update must not become a link that confirms
+ * the incident exists.
+ */
+export type MentionResolver = (ref: {
+  type: string;
+  id: string;
+}) => string | undefined;
+
 export interface MarkdownProps {
   /** The markdown content to render */
   children: string;
@@ -38,6 +145,12 @@ export interface MarkdownProps {
   className?: string;
   /** Size variant affecting text size */
   size?: "sm" | "base" | "lg";
+  /**
+   * Resolves mention links for this context. Without it, mentions render as
+   * plain text - the safe default, since a renderer that cannot resolve a
+   * reference has no way to know whether the viewer may see it.
+   */
+  resolveMention?: MentionResolver;
 }
 
 /**
@@ -56,6 +169,7 @@ export function Markdown({
   children,
   className,
   size = "base",
+  resolveMention,
 }: MarkdownProps) {
   const sizeClasses = {
     sm: "text-sm",
@@ -75,17 +189,10 @@ export function Markdown({
     // Italic text
     em: ({ children }) => <em className="italic">{children}</em>,
 
-    // Links
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        className="text-primary hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {children}
-      </a>
-    ),
+    // Links (including cross-entity mentions)
+    a: makeAnchorRenderer({
+      ...(resolveMention ? { resolveMention } : {}),
+    }),
 
     // Inline code
     code: ({ children }) => (
@@ -108,6 +215,7 @@ export function Markdown({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
+        urlTransform={urlTransform}
         components={components}
       >
         {children}
@@ -144,6 +252,7 @@ export function MarkdownBlock({
   className,
   size = "base",
   prose = true,
+  resolveMention,
 }: MarkdownBlockProps) {
   const sizeClasses = {
     sm: "text-sm",
@@ -174,17 +283,10 @@ export function MarkdownBlock({
     // Italic text
     em: ({ children }) => <em className="italic">{children}</em>,
 
-    // Links
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        className="text-primary hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {children}
-      </a>
-    ),
+    // Links (including cross-entity mentions)
+    a: makeAnchorRenderer({
+      ...(resolveMention ? { resolveMention } : {}),
+    }),
 
     // Lists
     ul: ({ children }) => (
@@ -263,6 +365,7 @@ export function MarkdownBlock({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
+        urlTransform={urlTransform}
         components={components}
       >
         {children}

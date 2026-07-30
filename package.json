@@ -23,6 +23,8 @@
     "generate:sdk:check": "bun run scripts/generate-sdk.ts --check",
     "generate:docs-index": "bun run scripts/generate-docs-index.ts",
     "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
+    "generate:release-version": "bun run scripts/generate-release-version.ts",
+    "generate:release-version:check": "bun run scripts/generate-release-version.ts --check",
     "check:manage-capabilities": "bun run scripts/check-manage-capabilities.ts",
     "build:public-remotes": "bun run scripts/build-public-remotes.ts",
     "profile:analyze": "bun run core/scripts/src/profiling/analyze-metrics.ts",
@@ -43,7 +45,7 @@
     "security:remediate": "bun run scripts/remediate-vulns.ts",
     "playwright:install": "bun run scripts/install-playwright.ts",
     "changeset": "changeset",
-    "version-packages": "bun run scripts/inject-release.ts && changeset version && bun install --lockfile-only && bun run scripts/generate-sdk.ts && bun run scripts/generate-docs-index.ts",
+    "version-packages": "bun run scripts/inject-release.ts && changeset version && bun install --lockfile-only && bun run scripts/generate-sdk.ts && bun run scripts/generate-docs-index.ts && bun run scripts/generate-release-version.ts",
     "publish-packages": "bun run scripts/publish-packages.ts",
     "create": "bun run core/scripts/src/commands/create.ts"
   },

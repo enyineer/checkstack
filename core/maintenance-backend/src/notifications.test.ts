@@ -283,3 +283,34 @@ describe("notifyAffectedSystems (maintenance)", () => {
     });
   });
 });
+
+/**
+ * The REAL notification body build. See the incident-backend twin: the
+ * sanitizer and converter suites cannot prove that THIS caller routes the
+ * update message through the sanitizer at all.
+ */
+describe("notifyAffectedSystems does not leak the mention scheme", () => {
+  it("flattens a mention in the update message to its label", async () => {
+    const catalog = createMockCatalogClient();
+    const notify = createMockNotificationClient();
+    const logger = createMockLogger();
+
+    await notifyAffectedSystems({
+      catalogClient: catalog as never,
+      notificationClient: notify as never,
+      logger: logger as never,
+      maintenanceId: "maint-1",
+      maintenanceTitle: "DB Upgrade",
+      systemIds: ["sys-1"],
+      action: "updated",
+      updateMessage:
+        "Blocked by [Checkout errors](checkstack:incident/9f1c-abc).",
+    });
+
+    const payload = (
+      notify.notifyForSubscription.mock.calls[0] as unknown[] | undefined
+    )?.[0] as { body?: string } | undefined;
+    expect(payload?.body ?? "").not.toContain("checkstack:");
+    expect(payload?.body ?? "").toContain("Checkout errors");
+  });
+});

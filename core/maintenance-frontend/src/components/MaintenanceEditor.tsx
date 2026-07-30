@@ -23,7 +23,7 @@ import {
   Button,
   Input,
   Label,
-  Textarea,
+  MarkdownEditor,
   Checkbox,
   useToast,
   DateTimePicker,
@@ -50,6 +50,13 @@ interface Props {
   maintenance?: MaintenanceWithSystems;
   systems: System[];
   onSave: () => void;
+  /**
+   * Systems to pre-select when opening in CREATE mode (no `maintenance`). Lets a
+   * caller open the editor already scoped to a system - e.g. "Schedule
+   * maintenance" on that system's overview page. Ignored when editing an
+   * existing maintenance, whose own systems win.
+   */
+  presetSystemIds?: string[];
 }
 
 export const MaintenanceEditor: React.FC<Props> = ({
@@ -58,6 +65,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
   maintenance,
   systems,
   onSave,
+  presetSystemIds,
 }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
   const accessApi = useApi(accessApiRef);
@@ -159,12 +167,12 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setDescription("");
       setStartAt(start);
       setEndAt(end);
-      setSelectedSystemIds(new Set());
+      setSelectedSystemIds(new Set(presetSystemIds));
       setSuppressNotifications(false);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
-  }, [maintenance, open]);
+  }, [maintenance, open, presetSystemIds]);
 
   // Per-field error map (single source of truth for inline errors + validity).
   const fieldErrors = deriveMaintenanceFieldErrors({
@@ -203,11 +211,18 @@ export const MaintenanceEditor: React.FC<Props> = ({
         systemsChanged
       );
     }
+    // Create mode: the baseline is whatever was PRE-SELECTED (e.g. opened from a
+    // system's "Schedule maintenance"), not an empty set - otherwise the form
+    // counts as dirty the moment it opens and closing it nags to discard.
+    const preset = [...(presetSystemIds ?? [])].toSorted();
+    const systemsChanged =
+      preset.length !== currentSystemIds.length ||
+      preset.some((id, i) => id !== currentSystemIds[i]);
     return (
       title.trim() !== "" ||
       description.trim() !== "" ||
       suppressNotifications ||
-      currentSystemIds.length > 0 ||
+      systemsChanged ||
       ownerTeamId !== null
     );
   })();
@@ -341,10 +356,10 @@ export const MaintenanceEditor: React.FC<Props> = ({
 
                 <div className="grid gap-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea
+                  <MarkdownEditor
                     id="description"
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={setDescription}
                     placeholder="Details about the maintenance..."
                     rows={3}
                   />

@@ -7,6 +7,7 @@ import { db } from "./db";
 import path from "node:path";
 import fs from "node:fs";
 import { rootLogger } from "./logger";
+import { RELEASE_VERSION } from "./generated/release-version";
 import {
   coreServices,
   coreHooks,
@@ -429,7 +430,8 @@ app.get("/api/plugins", async (c) => {
   return c.json(await getEnabledRemoteFrontendPlugins());
 });
 
-// About endpoint - returns core version and loaded plugin versions
+// About endpoint - returns the platform release version, the core package
+// version, and loaded plugin versions.
 app.get("/api/about", async (c) => {
   // Read core backend version from package.json
   let coreVersion = "unknown";
@@ -472,6 +474,11 @@ app.get("/api/about", async (c) => {
   });
 
   return c.json({
+    // The number that matches the GitHub release, the Docker image tag, and
+    // the release announcement. Baked in at version time (see
+    // `scripts/generate-release-version.ts`) because `@checkstack/release` is
+    // private and so is absent from `node_modules` in an npm install.
+    releaseVersion: RELEASE_VERSION,
     coreVersion,
     plugins: pluginInfos,
   });

@@ -69,6 +69,10 @@ export * from "./api";
 // catalog environment's custom fields.
 export { EnvironmentPreviewPicker } from "./components/EnvironmentPreviewPicker";
 export {
+  SystemPreviewPicker,
+  type PreviewSystem,
+} from "./components/SystemPreviewPicker";
+export {
   toPreviewOptions,
   environmentToPreviewFields,
   findSelectedEnvironment,

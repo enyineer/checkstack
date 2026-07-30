@@ -3,6 +3,7 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   maintenanceAccessRules,
   maintenanceAccess,
+  maintenanceResourceTypes,
   pluginMetadata,
   maintenanceContract,
   maintenanceRoutes,
@@ -277,6 +278,9 @@ export default createBackendPlugin({
                 resolveRoute(maintenanceRoutes.routes.config) +
                 "?action=create",
               requiredAccessRules: [maintenanceAccess.maintenance.manage],
+              // Team-scoped: a team that may create/manage maintenances sees this
+              // even without the global rule (see command-common filterByAccessRules).
+              manageCapability: { objectType: maintenanceResourceTypes.maintenance },
             },
             {
               id: "manage",
@@ -286,6 +290,9 @@ export default createBackendPlugin({
               shortcuts: ["meta+shift+m", "ctrl+shift+m"],
               route: resolveRoute(maintenanceRoutes.routes.config),
               requiredAccessRules: [maintenanceAccess.maintenance.manage],
+              // Team-scoped: a team that may create/manage maintenances sees this
+              // even without the global rule (see command-common filterByAccessRules).
+              manageCapability: { objectType: maintenanceResourceTypes.maintenance },
             },
           ],
         });

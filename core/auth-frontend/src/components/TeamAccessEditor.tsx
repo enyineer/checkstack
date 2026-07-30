@@ -17,19 +17,23 @@ import {
   SelectValue,
   Checkbox,
   Toggle,
+  ConfirmationModal,
 } from "@checkstack/ui";
 import {
   Plus,
   Trash2,
   Users2,
   Shield,
-  Settings,
   Lock,
   AlertCircle,
+  ExternalLink,
 } from "lucide-react";
-import { usePluginClient } from "@checkstack/frontend-api";
-import { AuthApi } from "@checkstack/auth-common";
+import { Link } from "react-router";
+import { useApi, usePluginClient, accessApiRef } from "@checkstack/frontend-api";
+import { AuthApi, authAccess, authRoutes } from "@checkstack/auth-common";
+import { resolveRoute } from "@checkstack/common";
 import { deriveTeamAccessSummary } from "../lib/deriveTeamAccessSummary";
+import { isSelfRevokingChange } from "../lib/selfLockout";
 
 interface TeamAccess {
   teamId: string;
@@ -77,6 +81,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   onChange,
 }) => {
   const authClient = usePluginClient(AuthApi);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
   const [expanded, setExpanded] = useState(initialExpanded);
@@ -113,6 +118,26 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   );
   const canEdit = editVerdict?.allowed ?? false;
 
+  // The caller's OWN teams, to warn before they revoke their own access (below).
+  // `getMyTeams` carries no access rule - a caller may always read their own
+  // memberships - so this is safe for every principal that can open the editor.
+  const { data: myTeamsData } = authClient.getMyTeams.useQuery(undefined, {
+    enabled: expanded && !!resourceId,
+  });
+  const myTeamIds = new Set((myTeamsData?.teams ?? []).map((t) => t.id));
+
+  // A global `auth.teams.manage` admin can always restore a grant they removed,
+  // so the self-lockout warning is for everyone EXCEPT them.
+  const { allowed: isGlobalTeamsAdmin } = accessApi.useAccess(
+    authAccess.teams.manage,
+  );
+
+  /** A confirmation the user must accept before a self-revoking change runs. */
+  const [pendingSelfRevoke, setPendingSelfRevoke] = useState<{
+    teamName: string;
+    apply: () => void;
+  }>();
+
   const loading = relationsLoading || teamsLoading;
   // An access-control surface MUST distinguish "failed to load" from "no
   // restrictions" — otherwise a fetch error makes a restricted resource look open.
@@ -127,6 +152,15 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     canManage: t.relation !== "viewer",
   }));
   const teamOnly = relations ? !relations.isPublic : false;
+
+  /** See `isSelfRevokingChange` - pure, unit-tested in `selfLockout.test.ts`. */
+  const isSelfLockout = (teamId: string): boolean =>
+    isSelfRevokingChange({
+      teamId,
+      grants: accessList,
+      myTeamIds,
+      isGlobalTeamsAdmin,
+    });
 
   // Mutations
   const setAccessMutation = authClient.writeRelation.useMutation({
@@ -178,12 +212,23 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   const handleUpdateAccess = (teamId: string, canManage: boolean) => {
     // A team always retains read; the only meaningful distinction is the manage
     // bit, which maps to editor (manage) vs viewer (read-only).
-    setAccessMutation.mutate({
-      objectType: resourceType,
-      objectId: resourceId,
-      teamId,
-      relation: canManage ? "editor" : "viewer",
-    });
+    const apply = () =>
+      setAccessMutation.mutate({
+        objectType: resourceType,
+        objectId: resourceId,
+        teamId,
+        relation: canManage ? "editor" : "viewer",
+      });
+
+    // Downgrading YOUR OWN team to read-only can strand you: you would no longer
+    // be able to change this resource, nor restore the grant. Confirm first.
+    if (!canManage && isSelfLockout(teamId)) {
+      const teamName =
+        accessList.find((a) => a.teamId === teamId)?.teamName ?? "your team";
+      setPendingSelfRevoke({ teamName, apply });
+      return;
+    }
+    apply();
   };
 
   const handleUpdateSettings = (newTeamOnly: boolean) => {
@@ -195,23 +240,34 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   };
 
   const handleRemoveAccess = (teamId: string) => {
-    removeAccessMutation.mutate({
-      objectType: resourceType,
-      objectId: resourceId,
-      teamId,
-    });
-
-    // If this was the last team, turn off "Private to teams" so the resource
-    // doesn't end up locked-down with no team able to reach it. Surface it.
-    const remainingTeams = accessList.filter((a) => a.teamId !== teamId);
-    if (remainingTeams.length === 0 && teamOnly) {
-      setSettingsMutation.mutate({
+    const apply = () => {
+      removeAccessMutation.mutate({
         objectType: resourceType,
         objectId: resourceId,
-        isPublic: true,
+        teamId,
       });
-      toast.info("Private turned off - no teams remain");
+
+      // If this was the last team, turn off "Private to teams" so the resource
+      // doesn't end up locked-down with no team able to reach it. Surface it.
+      const remainingTeams = accessList.filter((a) => a.teamId !== teamId);
+      if (remainingTeams.length === 0 && teamOnly) {
+        setSettingsMutation.mutate({
+          objectType: resourceType,
+          objectId: resourceId,
+          isPublic: true,
+        });
+        toast.info("Private turned off - no teams remain");
+      }
+    };
+
+    // Removing YOUR OWN team's only Manage grant is a one-way door - confirm.
+    if (isSelfLockout(teamId)) {
+      const teamName =
+        accessList.find((a) => a.teamId === teamId)?.teamName ?? "your team";
+      setPendingSelfRevoke({ teamName, apply });
+      return;
     }
+    apply();
   };
 
   const typedAccessList = accessList;
@@ -354,7 +410,18 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     >
       <div className="flex items-center gap-2 min-w-0">
         <Users2 className="h-4 w-4 text-muted-foreground shrink-0" />
-        <span className="font-medium text-sm truncate">{access.teamName}</span>
+        {/* The team NAME navigates to the team itself (members/managers). This
+            is the "take me to the team" affordance - keeping it separate from
+            the checkbox, which only sets this resource's grant level. Before,
+            the checkbox's gear icon made people expect it to open the team. */}
+        <Link
+          to={`${resolveRoute(authRoutes.routes.teams)}?team=${access.teamId}`}
+          className="font-medium text-sm truncate hover:underline inline-flex items-center gap-1"
+          title={`Open ${access.teamName} to manage its members`}
+        >
+          <span className="truncate">{access.teamName}</span>
+          <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+        </Link>
         {!access.canManage && (
           <span className="text-xs text-muted-foreground shrink-0">
             (read-only)
@@ -362,6 +429,8 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {/* Labelled by its EFFECT on this resource ("Can edit"), not "Manage" -
+            the old wording plus a gear icon read as "manage the team". */}
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Checkbox
             checked={access.canManage}
@@ -369,10 +438,9 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
               handleUpdateAccess(access.teamId, !!checked)
             }
             disabled={!canEdit}
-            aria-label={`${access.teamName} can change this`}
+            aria-label={`${access.teamName} can edit this resource`}
           />
-          <Settings className="h-3 w-3" />
-          Manage
+          Can edit
         </label>
         {canEdit && (
           <Button
@@ -406,9 +474,24 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
       <p className="text-xs text-muted-foreground">
         Every team added here can <strong>view</strong> this resource, even
         members who don&apos;t have the global read permission. Tick{" "}
-        <strong>Manage</strong> to also let them change it. Anyone who can
-        already read it still can.
+        <strong>Can edit</strong> to also let them change it. Anyone who can
+        already read it still can. Select a team name to manage its members.
       </p>
+
+      {/* Self-lockout guard: revoking your OWN team's only edit grant cannot be
+          undone by you afterwards, so it is confirmed rather than instant. */}
+      <ConfirmationModal
+        isOpen={!!pendingSelfRevoke}
+        onClose={() => setPendingSelfRevoke(undefined)}
+        onConfirm={() => {
+          pendingSelfRevoke?.apply();
+          setPendingSelfRevoke(undefined);
+        }}
+        title="Remove your own team's access?"
+        message={`${pendingSelfRevoke?.teamName ?? "Your team"} is the only team of yours that can edit this resource. If you continue you will no longer be able to change it — or to restore this permission yourself. An administrator would have to grant it back.`}
+        confirmText="Remove access"
+        variant="warning"
+      />
     </>
   );
 

@@ -11,6 +11,7 @@ import {
 import {
   incidentAccessRules,
   incidentAccess,
+  incidentResourceTypes,
   pluginMetadata,
   incidentContract,
   incidentRoutes,
@@ -289,6 +290,9 @@ export default createBackendPlugin({
               route:
                 resolveRoute(incidentRoutes.routes.config) + "?action=create",
               requiredAccessRules: [incidentAccess.incident.manage],
+              // Team-scoped: a team that may create/manage incidents sees this
+              // even without the global rule (see command-common filterByAccessRules).
+              manageCapability: { objectType: incidentResourceTypes.incident },
             },
             {
               id: "manage",
@@ -298,6 +302,9 @@ export default createBackendPlugin({
               shortcuts: ["meta+shift+i", "ctrl+shift+i"],
               route: resolveRoute(incidentRoutes.routes.config),
               requiredAccessRules: [incidentAccess.incident.manage],
+              // Team-scoped: a team that may create/manage incidents sees this
+              // even without the global rule (see command-common filterByAccessRules).
+              manageCapability: { objectType: incidentResourceTypes.incident },
             },
           ],
         });

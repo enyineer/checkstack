@@ -49,6 +49,7 @@ import {
   AccordionContent,
   Spinner,
   cn,
+  pillToneStyles,
 } from "@checkstack/ui";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "react-router";
@@ -74,6 +75,7 @@ import {
   selectedRunStatus,
 } from "./runFilters.logic";
 import { HealthStatusPill } from "./HealthStatusPill";
+import { isRunStale } from "./run-staleness.logic";
 import {
   bucketAvgLatencyMs,
   bucketHealthyPercent,
@@ -97,6 +99,13 @@ interface HealthCheckOverviewItem {
   lastRunAt?: Date;
   stateThresholds?: StateThresholds;
   recentStatusHistory: HealthCheckStatus[];
+  /** A paused check is quiet on purpose, so its last run is never "stale". */
+  paused?: boolean;
+  /**
+   * A retired slice (environment removed, satellite unassigned). Also never
+   * "stale": it stopped correctly.
+   */
+  isOrphaned?: boolean;
   /**
    * The environment this drawer is scoped to. `null` for an env-less row; a
    * concrete string for a per-env row; `undefined` when the overview row was
@@ -121,12 +130,27 @@ const BannerStat: React.FC<{
   label: string;
   /** Full-precision hover title (e.g. the exact datetime behind "2m ago"). */
   title?: string;
-}> = ({ value, label, title }) => (
+  /**
+   * Draws attention to a value that undermines the rest of the banner - a
+   * "last run" so old that the status beside it is no longer being verified.
+   */
+  warn?: boolean;
+}> = ({ value, label, title, warn = false }) => (
   <div className="text-right" title={title}>
-    <span className="block text-lg font-bold leading-none tracking-tight tabular-nums text-foreground">
+    <span
+      className={cn(
+        "block text-lg font-bold leading-none tracking-tight tabular-nums",
+        warn ? pillToneStyles.warn.text : "text-foreground",
+      )}
+    >
       {value}
     </span>
-    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+    <span
+      className={cn(
+        "mt-0.5 block text-[11px]",
+        warn ? pillToneStyles.warn.text : "text-muted-foreground",
+      )}
+    >
       {label}
     </span>
   </div>
@@ -139,6 +163,17 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   open,
   onOpenChange,
 }) => {
+  // Computed once per render rather than on a timer: the drawer already
+  // re-renders on every realtime run signal, which is exactly when staleness
+  // can change.
+  const runIsStale = isRunStale({
+    ...(item.lastRunAt ? { lastRunAt: item.lastRunAt } : {}),
+    intervalSeconds: item.intervalSeconds,
+    ...(item.paused === undefined ? {} : { paused: item.paused }),
+    ...(item.isOrphaned === undefined ? {} : { orphaned: item.isOrphaned }),
+    now: new Date(),
+  });
+
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
 
@@ -367,13 +402,17 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                   value={`${item.intervalSeconds}s`}
                   label="interval"
                 />
+                {/* A check that has gone quiet is showing a status nobody is
+                    verifying any more, so the age is warned rather than stated
+                    flatly - otherwise a dead probe reads like a passing one. */}
                 <BannerStat
                   value={
                     item.lastRunAt
                       ? formatDistanceToNow(item.lastRunAt, { addSuffix: true })
                       : "Never"
                   }
-                  label="last run"
+                  label={runIsStale ? "last run (stale)" : "last run"}
+                  warn={runIsStale}
                   title={
                     item.lastRunAt
                       ? format(item.lastRunAt, "PPpp")

@@ -14,11 +14,11 @@ import {
   useToast,
   toastError,
 } from "@checkstack/ui";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Edit, Copy, Trash2 } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { Role, AccessRuleEntry } from "../api";
-import { RoleDialog } from "./RoleDialog";
+import { RoleDialog, type RoleDialogMode } from "./RoleDialog";
 
 export interface RolesTabProps {
   roles: Role[];
@@ -47,6 +47,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
   const [roleToDelete, setRoleToDelete] = useState<string>();
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | undefined>();
+  const [dialogMode, setDialogMode] = useState<RoleDialogMode>("create");
 
   // Mutations
   const createRoleMutation = authClient.createRole.useMutation({
@@ -82,11 +83,23 @@ export const RolesTab: React.FC<RolesTabProps> = ({
 
   const handleCreateRole = () => {
     setEditingRole(undefined);
+    setDialogMode("create");
     setRoleDialogOpen(true);
   };
 
   const handleEditRole = (role: Role) => {
     setEditingRole(role);
+    setDialogMode("edit");
+    setRoleDialogOpen(true);
+  };
+
+  /**
+   * Open the dialog seeded from `role` but saving as a CREATE. The source role
+   * is never mutated, and the copy carries no link back to it.
+   */
+  const handleCloneRole = (role: Role) => {
+    setEditingRole(role);
+    setDialogMode("clone");
     setRoleDialogOpen(true);
   };
 
@@ -166,9 +179,11 @@ export const RolesTab: React.FC<RolesTabProps> = ({
           role={role}
           isUserRole={userRoleIds.includes(role.id)}
           isSystem={role.isSystem}
+          canCreateRoles={canCreateRoles}
           canUpdateRoles={canUpdateRoles}
           canDeleteRoles={canDeleteRoles}
           onEdit={handleEditRole}
+          onClone={handleCloneRole}
           onDelete={setRoleToDelete}
         />
       ),
@@ -246,9 +261,11 @@ export const RolesTab: React.FC<RolesTabProps> = ({
                           role={role}
                           isUserRole={isUserRole}
                           isSystem={role.isSystem}
+                          canCreateRoles={canCreateRoles}
                           canUpdateRoles={canUpdateRoles}
                           canDeleteRoles={canDeleteRoles}
                           onEdit={handleEditRole}
+                          onClone={handleCloneRole}
                           onDelete={setRoleToDelete}
                         />
                       </div>
@@ -269,8 +286,15 @@ export const RolesTab: React.FC<RolesTabProps> = ({
         open={roleDialogOpen}
         onOpenChange={setRoleDialogOpen}
         role={editingRole}
+        mode={dialogMode}
         accessRulesList={accessRulesList}
-        isUserRole={editingRole ? userRoleIds.includes(editingRole.id) : false}
+        // A clone is a NEW role the viewer does not hold, so the own-role
+        // elevation lock never applies to it - only to a genuine edit.
+        isUserRole={
+          dialogMode === "edit" && editingRole
+            ? userRoleIds.includes(editingRole.id)
+            : false
+        }
         onSave={handleSaveRole}
       />
 
@@ -309,9 +333,11 @@ interface RoleActionsProps {
   role: Role;
   isUserRole: boolean;
   isSystem: boolean | undefined;
+  canCreateRoles: boolean;
   canUpdateRoles: boolean;
   canDeleteRoles: boolean;
   onEdit: (role: Role) => void;
+  onClone: (role: Role) => void;
   onDelete: (roleId: string) => void;
 }
 
@@ -323,9 +349,11 @@ const RoleActions: React.FC<RoleActionsProps> = ({
   role,
   isUserRole,
   isSystem,
+  canCreateRoles,
   canUpdateRoles,
   canDeleteRoles,
   onEdit,
+  onClone,
   onDelete,
 }) => (
   <RowActions>
@@ -334,6 +362,15 @@ const RoleActions: React.FC<RoleActionsProps> = ({
       label={`Edit ${role.name}`}
       onClick={() => onEdit(role)}
       disabled={!canUpdateRoles}
+    />
+    {/* Cloning writes a NEW role, so it is gated on create - not update. A
+        system role can be cloned even though it cannot be edited: the copy is
+        an ordinary role and the original is untouched. */}
+    <RowAction
+      icon={Copy}
+      label={`Clone ${role.name}`}
+      onClick={() => onClone(role)}
+      disabled={!canCreateRoles}
     />
     <RowAction
       icon={Trash2}

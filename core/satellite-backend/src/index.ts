@@ -23,6 +23,7 @@ import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
 import { resolveSatelliteConfigSecrets } from "./config-secret-resolver";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
+import { createSatelliteLivenessCache } from "./liveness-cache";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
 import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
@@ -43,6 +44,16 @@ import {
   type SatelliteConnectionState,
 } from "./entity";
 import { satelliteTriggers } from "./automations";
+import { buildSatelliteConnectionNotification } from "./connection-notifications";
+import {
+  NotificationApi,
+  targetToRegistration,
+} from "@checkstack/notification-common";
+import {
+  createSatelliteSubject,
+  satelliteConnectionSubscription,
+  satelliteTarget,
+} from "@checkstack/satellite-common";
 import {
   SatelliteCapabilityRegistryImpl,
   satelliteCapabilityExtensionPoint,
@@ -136,13 +147,14 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
+        cacheManager: coreServices.cacheManager,
         wsRegistry: coreServices.wsRegistry,
         secretResolver: secretResolverRef,
         internalSecrets: internalSecretsRef,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         collectorRegistry: coreServices.collectorRegistry,
       },
-      init: async ({ logger, database, rpc, signalService }) => {
+      init: async ({ logger, database, rpc, signalService, cacheManager }) => {
         logger.debug("🛰️ Initializing Satellite Backend...");
 
         const service = new SatelliteService(
@@ -168,6 +180,7 @@ export default createBackendPlugin({
           service,
           signalService,
           logger,
+          livenessCache: createSatelliteLivenessCache({ cacheManager }),
         });
         rpc.registerRouter(router, satelliteContract);
 
@@ -219,6 +232,12 @@ export default createBackendPlugin({
         });
 
         // Wire result handler — ingests satellite results into healthcheck-backend
+        // Declared before the WS handler because its `mirror` closure notifies
+        // on recovery. The closure only runs after a connection, so ordering is
+        // not a correctness issue - but reading a `const` declared 150 lines
+        // below the closure that captures it is needlessly hard to verify.
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
+
         const wsHandler = new SatelliteWsHandler(
           service,
           configRelay,
@@ -254,6 +273,16 @@ export default createBackendPlugin({
             // `read`, records the transition (durable history), and emits the
             // change; the deriver re-fires the equivalent trigger events.
             mirror: async ({ satelliteId, lastEvent, lastHeartbeatAt }) => {
+              // Snapshot liveness BEFORE the write so a RECOVERY can be told
+              // apart from a routine reconnect. Only a satellite that was
+              // actually offline produces a "back online" notification -
+              // otherwise every redeploy would notify subscribers about a
+              // satellite that was never missed.
+              const before =
+                lastEvent === "connected"
+                  ? await service.getSatellite(satelliteId)
+                  : undefined;
+
               await withEntityWrite({
                 handle: satelliteEntityHandle,
                 id: satelliteId,
@@ -264,6 +293,35 @@ export default createBackendPlugin({
                     lastHeartbeatAt,
                   }),
               });
+
+              if (before?.status !== "offline") return;
+
+              // Best-effort: a failed recovery notice must never surface as a
+              // failed connection.
+              try {
+                const notification = buildSatelliteConnectionNotification({
+                  event: "connected",
+                  satelliteId,
+                  name: before.name,
+                  region: before.region,
+                });
+                await notificationClient.notifyForSubscription({
+                  specId: satelliteConnectionSubscription.specId,
+                  resourceKeys: [satelliteId],
+                  subjects: [
+                    createSatelliteSubject({
+                      id: satelliteId,
+                      name: before.name,
+                      url: resolveRoute(satelliteRoutes.routes.list),
+                    }),
+                  ],
+                  ...notification,
+                });
+              } catch (error) {
+                logger.debug(
+                  `Failed to notify satellite recovery for ${satelliteId}: ${String(error)}`,
+                );
+              }
             },
           },
           {
@@ -344,6 +402,30 @@ export default createBackendPlugin({
         wsRegistry.register("/", wsHandler);
         logger.debug("✅ Satellite WebSocket endpoint registered at /api/ws/satellite");
 
+        // Register the satellite notification target + seed its resources, so a
+        // user can subscribe to a specific satellite's connectivity. Best-effort
+        // and never fatal: a satellite that cannot be subscribed to is far less
+        // bad than a satellite plugin that refuses to boot.
+        try {
+          await notificationClient.registerNotificationTarget(
+            targetToRegistration(satelliteTarget),
+          );
+          const existing = await service.listSatellites();
+          if (existing.length > 0) {
+            await notificationClient.upsertNotificationResources({
+              targetTypeId: satelliteTarget.targetTypeId,
+              resources: existing.map((sat) => ({
+                resourceKey: sat.id,
+                displayLabel: sat.name,
+              })),
+            });
+          }
+        } catch (error) {
+          logger.debug(
+            `Failed to bootstrap satellite notification target: ${String(error)}`,
+          );
+        }
+
         // Setup heartbeat monitor
         const heartbeatMonitor = new HeartbeatMonitor(
           service,
@@ -370,6 +452,31 @@ export default createBackendPlugin({
                     satelliteId,
                     lastEvent: "heartbeat_lost",
                   }),
+              });
+            },
+          },
+          {
+            // A satellite going quiet is the one connectivity event an operator
+            // must not miss: the checks it runs simply stop producing results,
+            // so without this the failure is visible only as a flat graph.
+            notifyOffline: async ({ satelliteId, name, region }) => {
+              const notification = buildSatelliteConnectionNotification({
+                event: "heartbeat_lost",
+                satelliteId,
+                name,
+                region,
+              });
+              await notificationClient.notifyForSubscription({
+                specId: satelliteConnectionSubscription.specId,
+                resourceKeys: [satelliteId],
+                subjects: [
+                  createSatelliteSubject({
+                    id: satelliteId,
+                    name,
+                    url: resolveRoute(satelliteRoutes.routes.list),
+                  }),
+                ],
+                ...notification,
               });
             },
           },

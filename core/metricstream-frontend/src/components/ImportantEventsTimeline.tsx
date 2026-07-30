@@ -1,8 +1,8 @@
 import {
   Timeline,
+  TimelineDot,
   StatusBadge,
   formatDateTime,
-  cn,
   type StatusTone,
 } from "@checkstack/ui";
 import type { ImportantEvent } from "@checkstack/metricstream-common";
@@ -41,15 +41,12 @@ export function ImportantEventsTimeline({
       maxHeight="max-h-[28rem]"
       renderDot={(event) => {
         const { icon: Icon, tone } = importantEventVisual(event.type);
+        // Positioning comes from TimelineDot so this dot cannot drift off the
+        // rail; only the tone is decided here.
         return (
-          <span
-            className={cn(
-              "absolute left-1 top-0.5 inline-flex size-6 items-center justify-center rounded-full border-2 border-background",
-              dotToneClass[tone],
-            )}
-          >
+          <TimelineDot className={dotToneClass[tone]}>
             <Icon className="size-3.5" aria-hidden />
-          </span>
+          </TimelineDot>
         );
       }}
       renderItem={(event) => {

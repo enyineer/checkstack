@@ -1,18 +1,23 @@
-import { Moon, Sun } from "lucide-react";
 import { useApi } from "@checkstack/frontend-api";
 import { authApiRef } from "@checkstack/auth-frontend/api";
-import { Button, useTheme } from "@checkstack/ui";
+import { Button, Tooltip, useTheme } from "@checkstack/ui";
+import { getThemeModeOption, nextThemeMode } from "./theme-mode.logic";
+import { THEME_MODE_ICONS } from "./ThemeModeSelector";
 
 /**
- * Navbar theme toggle button for non-logged-in users.
+ * Navbar theme control for non-logged-in users.
  *
- * Shows a Sun/Moon icon button that toggles between light and dark themes.
- * Only renders when user is NOT logged in (logged-in users use the toggle in UserMenu).
+ * A single button that CYCLES Light -> Dark -> Auto, rather than the segmented
+ * control the user menu can afford: the navbar has no room for three labelled
+ * options. Auto is in the cycle deliberately - previously this button could
+ * only write `light` or `dark`, so a signed-out visitor whose theme was
+ * following their OS lost that the first time they touched it, with no way back.
  *
- * Theme changes are saved to local storage via ThemeProvider.
+ * Only renders when the user is NOT logged in (logged-in users use the selector
+ * in UserMenu). Theme changes are saved to local storage via ThemeProvider.
  */
 export const NavbarThemeToggle = () => {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
 
@@ -21,27 +26,26 @@ export const NavbarThemeToggle = () => {
     return;
   }
 
-  // Don't render for logged-in users (they use UserMenu toggle)
+  // Don't render for logged-in users (they use UserMenu selector)
   if (session?.user) {
     return;
   }
 
-  const isDark = resolvedTheme === "dark";
-
-  const handleToggle = () => {
-    const newTheme = isDark ? "light" : "dark";
-    setTheme(newTheme);
-  };
+  const current = getThemeModeOption({ theme });
+  const next = getThemeModeOption({ theme: nextThemeMode({ theme }) });
+  const Icon = THEME_MODE_ICONS[theme];
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={handleToggle}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      className="rounded-full"
-    >
-      {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-    </Button>
+    <Tooltip content={`Theme: ${current.label}. Switch to ${next.label}.`}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setTheme(nextThemeMode({ theme }))}
+        aria-label={`Theme: ${current.label}. Switch to ${next.label}.`}
+        className="rounded-full"
+      >
+        <Icon className="h-5 w-5" />
+      </Button>
+    </Tooltip>
   );
 };

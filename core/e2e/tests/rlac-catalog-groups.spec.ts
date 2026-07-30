@@ -119,28 +119,37 @@ test("a system-creator team may also create & manage its own groups and environm
     await createDialog
       .getByRole("button", { name: "Create", exact: true })
       .click();
-    await expect(page.getByText("Team created successfully")).toBeVisible({
-      timeout: NAV,
-    });
 
-    // Open the team's manage dialog.
-    await page
-      .getByRole("row", { name: new RegExp(TEAM_NAME) })
-      .getByRole("button", { name: /Manage/i })
-      .click();
+    // The teams list can lag the create: the success toast that used to be
+    // asserted here fires BEFORE the list refetches, so waiting on it never
+    // helped, and under full-suite load the lag has exceeded the test timeout.
+    // Reload if the row has not appeared rather than waiting indefinitely on a
+    // refetch that may already have settled elsewhere. Same pattern as
+    // rlac-automation-team.spec.ts, which is why that spec stays green under
+    // load while this one did not.
     const manage = page.getByRole("dialog");
-    await expect(
-      manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
-    ).toBeVisible();
+    await expect(async () => {
+      const row = page.getByRole("row", { name: new RegExp(TEAM_NAME) });
+      if (!(await row.isVisible().catch(() => false))) {
+        await page.reload();
+      }
+      await row.getByRole("button", { name: /Manage/i }).click();
+      // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+      await expect(
+        manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
+      ).toBeVisible({ timeout: 5000 });
+    }).toPass({ timeout: NAV });
 
     // Add the member by email.
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page.getByRole("button", { name: new RegExp(MEMBER.name) }).click();
-    await expect(page.getByText("Member added successfully")).toBeVisible({
-      timeout: NAV,
-    });
+    // Durable outcome, not the auto-dismissing toast: the member is now listed
+    // in the team's manage dialog.
+    await expect(
+      manage.getByText(MEMBER.email, { exact: false }),
+    ).toBeVisible({ timeout: NAV });
 
     // Grant ONLY the System create-capability (the "Resource creation" toggle).
     // The member gets NO group/environment grant of its own - the sibling gate

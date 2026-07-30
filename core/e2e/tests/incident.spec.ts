@@ -62,7 +62,8 @@ async function expandBrowseSections(page: Page): Promise<void> {
     while ((await collapsed.count()) > 0) {
       await collapsed.first().click();
     }
-    await expect(collapsed).toHaveCount(0);
+    // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+    await expect(collapsed).toHaveCount(0, { timeout: 5000 });
   }).toPass({ timeout: NAV_TIMEOUT });
 }
 
@@ -206,6 +207,29 @@ test.describe("incidents", () => {
     const row = page.getByRole("row", { name: new RegExp(INCIDENT_TITLE) });
     await expect(row).toBeVisible();
     await expect(row.getByText("Investigating")).toBeVisible();
+  });
+
+  test("the system detail panel NAMES the single incident", async ({
+    page,
+  }) => {
+    // Feature: with exactly ONE active item the panel shows its TITLE instead
+    // of a generic "1 active incident" count. The summarising logic is unit
+    // tested; nothing proved the title actually reaches the rendered card -
+    // the same shape of gap that let inline mentions ship inert.
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+    await expandBrowseSections(page);
+
+    const detailLink = page.getByRole("link", { name: SYSTEM_NAME });
+    await expect(detailLink).toBeVisible({ timeout: NAV_TIMEOUT });
+    const href = await detailLink.getAttribute("href");
+    await page.goto(href ?? "", { timeout: NAV_TIMEOUT });
+    await expect(
+      page.getByRole("heading", { name: SYSTEM_NAME }),
+    ).toBeVisible({ timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByText(INCIDENT_TITLE, { exact: false }).first(),
+    ).toBeVisible({ timeout: NAV_TIMEOUT });
   });
 
   test("opens the incident detail page via the system history", async ({

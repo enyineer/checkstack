@@ -336,6 +336,276 @@ describe("Queue-Based Health Check Executor", () => {
     });
   });
 
+  describe("executeHealthCheckJob - satellite-only checks with no online satellite", () => {
+    /**
+     * Builds a worker whose one configuration is satellite-ONLY (includeLocal
+     * false, satellites assigned) and captures the queue handler.
+     */
+    const setupSatelliteOnlyWorker = async (opts: {
+      getOnlineSatelliteIds?: () => Promise<string[]>;
+      /** Override the assignment shape to model a configuration change. */
+      configRow?: Partial<{
+        includeLocal: boolean;
+        satelliteIds: string[];
+        paused: boolean;
+      }>;
+      /** Records every subscriber notification the run would deliver. */
+      onNotify?: (input: unknown) => void;
+    }) => {
+      const mockDb = createMockDb();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockSignalService = createMockSignalService();
+      const mockCatalogClient = createMockCatalogClient();
+
+      // The shared mock has no `selectDistinct`; the rollup read uses it.
+      (mockDb as any).selectDistinct = mock(() => ({
+        from: mock(() => ({
+          where: mock(() => Promise.resolve([])),
+        })),
+      }));
+
+      (mockDb.select as any) = mock(() => ({
+        from: mock(() => ({
+          innerJoin: mock(() => ({
+            where: mock(() =>
+              Promise.resolve([
+                {
+                  configId: "config-1",
+                  configName: "Satellite check",
+                  strategyId: "test-strategy",
+                  config: {},
+                  collectors: [],
+                  interval: 30,
+                  enabled: true,
+                  // The shape this branch exists for: executed by satellites,
+                  // never by the core. Overridable so a test can model an
+                  // assignment change.
+                  paused: false,
+                  includeLocal: false,
+                  satelliteIds: ["sat-1", "sat-2"],
+                  environmentIds: null,
+                  ...opts.configRow,
+                },
+              ]),
+            ),
+          })),
+          where: mock(() => Promise.resolve([])),
+        })),
+      }));
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: createMockRegistry(),
+        collectorRegistry:
+          createMockCollectorRegistry() as unknown as Parameters<
+            typeof setupHealthCheckWorker
+          >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: (input: unknown) => {
+            opts.onNotify?.(input);
+            return Promise.resolve({ notifiedCount: 0 });
+          },
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: createMockMaintenanceClient() as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: createMockIncidentClient() as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+        slowCheckRuntime: null,
+        ...(opts.getOnlineSatelliteIds
+          ? { getOnlineSatelliteIds: opts.getOnlineSatelliteIds }
+          : {}),
+      });
+
+      return { capturedHandler, mockLogger, mockSignalService };
+    };
+
+    const run = async (
+      handler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined,
+    ) => {
+      await handler?.({
+        data: {
+          configId: "config-1",
+          systemId: "system-1",
+          environmentId: null,
+        },
+      });
+    };
+
+    it("stays silent while at least one assigned satellite is online", async () => {
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => ["sat-2"],
+      });
+
+      await run(capturedHandler);
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("satellite-only, skipping local execution"),
+      );
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+    });
+
+    it("warns and records a run when NO assigned satellite is online", async () => {
+      // The regression this guards: the core used to return silently here, so a
+      // check whose satellites were all down kept displaying its last known
+      // status forever - a dead probe reading exactly like a passing one.
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => [],
+      });
+
+      // `persistRunAndReact` needs the full insert/aggregate/entity chain, which
+      // this file's mock database does not provide - so the call throws HERE and
+      // not in production, where it is the same function every successful run
+      // goes through. That is a mock limit, not the behaviour under test: what
+      // this pins is that the executor took the RECORD path instead of the
+      // silent one. What gets recorded is pinned separately and purely by
+      // `buildUnobservableRun` in `satellite-liveness.test.ts`.
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+      // It must NOT take the silent path.
+      expect(mockLogger.debug).not.toHaveBeenCalledWith(
+        expect.stringContaining("satellite-only, skipping local execution"),
+      );
+    });
+
+    it("stays silent when satellite liveness cannot be resolved", async () => {
+      // A transient failure to reach the satellite service must never mark every
+      // satellite-only check in the fleet degraded at once.
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => {
+          throw new Error("satellite service unreachable");
+        },
+      });
+
+      await run(capturedHandler);
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("satellite-only, skipping local execution"),
+      );
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+    });
+
+    it("stays silent when no liveness resolver is wired at all", async () => {
+      // Pre-existing behaviour for a deployment without the resolver: the core
+      // says nothing and lets the satellites report.
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({});
+
+      await run(capturedHandler);
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("satellite-only, skipping local execution"),
+      );
+    });
+
+    /**
+     * An operator CHANGING an assignment must never look like a failure. These
+     * are the cases that have historically been got wrong: the platform reacts
+     * to a deliberate configuration change as though the check had broken.
+     */
+    it("records nothing when the satellites are removed from the assignment", async () => {
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        // No satellite is online at all - but the assignment no longer names
+        // any, so this check is simply not satellite-only any more.
+        getOnlineSatelliteIds: async () => [],
+        configRow: { satelliteIds: [] },
+      });
+
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+    });
+
+    it("records nothing when local execution is turned back on", async () => {
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => [],
+        configRow: { includeLocal: true },
+      });
+
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+    });
+
+    it("a PAUSED satellite-only check records nothing, even with every satellite offline", async () => {
+      // Paused is checked BEFORE the satellite branch, so a paused check is
+      // quiet on purpose and must not manufacture a degraded run.
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => [],
+        configRow: { paused: true },
+      });
+
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("is paused, skipping execution"),
+      );
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+    });
+
+    it("does NOT notify subscribers for the unobservable run", async () => {
+      // One offline satellite degrades EVERY check assigned to it in the same
+      // tick, and healthy -> degraded is an escalation, so notifying per check
+      // turns a single root cause into one alert per check. The satellite's own
+      // connectivity subscription reports the cause once. The RUN is still
+      // recorded - only the per-check alert is withheld.
+      const notified: unknown[] = [];
+      const { capturedHandler, mockLogger } = await setupSatelliteOnlyWorker({
+        getOnlineSatelliteIds: async () => [],
+        onNotify: (input) => notified.push(input),
+      });
+
+      await run(capturedHandler).catch(() => {});
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("no online satellite"),
+      );
+      expect(notified).toHaveLength(0);
+    });
+  });
+
   describe("executeHealthCheckJob - collector run-context", () => {
     it("passes curated run-context to the collector (name falls back to id when configName is null)", async () => {
       const mockDb = createMockDb();

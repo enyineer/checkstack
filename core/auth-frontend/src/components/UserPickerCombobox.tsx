@@ -43,7 +43,7 @@ export const UserPickerCombobox: React.FC<UserPickerComboboxProps> = ({
   onSelect,
   excludeUserIds,
   disabled,
-  placeholder = "Search users by name or email",
+  placeholder = "Add a user by name or email",
   id,
 }) => {
   const authClient = usePluginClient(AuthApi);
@@ -119,7 +119,8 @@ export const UserPickerCombobox: React.FC<UserPickerComboboxProps> = ({
             </p>
           ) : results.length === 0 ? (
             <p className="px-3 py-4 text-center text-xs italic text-muted-foreground">
-              No matching users.
+              No matching user. People appear here only after their first
+              sign-in.
             </p>
           ) : (
             results.map((user) => (

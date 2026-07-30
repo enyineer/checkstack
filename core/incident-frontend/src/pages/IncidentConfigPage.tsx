@@ -260,13 +260,22 @@ const IncidentConfigPageContent: React.FC = () => {
     setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
   };
 
-  // Handle ?action=create URL parameter (from command palette)
+  // Systems to pre-select when the create editor is opened by deep link. Set
+  // from `?systemId=` so "Report incident" on a system's overview page lands on
+  // a create form already scoped to that system.
+  const [presetSystemIds, setPresetSystemIds] = useState<string[]>([]);
+
+  // Handle ?action=create (command palette, or a system's "Report incident"),
+  // optionally carrying ?systemId= to pre-select that system.
   useEffect(() => {
     if (searchParams.get("action") === "create" && canManage) {
+      const systemId = searchParams.get("systemId");
+      setPresetSystemIds(systemId ? [systemId] : []);
       setEditingIncident(undefined);
       setEditorOpen(true);
-      // Clear the URL param after opening
+      // Clear the URL params after opening
       searchParams.delete("action");
+      searchParams.delete("systemId");
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, canManage, setSearchParams]);
@@ -761,6 +770,7 @@ const IncidentConfigPageContent: React.FC = () => {
       )}
 
       <IncidentEditor
+        presetSystemIds={presetSystemIds}
         open={editorOpen}
         onOpenChange={setEditorOpen}
         incident={editingIncident}

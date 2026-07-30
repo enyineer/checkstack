@@ -156,6 +156,28 @@ export class MaintenanceService {
   }
 
   /**
+   * Which of these maintenance ids EXIST?
+   *
+   * The read-permission half is applied by the contract's `listKey`
+   * post-filter, so this only establishes existence - a reference to a deleted
+   * maintenance must not become a link either. See
+   * `findExistingIncidentIds` in incident-backend; the two are deliberately
+   * identical.
+   */
+  async findExistingMaintenanceIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+
+    const rows = await withScopedTransaction(this.db, (tx) =>
+      tx
+        .select({ id: maintenances.id })
+        .from(maintenances)
+        .where(inArray(maintenances.id, [...new Set(ids)])),
+    );
+
+    return rows.map((row) => row.id);
+  }
+
+  /**
    * Get single maintenance with full details
    */
   async getMaintenance(id: string): Promise<MaintenanceDetail | undefined> {

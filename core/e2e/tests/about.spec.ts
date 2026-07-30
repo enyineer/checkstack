@@ -63,7 +63,7 @@ test.describe("about area", () => {
     ).toBeVisible();
   });
 
-  test("the Version Information card shows the core version in a version-shaped badge", async ({
+  test("the Version Information card shows the release and core versions in version-shaped badges", async ({
     page,
   }) => {
     await page.goto("/about/");
@@ -72,17 +72,29 @@ test.describe("about area", () => {
       page.getByRole("heading", { name: "Version Information", level: 3 }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
 
-    // The core version row labels (stable) and a SHAPE-matched version badge.
-    // `/api/about` is fetched on mount; wait for the label, then the badge.
+    // Two DIFFERENT numbers are shown deliberately: the platform RELEASE
+    // version (the GitHub release / Docker tag) and `@checkstack/backend`'s own
+    // package version. They diverge by design, so both labels must be present -
+    // showing only one is what made the number unmatchable to a release.
+    // `/api/about` is fetched on mount; wait for the labels, then the badges.
+    await expect(
+      page.getByText("Checkstack Release", { exact: true }),
+    ).toBeVisible({ timeout: NAV_TIMEOUT });
     await expect(
       page.getByText("Checkstack Core", { exact: true }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
 
-    // Badge renders `v<version>` (e.g. "v1.2.3", "v1.2.3-beta.4"); assert the
-    // shape, not an exact literal that churns every release.
+    // Badges render `v<version>` (e.g. "v1.2.3", "v1.2.3-beta.4"); assert the
+    // shape, not exact literals that churn every release.
+    await expect(page.getByText(/^v\d+\.\d+\.\d+/)).toHaveCount(2);
+
+    // The release badge links to its GitHub tag, so the number is verifiable.
     await expect(
-      page.getByText(/^v\d+\.\d+\.\d+/),
-    ).toBeVisible();
+      page.getByRole("link", { name: "Release notes and Docker tag" }),
+    ).toHaveAttribute(
+      "href",
+      /^https:\/\/github\.com\/enyineer\/checkstack\/releases\/tag\/v\d+\.\d+\.\d+/,
+    );
   });
 
   test("the account menu links to the About page", async ({ page }) => {

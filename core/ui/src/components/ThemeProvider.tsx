@@ -1,7 +1,14 @@
 import React, { useContext, useEffect, useState } from "react";
 import { createRegisteredContext } from "../utils/registered-context";
+import {
+  DARK_SCHEME_QUERY,
+  parseStoredTheme,
+  resolveTheme,
+  type ResolvedTheme,
+  type Theme,
+} from "./ThemeProvider.logic";
 
-type Theme = "light" | "dark" | "system";
+export type { Theme, ResolvedTheme } from "./ThemeProvider.logic";
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -12,15 +19,19 @@ interface ThemeProviderProps {
 interface ThemeProviderState {
   theme: Theme;
   /** The actual resolved theme ("light" or "dark"), accounting for system preference */
-  resolvedTheme: "light" | "dark";
+  resolvedTheme: ResolvedTheme;
   setTheme: (theme: Theme) => void;
 }
 
-const getSystemTheme = (): "light" | "dark" => {
-  return globalThis.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-};
+/**
+ * Whether the OS currently asks for a dark palette.
+ *
+ * Guarded because this runs during the initial state initialiser, which also
+ * executes in non-DOM environments (SSR, unit tests) where `matchMedia` does
+ * not exist. Defaulting to light there matches the CSS default.
+ */
+const getSystemPrefersDark = (): boolean =>
+  globalThis.matchMedia?.(DARK_SCHEME_QUERY).matches ?? false;
 
 const initialState: ThemeProviderState = {
   theme: "system",
@@ -43,13 +54,37 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   storageKey = "checkstack-ui-theme",
   ...props
 }) => {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
+  const [theme, setTheme] = useState<Theme>(() =>
+    parseStoredTheme({
+      value: globalThis.localStorage?.getItem(storageKey) ?? null,
+      fallback: defaultTheme,
+    }),
   );
 
-  // Compute the resolved theme (what's actually displayed)
-  const resolvedTheme: "light" | "dark" =
-    theme === "system" ? getSystemTheme() : theme;
+  // The OS preference is STATE, not a value read during render. Read once at
+  // mount and then kept current by the listener below, so "Auto" repaints the
+  // moment the OS flips instead of waiting for an unrelated re-render. Reading
+  // `matchMedia(...).matches` inline during render (as this used to) makes the
+  // provider blind to that change - the value is fresh only by accident.
+  const [systemPrefersDark, setSystemPrefersDark] =
+    useState<boolean>(getSystemPrefersDark);
+
+  useEffect(() => {
+    const query = globalThis.matchMedia?.(DARK_SCHEME_QUERY);
+    if (!query) return;
+
+    // Re-read on subscribe: the preference can flip between the initial state
+    // computation and this effect running.
+    setSystemPrefersDark(query.matches);
+
+    const onChange = (event: MediaQueryListEvent) => {
+      setSystemPrefersDark(event.matches);
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  const resolvedTheme = resolveTheme({ theme, systemPrefersDark });
 
   useEffect(() => {
     const root = globalThis.document.documentElement;
@@ -62,7 +97,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
     theme,
     resolvedTheme,
     setTheme: (newTheme: Theme) => {
-      localStorage.setItem(storageKey, newTheme);
+      globalThis.localStorage?.setItem(storageKey, newTheme);
       setTheme(newTheme);
     },
   };

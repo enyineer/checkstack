@@ -50,6 +50,7 @@ function widget(
     resolvePublic:
       over.resolvePublic ?? (async () => ({ value: "ok" })),
     resolveDetail: over.resolveDetail,
+    mentionType: over.mentionType,
     assertBindingsReadable: over.assertBindingsReadable,
     rendererRemote: over.rendererRemote,
   };
@@ -641,5 +642,264 @@ describe("resolvePublishedIncident — delegates to resolveDetail + gates", () =
         isAuthenticated: false,
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * `resolvePublicMentions` decides whether a `#` reference written in an update
+ * becomes a link on a PUBLIC page. The gate must be exactly the detail page's:
+ * a reference resolves only when this page surfaces the target. Anything looser
+ * would let a public update confirm the existence of an internal-only incident.
+ */
+describe("resolvePublicMentions — the public page gates its own references", () => {
+  const pageWith = (widgets: RegisteredWidgetType[], layoutTypes: string[]) =>
+    service({
+      row: row({
+        publishedLayout: layoutTypes.map((type, i) => ({
+          id: `b${i}`,
+          type,
+          config: {},
+        })),
+      }),
+      widgets,
+    });
+
+  const eventWidget = (args: {
+    id: string;
+    mentionType?: string;
+    surfaces: string[];
+  }) =>
+    widget({
+      id: args.id,
+      qualifiedId: `statuspage.${args.id}`,
+      ...(args.mentionType ? { mentionType: args.mentionType } : {}),
+      resolveDetail: async ({ id }) =>
+        args.surfaces.includes(id) ? { value: id } : null,
+    });
+
+  test("resolves a reference the page surfaces", async () => {
+    const svc = pageWith(
+      [
+        eventWidget({
+          id: "maintenance",
+          mentionType: "maintenance",
+          surfaces: ["m1"],
+        }),
+      ],
+      ["statuspage.maintenance"],
+    );
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "maintenance", id: "m1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([{ type: "maintenance", id: "m1" }]);
+  });
+
+  test("does NOT resolve a reference the page does not surface", async () => {
+    const svc = pageWith(
+      [
+        eventWidget({
+          id: "incidents",
+          mentionType: "incident",
+          surfaces: ["public-one"],
+        }),
+      ],
+      ["statuspage.incidents"],
+    );
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "internal-only" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+  });
+
+  test("routes each ref to the widget that DECLARES its mention type", async () => {
+    const svc = pageWith(
+      [
+        eventWidget({
+          id: "incidents",
+          mentionType: "incident",
+          surfaces: ["shared-id"],
+        }),
+        eventWidget({
+          id: "maintenance",
+          mentionType: "maintenance",
+          surfaces: [],
+        }),
+      ],
+      ["statuspage.incidents", "statuspage.maintenance"],
+    );
+
+    // The same id under the maintenance type must NOT be satisfied by the
+    // incidents widget that happens to surface that id.
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [
+          { type: "incident", id: "shared-id" },
+          { type: "maintenance", id: "shared-id" },
+        ],
+        isAuthenticated: false,
+      }),
+    ).toEqual([{ type: "incident", id: "shared-id" }]);
+  });
+
+  test("ignores a widget that declares NO mention type", async () => {
+    // Opting in is explicit; a widget with a detail page but no declared type
+    // must not start resolving references.
+    const svc = pageWith(
+      [eventWidget({ id: "incidents", surfaces: ["i1"] })],
+      ["statuspage.incidents"],
+    );
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+  });
+
+  test("resolves nothing for an UNPUBLISHED page", async () => {
+    const svc = service({
+      row: row({ publishedLayout: null }),
+      widgets: [
+        eventWidget({
+          id: "incidents",
+          mentionType: "incident",
+          surfaces: ["i1"],
+        }),
+      ],
+    });
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+  });
+
+  test("resolves nothing for a page that does not exist", async () => {
+    const svc = service({ widgets: [] });
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "nope",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+  });
+
+  test("an authenticated-only page resolves nothing for an anonymous visitor", async () => {
+    // Mirrors the page read itself: visibility is enforced before any ref is
+    // considered, so mentions cannot become an oracle for a gated page.
+    const svc = service({
+      row: row({
+        visibility: "authenticated",
+        publishedLayout: [
+          { id: "b0", type: "statuspage.incidents", config: {} },
+        ],
+      }),
+      widgets: [
+        eventWidget({
+          id: "incidents",
+          mentionType: "incident",
+          surfaces: ["i1"],
+        }),
+      ],
+    });
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+    // ...and does resolve once authenticated.
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: true,
+      }),
+    ).toEqual([{ type: "incident", id: "i1" }]);
+  });
+
+  test("a resolveDetail throw makes that ref unlinkable, never linkable", async () => {
+    const svc = pageWith(
+      [
+        widget({
+          id: "incidents",
+          qualifiedId: "statuspage.incidents",
+          mentionType: "incident",
+          resolveDetail: async () => {
+            throw new Error("resolver blew up");
+          },
+        }),
+      ],
+      ["statuspage.incidents"],
+    );
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [{ type: "incident", id: "i1" }],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
+  });
+
+  test("de-duplicates repeated refs so each costs one resolve", async () => {
+    let calls = 0;
+    const svc = pageWith(
+      [
+        widget({
+          id: "incidents",
+          qualifiedId: "statuspage.incidents",
+          mentionType: "incident",
+          resolveDetail: async ({ id }) => {
+            calls++;
+            return { value: id };
+          },
+        }),
+      ],
+      ["statuspage.incidents"],
+    );
+
+    const out = await svc.resolvePublicMentions({
+      slug: "acme",
+      refs: [
+        { type: "incident", id: "i1" },
+        { type: "incident", id: "i1" },
+        { type: "incident", id: "i1" },
+      ],
+      isAuthenticated: false,
+    });
+
+    expect(out).toEqual([{ type: "incident", id: "i1" }]);
+    expect(calls).toBe(1);
+  });
+
+  test("an empty ref list short-circuits without loading the page", async () => {
+    const svc = service({ widgets: [] });
+
+    expect(
+      await svc.resolvePublicMentions({
+        slug: "acme",
+        refs: [],
+        isAuthenticated: false,
+      }),
+    ).toEqual([]);
   });
 });

@@ -29,6 +29,13 @@
       "when": 1783891417114,
       "tag": "0003_ordinary_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785266524207,
+      "tag": "0004_solid_patriot",
+      "breakpoints": true
     }
   ]
 }

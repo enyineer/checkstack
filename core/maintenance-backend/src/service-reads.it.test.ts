@@ -454,5 +454,62 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
 
       expect(await service.getMaintenancesToComplete()).toEqual([]);
     });
+
+    /**
+     * `findExistingMaintenanceIds` backs viewability-aware mention rendering.
+     * Mirrors the incident-backend IT block: a real set-based `inArray` read is
+     * worth proving against a database.
+     */
+    describe("findExistingMaintenanceIds", () => {
+      it("returns only the ids that exist", async () => {
+        await insertMaintenance({
+          id: "m-1",
+          status: "scheduled",
+          systemIds: ["sys-a"],
+        });
+
+        expect(
+          await service.findExistingMaintenanceIds(["m-1", "m-deleted"]),
+        ).toEqual(["m-1"]);
+      });
+
+      it("returns nothing for an empty input WITHOUT hitting the database", async () => {
+        // `inArray(col, [])` is invalid SQL in Postgres.
+        expect(await service.findExistingMaintenanceIds([])).toEqual([]);
+      });
+
+      it("returns nothing when no id exists", async () => {
+        expect(
+          await service.findExistingMaintenanceIds(["nope-1", "nope-2"]),
+        ).toEqual([]);
+      });
+
+      it("de-duplicates a repeated id", async () => {
+        await insertMaintenance({
+          id: "m-1",
+          status: "scheduled",
+          systemIds: ["sys-a"],
+        });
+
+        expect(
+          await service.findExistingMaintenanceIds(["m-1", "m-1"]),
+        ).toEqual(["m-1"]);
+      });
+
+      it("finds a COMPLETED maintenance, which the browse list hides", async () => {
+        // Same reason as the incident case: the browse list excludes completed
+        // maintenances by default, so it cannot stand in for a viewability
+        // check without silently dropping valid references.
+        await insertMaintenance({
+          id: "m-done",
+          status: "completed",
+          systemIds: ["sys-a"],
+        });
+
+        expect(
+          await service.findExistingMaintenanceIds(["m-done"]),
+        ).toEqual(["m-done"]);
+      });
+    });
   },
 );

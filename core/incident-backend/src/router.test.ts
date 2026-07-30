@@ -71,11 +71,18 @@ function buildRouter() {
     PRESENT.has(input.id) ? makeIncident(input.id) : undefined,
   );
 
+  // Existence only - the READ post-filter is the platform middleware's job,
+  // which is exactly what the resolveIncidentRefs tests below prove.
+  const findExistingIncidentIds = mock(async (ids: string[]) =>
+    ids.filter((id) => PRESENT.has(id)),
+  );
+
   const service = {
     getIncident,
     deleteIncident,
     resolveIncident,
     updateIncident,
+    findExistingIncidentIds,
   } as unknown as Parameters<typeof createRouter>[0]["service"];
 
   const invalidateForMutation = mock(async () => {});
@@ -114,6 +121,7 @@ function buildRouter() {
     deleteIncident,
     resolveIncident,
     updateIncident,
+    findExistingIncidentIds,
     emit,
     invalidateForMutation,
     notifyForSubscription,
@@ -245,5 +253,106 @@ describe("incident router bulkResolveIncidents", () => {
     const resolvedIds = resolveIncident.mock.calls.map((c) => c[0]);
     expect(resolvedIds).not.toContain("inc-forbidden");
     expect(resolvedIds).toContain("inc-ok");
+  });
+});
+
+/**
+ * `resolveIncidentRefs` backs viewability-aware mention rendering: a `#`
+ * reference becomes a link only when the reader may actually open the target.
+ *
+ * These drive the REAL procedure through `call`, so the contract's
+ * `listKey: "incidents"` post-filter runs. That matters more than the handler
+ * body - the handler only establishes existence, and it is the middleware that
+ * turns "exists" into "and you may read it". A regression that dropped the
+ * `listKey` declaration would leave the handler passing and silently link every
+ * incident in the estate to a team-scoped reader.
+ */
+describe("incident router resolveIncidentRefs", () => {
+  it("returns only ids the team-scoped caller may READ", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    const { incidents } = await call(
+      router.resolveIncidentRefs,
+      { ids: ["inc-ok", "inc-throw"] },
+      { context: ctx },
+    );
+
+    // Both exist; only "inc-ok" is granted.
+    expect(incidents).toEqual([{ id: "inc-ok" }]);
+  });
+
+  it("omits an id that does not exist, even when granted", async () => {
+    // A reference to a DELETED incident must not become a link either.
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok", "inc-missing"]);
+
+    const { incidents } = await call(
+      router.resolveIncidentRefs,
+      { ids: ["inc-ok", "inc-missing"] },
+      { context: ctx },
+    );
+
+    expect(incidents).toEqual([{ id: "inc-ok" }]);
+  });
+
+  it("makes an unreadable incident indistinguishable from a missing one", async () => {
+    // Both come back as simple absence - no error, no title, nothing that
+    // confirms the unreadable incident exists.
+    const { router } = buildRouter();
+    const ctx = teamScopedContext([]);
+
+    const { incidents } = await call(
+      router.resolveIncidentRefs,
+      { ids: ["inc-ok", "inc-missing"] },
+      { context: ctx },
+    );
+
+    expect(incidents).toEqual([]);
+  });
+
+  it("discloses nothing beyond the id", async () => {
+    // The label already lives in the authored markdown, so the response has no
+    // reason to carry titles - and must not, since it is reached by anyone who
+    // can read ANY incident.
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    const { incidents } = await call(
+      router.resolveIncidentRefs,
+      { ids: ["inc-ok"] },
+      { context: ctx },
+    );
+
+    expect(Object.keys(incidents[0] ?? {})).toEqual(["id"]);
+  });
+
+  it("accepts an empty id list without querying", async () => {
+    const { router, findExistingIncidentIds } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    const { incidents } = await call(
+      router.resolveIncidentRefs,
+      { ids: [] },
+      { context: ctx },
+    );
+
+    expect(incidents).toEqual([]);
+    expect(findExistingIncidentIds).toHaveBeenCalledWith([]);
+  });
+
+  it("rejects an id list beyond the contract's bound", async () => {
+    // The input is reachable by any reader, so the batch size is capped rather
+    // than letting one request probe the whole estate.
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    await expect(
+      call(
+        router.resolveIncidentRefs,
+        { ids: Array.from({ length: 201 }, (_, i) => `inc-${i}`) },
+        { context: ctx },
+      ),
+    ).rejects.toThrow();
   });
 });

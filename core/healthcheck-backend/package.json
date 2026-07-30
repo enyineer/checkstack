@@ -34,6 +34,7 @@
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/satellite-backend": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
     "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/sdk": "workspace:*",
     "@checkstack/secrets-backend": "workspace:*",

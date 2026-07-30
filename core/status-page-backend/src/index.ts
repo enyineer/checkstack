@@ -28,6 +28,7 @@ import {
   statusWidgetTypeExtensionPoint,
 } from "./widget-registry";
 import { registerContentWidgets } from "./content-widgets";
+import { buildPublicHostApiPaths } from "./public-api-paths";
 
 const STATUS_PAGE_RESOURCE_TYPE = "statuspage.page";
 
@@ -125,15 +126,12 @@ export default createBackendPlugin({
         // Contribute the public-host resolver so a published page with a
         // verified custom domain is served on that host. The platform locks the
         // host down to exactly the public read endpoint below (+ /api/config).
-        const apiBase = `/api/${pluginMetadata.pluginId}`;
-        // The public read endpoints allow-listed on a custom-domain host: the
-        // page itself plus the two public-safe detail endpoints (incident /
-        // maintenance) the detail pages call. Everything else stays 404'd.
-        const allowedApiPaths = [
-          `${apiBase}/getPublishedStatusPage`,
-          `${apiBase}/getPublishedIncident`,
-          `${apiBase}/getPublishedMaintenance`,
-        ];
+        // The public read endpoints allow-listed on a custom-domain host.
+        // Defined and TESTED in `public-api-paths.ts` - an omission there is
+        // invisible in the app and only breaks the real customer domain.
+        const allowedApiPaths = buildPublicHostApiPaths({
+          pluginId: pluginMetadata.pluginId,
+        });
         env
           .getExtensionPoint(publicHostResolverExtensionPoint)
           .registerResolver(

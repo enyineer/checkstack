@@ -1,7 +1,13 @@
-import React, { useState } from "react";
-import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
+import React, { useMemo, useState } from "react";
+import {
+  usePluginClient,
+  useApi,
+  useMentionResolution,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
 import type {
+  IncidentSeverity,
   IncidentStatus,
   IncidentUpdate,
 } from "@checkstack/incident-common";
@@ -12,6 +18,8 @@ import {
 import {
   Button,
   StatusUpdateTimeline,
+  TimelineDot,
+  pillToneStyles,
   ConfirmationModal,
   useToast,
   toastError,
@@ -19,12 +27,24 @@ import {
 import { Plus, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
+import { presentIncidentSeverity } from "../utils/badges.logic";
 import { VisibilityBadge } from "../utils/visibilityBadge";
 
 interface Props {
   incidentId: string;
   /** The incident's current status, shown inline on the form's "Keep Current". */
   currentStatus: IncidentStatus;
+  /**
+   * The incident's severity, which tints the timeline rail dots.
+   *
+   * Severity - not status - carries the hue for incidents: an incident row has
+   * BOTH an urgency and a lifecycle, and the "at most one coloured dimension
+   * per row" rule in `status-tone.ts` gives the hue to the urgency, leaving the
+   * lifecycle to a neutral pill. Severity belongs to the incident rather than
+   * to an individual update, so every dot in one incident's timeline shares a
+   * colour; it marks WHICH incident you are reading, not which update.
+   */
+  severity?: IncidentSeverity;
   /** The incident's updates (already audience-filtered by the backend). */
   updates: IncidentUpdate[];
   /**
@@ -51,6 +71,7 @@ interface Props {
 export const IncidentUpdatesSection: React.FC<Props> = ({
   incidentId,
   currentStatus,
+  severity,
   updates,
   onChanged,
   showTimeline = true,
@@ -60,6 +81,15 @@ export const IncidentUpdatesSection: React.FC<Props> = ({
   const incidentClient = usePluginClient(IncidentApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+  // Resolved over the updates this section renders, so a `#` reference becomes
+  // a link only when the viewer may actually open its target.
+  const mentionDocuments = useMemo(
+    () => updates.map((update) => update.message),
+    [updates],
+  );
+  const { resolveMention } = useMentionResolution({
+    documents: mentionDocuments,
+  });
 
   const [showUpdateForm, setShowUpdateForm] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState<IncidentUpdate | null>(
@@ -134,7 +164,22 @@ export const IncidentUpdatesSection: React.FC<Props> = ({
 
       <StatusUpdateTimeline
         updates={updates}
+        // Admin surface, but "can reach this page" is not "can read every
+        // record it references" - a mention resolves to a route only when the
+        // owning plugin confirms this viewer may read that specific target.
+        resolveMention={resolveMention}
         renderStatusBadge={getIncidentStatusBadge}
+        {...(severity
+          ? {
+              renderDot: () => (
+                <TimelineDot
+                  className={
+                    pillToneStyles[presentIncidentSeverity(severity).tone].dot
+                  }
+                />
+              ),
+            }
+          : {})}
         renderMeta={(u) => <VisibilityBadge visibility={u.visibility} />}
         renderActions={
           canManage

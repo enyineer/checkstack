@@ -134,6 +134,23 @@ For example, an HTTP check whose URL is:
 
 runs against `https://prod.example.com/healthz` in `production` and `https://staging.example.com/healthz` in `staging`, from a single configuration. The config editor shows a **Preview** line under each templatable field so you can see the resolved value while editing.
 
+### Previewing against a sample environment and system
+
+Above each templatable config section the editor offers two pickers:
+
+- **Preview as** - the environment whose custom fields fill `{{ environment.* }}`.
+- **System** - the system whose custom fields fill `{{ system.metadata.* }}`.
+
+Pick either, or both. The preview line resolves against whatever you have
+selected, and `{{ }}` autocomplete offers the matching keys, so you can confirm
+a template before saving rather than after the first run. Selecting only a
+system is enough to preview `{{ system.metadata.* }}` - an environment is not
+required.
+
+Both pickers only offer resources you can read, and neither affects the saved
+configuration. They are an editing aid; what a check actually resolves at run
+time is decided by its assignment.
+
 > [!NOTE]
 > When a check runs with **no** environment (the **None** assignment mode, or **All environments** with no membership), every `{{ environment.* }}` reference renders to an empty string. For the HTTP URL this produces an invalid URL, and the run fails with a clear "Rendered URL is invalid" config error rather than silently passing.
 

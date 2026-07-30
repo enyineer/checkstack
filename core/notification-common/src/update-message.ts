@@ -35,8 +35,34 @@
  *   stripped - they are never legitimate authored content;
  * - runs of blank lines are collapsed so a message can't pad itself with a wall
  *   of vertical space;
+ * - CROSS-ENTITY MENTIONS are flattened to their label (see below);
  * - the message is length-bounded.
+ *
+ * ## Why mentions are flattened rather than linked
+ *
+ * A `#` mention is authored as `[Label](checkstack:incident/<id>)` - an
+ * internal scheme only a Checkstack renderer understands. Notification channels
+ * do NOT understand it, and each leaks it differently: the email sanitiser
+ * drops the href and leaves a dead `<a>`, while Slack's mrkdwn emits
+ * `<checkstack:incident/123|Label>` and shows the internal URI to the
+ * recipient. Discord, Telegram and Teams render markdown natively and would
+ * pass the raw link straight through.
+ *
+ * So the link is removed here, at the one point every channel's body flows
+ * through, and only the author's label survives. Linking instead would mean
+ * resolving a per-RECIPIENT URL - and, to be correct, a per-recipient
+ * permission check - inside a fan-out that has neither. The notification
+ * already carries an `action` deep-link to the item it is about; a reader who
+ * opens it sees the mention there as a live, viewability-checked link.
  */
+
+import { rewriteMentions } from "@checkstack/common";
+
+/**
+ * A resolver that links nothing. Notification bodies have no context in which
+ * a `checkstack:` reference could be followed, so every mention flattens.
+ */
+const NEVER_LINKABLE = (): string | undefined => undefined;
 
 /** Longest update excerpt embedded in a notification body (chars). */
 export const MAX_UPDATE_MESSAGE_LENGTH = 500;
@@ -61,7 +87,17 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/gu;
  */
 export function sanitizeUpdateMessage(message?: string): string | undefined {
   if (typeof message !== "string") return undefined;
-  const normalized = message
+  // 0. Flatten cross-entity mentions to their label BEFORE anything else, so
+  //    no channel ever sees the internal `checkstack:` scheme - and so the
+  //    length bound below is spent on visible text rather than on an internal
+  //    URI the reader will never see.
+  const withoutMentions = rewriteMentions({
+    markdown: message,
+    // No context here can host a link, so nothing resolves - every mention
+    // flattens to its label.
+    resolve: NEVER_LINKABLE,
+  });
+  const normalized = withoutMentions
     // 1. Normalize CRLF / lone CR to LF so line handling is uniform.
     .replaceAll(/\r\n?/gu, "\n")
     // 2. Strip non-whitespace control chars, keeping tab + newline.

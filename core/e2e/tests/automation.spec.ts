@@ -324,11 +324,10 @@ test.describe("automations", () => {
     ).toBeVisible();
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
 
-    await expect(page.getByText("Automation deleted")).toBeVisible({
-      timeout: 15_000,
-    });
     // Scoped to OUR own automation only - the shared DB may still hold rows
     // created by other parallel specs, so we never assert a global empty state.
-    await expect(page.getByText(AUTOMATION_NAME)).toHaveCount(0);
+    await expect(page.getByText(AUTOMATION_NAME)).toHaveCount(0, {
+      timeout: 15_000,
+    });
   });
 });

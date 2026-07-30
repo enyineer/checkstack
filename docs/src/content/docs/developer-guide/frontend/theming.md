@@ -55,7 +55,41 @@ Dark mode is handled via the `.dark` class applied to the document root:
 }
 ```
 
-When the user toggles dark mode, the `ThemeProvider` adds/removes the `.dark` class, automatically switching all token values.
+When the user changes theme, the `ThemeProvider` adds/removes the `.dark` class, automatically switching all token values.
+
+### Theme modes
+
+A user picks one of three modes, and `ThemeProvider` persists that choice to
+`localStorage` (and, for signed-in users, to the backend):
+
+| Mode | Stored value | Applied class |
+|------|--------------|---------------|
+| Light | `light` | `.light` |
+| Dark | `dark` | `.dark` |
+| Auto | `system` | follows `prefers-color-scheme` |
+
+`system` is a real, persisted choice - not the absence of one. Under Auto the
+provider subscribes to the `(prefers-color-scheme: dark)` media query and
+repaints when the OS preference flips, with no interaction and no reload.
+
+Resolution is a pure function, so the applied class is always derivable from
+the stored mode plus the OS preference:
+
+```ts
+import { resolveTheme } from "@checkstack/ui";
+
+resolveTheme({ theme: "system", systemPrefersDark: true }); // "dark"
+resolveTheme({ theme: "light", systemPrefersDark: true }); // "light"
+```
+
+Consume the current values with `useTheme()`. It returns `theme` (the chosen
+mode, which may be `system`) alongside `resolvedTheme` (always `light` or
+`dark`). Gate appearance on `resolvedTheme`; offer the choice with `theme`.
+
+> [!IMPORTANT]
+> A control that writes the theme must be able to write `system` too. A binary
+> switch can only ever store `light` or `dark`, which silently destroys a user's
+> Auto preference the first time they touch it and leaves no way back.
 
 ## Available Theme Tokens
 

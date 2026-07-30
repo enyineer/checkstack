@@ -18,15 +18,21 @@ import {
   toastError,
   useSeedFormOnOpen,
 } from "@checkstack/ui";
-import { Layers } from "lucide-react";
+import { Copy, Layers } from "lucide-react";
 import { Link } from "react-router";
 import {
   TeamOwnershipPicker,
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { buildClonedName, resolveRoute } from "@checkstack/common";
 import { catalogAccess, catalogRoutes } from "@checkstack/catalog-common";
+import {
+  CLONE_SCOPE_NOTE,
+  isCreateMode,
+  resolveEditorMode,
+  type CatalogEditorMode,
+} from "./catalog-clone.logic";
 import {
   metadataToRows,
   rowsToMetadata,
@@ -44,12 +50,18 @@ interface SystemEditorProps {
     teamId?: string;
     metadata?: Record<string, string>;
   }) => Promise<void>;
+  /**
+   * The record being edited, or - in `clone` mode - the record the new system
+   * is seeded from.
+   */
   initialData?: {
     id: string;
     name: string;
     description?: string;
     metadata?: Record<string, unknown> | null;
   };
+  /** Defaults to `edit` when `initialData` is present, else `create`. */
+  mode?: CatalogEditorMode;
 }
 
 export const SystemEditor: React.FC<SystemEditorProps> = ({
@@ -57,8 +69,23 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
   onClose,
   onSave,
   initialData,
+  mode,
 }) => {
-  const [name, setName] = useState(initialData?.name || "");
+  const editorMode = resolveEditorMode({
+    mode,
+    hasInitialData: Boolean(initialData),
+  });
+  const isCloning = editorMode === "clone";
+  const creating = isCreateMode({ mode: editorMode });
+  // A clone opens with a suffixed name so it cannot be confused with - or saved
+  // over - the system it was copied from.
+  const seededName = initialData
+    ? isCloning
+      ? buildClonedName({ name: initialData.name })
+      : initialData.name
+    : "";
+
+  const [name, setName] = useState(seededName);
   const [description, setDescription] = useState(
     initialData?.description || "",
   );
@@ -79,7 +106,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
   // while this dialog is open - a naive `useEffect([open, initialData])` would
   // re-seed on those refetches and wipe the user's in-progress edits.
   useSeedFormOnOpen(open, () => {
-    setName(initialData?.name || "");
+    setName(seededName);
     setDescription(initialData?.description || "");
     setOwnerTeamId(null);
     setOwnerTeamError(null);
@@ -101,7 +128,9 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
         name: name.trim(),
         description: description.trim() || undefined,
         metadata: rowsToMetadata(fields),
-        ...(initialData?.id ? {} : { teamId: ownerTeamId ?? undefined }),
+        // A clone saves through the CREATE path, so it must carry the owning
+        // team like any other new system - not be treated as an update.
+        ...(creating ? { teamId: ownerTeamId ?? undefined } : {}),
       });
       onClose();
     } catch (error) {
@@ -122,12 +151,18 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>
-              {initialData ? "Edit System" : "Create System"}
+              {editorMode === "edit"
+                ? "Edit System"
+                : isCloning
+                  ? "Clone System"
+                  : "Create System"}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              {initialData
+              {editorMode === "edit"
                 ? "Modify the settings for this system"
-                : "Create a new system to monitor"}
+                : isCloning
+                  ? "Create a new system starting from an existing system's custom fields"
+                  : "Create a new system to monitor"}
             </DialogDescription>
           </DialogHeader>
 
@@ -168,10 +203,25 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
               }
             />
 
-            {/* Modelling hint - only when creating a new system. Steers new
-                users away from "one system per environment", which is the most
-                common onboarding mistake. */}
-            {!initialData?.id && (
+            {/* Clone scope - states plainly what did NOT come along, so nobody
+                assumes the copy inherited the source's checks or memberships. */}
+            {isCloning && initialData && (
+              <Alert variant="info">
+                <AlertIcon>
+                  <Copy className="h-4 w-4" />
+                </AlertIcon>
+                <AlertContent>
+                  <AlertTitle>Cloned from {initialData.name}</AlertTitle>
+                  <AlertDescription>{CLONE_SCOPE_NOTE}</AlertDescription>
+                </AlertContent>
+              </Alert>
+            )}
+
+            {/* Modelling hint - only when creating a system from scratch. Steers
+                new users away from "one system per environment", which is the
+                most common onboarding mistake. A clone already has a source to
+                learn the shape from, so the hint would just be noise there. */}
+            {editorMode === "create" && (
               <Alert variant="info">
                 <AlertIcon>
                   <Layers className="h-4 w-4" />
@@ -188,8 +238,8 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
               </Alert>
             )}
 
-            {/* Owning team picker - only shown when creating a new system */}
-            {!initialData?.id && (
+            {/* Owning team picker - shown for every create, clones included */}
+            {creating && (
               <div className="space-y-2">
                 <TeamOwnershipPicker
                   value={ownerTeamId}
@@ -206,7 +256,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
             {/* The living data (contacts, links, dependencies, team access,
                 environment membership) is managed on the system's detail page,
                 not in this deferred-save identity form. */}
-            {initialData?.id && (
+            {editorMode === "edit" && initialData?.id && (
               <p className="text-xs text-muted-foreground">
                 Contacts, links, dependencies and team access are managed on the{" "}
                 <Link
@@ -230,7 +280,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
             <Button type="submit" disabled={loading || !name.trim()}>
               {loading
                 ? "Saving..."
-                : initialData
+                : editorMode === "edit"
                   ? "Save Changes"
                   : "Create System"}
             </Button>

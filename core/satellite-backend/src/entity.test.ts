@@ -226,6 +226,7 @@ describe("toSatelliteConnectionState", () => {
       name: "edge-eu",
       region: "eu",
       lastHeartbeatAt: recent,
+      offlineThresholdMs: null,
       lastConnectionEvent: "connected",
     });
     expect(state).toEqual({
@@ -246,6 +247,7 @@ describe("toSatelliteConnectionState", () => {
       name: "edge-eu",
       region: "eu",
       lastHeartbeatAt: aged,
+      offlineThresholdMs: null,
       lastConnectionEvent: "connected",
     });
     expect(state!.status).toBe("offline");
@@ -258,6 +260,7 @@ describe("toSatelliteConnectionState", () => {
       name: "edge-eu",
       region: "eu",
       lastHeartbeatAt: null,
+      offlineThresholdMs: null,
       lastConnectionEvent: "disconnected",
     });
     expect(state).toEqual({
@@ -278,6 +281,7 @@ describe("toSatelliteConnectionState", () => {
         name: "edge-eu",
         region: "eu",
         lastHeartbeatAt: null,
+        offlineThresholdMs: null,
         lastConnectionEvent: null,
       }),
     ).toBeNull();

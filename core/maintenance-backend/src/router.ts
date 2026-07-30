@@ -178,6 +178,9 @@ export function createRouter({
       logger,
       maintenanceId: closed.id,
       maintenanceTitle: closed.title,
+      description: closed.description,
+      startAt: closed.startAt,
+      endAt: closed.endAt,
       systemIds: closed.systemIds,
       systemNames,
       action: "completed",
@@ -237,6 +240,17 @@ export function createRouter({
         ),
       };
     }),
+
+    resolveMaintenanceRefs: os.resolveMaintenanceRefs.handler(
+      async ({ input }) => {
+        // Existence here; READ permission via the contract's
+        // `listKey: "maintenances"` post-filter on the way out. An id failing
+        // either test is simply absent, so deleted and unreadable are
+        // indistinguishable to the caller.
+        const ids = await service.findExistingMaintenanceIds(input.ids);
+        return { maintenances: ids.map((id) => ({ id })) };
+      },
+    ),
 
     getMaintenance: os.getMaintenance.handler(async ({ input, context }) => {
       const result = await cache.wrapMaintenance(input.id, () =>
@@ -378,6 +392,9 @@ export function createRouter({
           logger,
           maintenanceId: result.id,
           maintenanceTitle: result.title,
+          description: result.description,
+          startAt: result.startAt,
+          endAt: result.endAt,
           systemIds: result.systemIds,
           systemNames,
           action: "created",
@@ -519,6 +536,9 @@ export function createRouter({
             logger,
             maintenanceId: input.maintenanceId,
             maintenanceTitle: maintenance.title,
+            description: maintenance.description,
+            startAt: maintenance.startAt,
+            endAt: maintenance.endAt,
             systemIds: maintenance.systemIds,
             systemNames,
             action: notificationAction,

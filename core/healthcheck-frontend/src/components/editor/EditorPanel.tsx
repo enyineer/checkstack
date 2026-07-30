@@ -15,7 +15,7 @@ import { CollectorPicker } from "./CollectorPicker";
 import { SystemsSection } from "./SystemsSection";
 import { TeamAccessEditor, TeamOwnershipPicker } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import type { Environment } from "@checkstack/catalog-frontend";
+import type { Environment, PreviewSystem } from "@checkstack/catalog-frontend";
 import type { TemplateCompletionProvider } from "@checkstack/ui";
 import { useConfigOptionsResolvers } from "./options-resolvers";
 
@@ -76,6 +76,12 @@ interface EditorPanelProps {
   previewEnvironments?: ReadonlyArray<Environment>;
   /** Selected preview environment id (shared across collectors). */
   previewEnvironmentId?: string | null;
+  /** Systems offered in the preview picker (see CollectorSection). */
+  previewSystems?: ReadonlyArray<PreviewSystem>;
+  /** Currently selected preview system id. */
+  previewSystemId?: string | null;
+  /** Called when the author picks (or clears) a preview system. */
+  onPreviewSystemChange?: (systemId: string | null) => void;
   /** Called when the author picks (or clears) a preview environment. */
   onPreviewEnvironmentChange?: (environmentId: string | null) => void;
   /**
@@ -129,6 +135,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   onSystemsChange,
   previewEnvironments = [],
   previewEnvironmentId = null,
+  previewSystems = [],
+  previewSystemId = null,
+  onPreviewSystemChange,
   onPreviewEnvironmentChange,
   templatePreviewContext,
   templateCompletionProvider,
@@ -175,6 +184,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           strategy={strategy}
           previewEnvironments={previewEnvironments}
           previewEnvironmentId={previewEnvironmentId}
+          previewSystems={previewSystems}
+          previewSystemId={previewSystemId}
+          onPreviewSystemChange={onPreviewSystemChange}
           onPreviewEnvironmentChange={(id) =>
             onPreviewEnvironmentChange?.(id)
           }
@@ -295,6 +307,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           onRemove={() => onCollectorRemove(entryId)}
           previewEnvironments={previewEnvironments}
           previewEnvironmentId={previewEnvironmentId}
+          previewSystems={previewSystems}
+          previewSystemId={previewSystemId}
+          onPreviewSystemChange={(id) => onPreviewSystemChange?.(id)}
           onPreviewEnvironmentChange={(id) =>
             onPreviewEnvironmentChange?.(id)
           }

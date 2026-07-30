@@ -349,5 +349,83 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         forA.find((i) => i.id === "inc-1")?.systemIds.toSorted(),
       ).toEqual(["sys-a", "sys-b"]);
     });
+
+    /**
+     * `findExistingIncidentIds` backs viewability-aware mention rendering. It
+     * is a real set-based `inArray` read, so the SQL is worth proving against
+     * a database - the mocked-db unit tests only cover the router around it.
+     */
+    describe("findExistingIncidentIds", () => {
+      it("returns only the ids that exist", async () => {
+        await insertIncident({
+          id: "inc-1",
+          status: "investigating",
+          systemIds: ["sys-a"],
+        });
+
+        const found = await service.findExistingIncidentIds([
+          "inc-1",
+          "inc-deleted",
+        ]);
+
+        expect(found).toEqual(["inc-1"]);
+      });
+
+      it("returns nothing for an empty input WITHOUT hitting the database", async () => {
+        // `inArray(col, [])` is invalid SQL in Postgres, so the empty case has
+        // to short-circuit rather than build a query.
+        expect(await service.findExistingIncidentIds([])).toEqual([]);
+      });
+
+      it("returns nothing when no id exists", async () => {
+        expect(
+          await service.findExistingIncidentIds(["nope-1", "nope-2"]),
+        ).toEqual([]);
+      });
+
+      it("de-duplicates a repeated id", async () => {
+        await insertIncident({
+          id: "inc-1",
+          status: "investigating",
+          systemIds: ["sys-a"],
+        });
+
+        expect(
+          await service.findExistingIncidentIds(["inc-1", "inc-1", "inc-1"]),
+        ).toEqual(["inc-1"]);
+      });
+
+      it("finds a RESOLVED incident, which the browse list hides", async () => {
+        // The whole reason this is not a filter over `listIncidents`: that list
+        // excludes resolved incidents by default, so deriving viewability from
+        // it would silently downgrade a valid reference to plain text.
+        await insertIncident({
+          id: "inc-resolved",
+          status: "resolved",
+          systemIds: ["sys-a"],
+        });
+
+        expect(
+          await service.findExistingIncidentIds(["inc-resolved"]),
+        ).toEqual(["inc-resolved"]);
+      });
+
+      it("handles a large batch in one round trip", async () => {
+        for (let i = 0; i < 50; i++) {
+          await insertIncident({
+            id: `bulk-${i}`,
+            status: "investigating",
+            systemIds: ["sys-a"],
+          });
+        }
+
+        const asked = Array.from({ length: 200 }, (_, i) => `bulk-${i}`);
+        const found = await service.findExistingIncidentIds(asked);
+
+        expect(found.toSorted()).toEqual(
+          Array.from({ length: 50 }, (_, i) => `bulk-${i}`).toSorted(),
+        );
+      });
+    });
   },
 );

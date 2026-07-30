@@ -71,11 +71,18 @@ function buildRouter() {
     }),
   );
 
+  // Existence only - the READ post-filter is the platform middleware's job,
+  // which is what the resolveMaintenanceRefs tests below prove.
+  const findExistingMaintenanceIds = mock(async (ids: string[]) =>
+    ids.filter((id) => PRESENT.has(id)),
+  );
+
   const service = {
     getMaintenance,
     deleteMaintenance,
     closeMaintenance,
     addUpdate,
+    findExistingMaintenanceIds,
   } as unknown as Parameters<typeof createRouter>[0]["service"];
 
   // Fake entity handle: run apply directly (mirrors withEntityWrite's no-handle
@@ -119,6 +126,7 @@ function buildRouter() {
     deleteMaintenance,
     closeMaintenance,
     addUpdate,
+    findExistingMaintenanceIds,
     notifyForSubscription,
   };
 }
@@ -254,5 +262,92 @@ describe("maintenance router addUpdate notification", () => {
 
     // An internal operator note must never reach system subscribers.
     expect(notifyForSubscription).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `resolveMaintenanceRefs` backs viewability-aware mention rendering. Driven
+ * through `call` so the contract's `listKey: "maintenances"` post-filter runs -
+ * that middleware, not the handler, is what turns "exists" into "and you may
+ * read it". Mirrors the incident-backend suite.
+ */
+describe("maintenance router resolveMaintenanceRefs", () => {
+  it("returns only ids the team-scoped caller may READ", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    const { maintenances } = await call(
+      router.resolveMaintenanceRefs,
+      { ids: ["m-ok", "m-throw"] },
+      { context: ctx },
+    );
+
+    expect(maintenances).toEqual([{ id: "m-ok" }]);
+  });
+
+  it("omits an id that does not exist, even when granted", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["m-ok", "m-missing"]);
+
+    const { maintenances } = await call(
+      router.resolveMaintenanceRefs,
+      { ids: ["m-ok", "m-missing"] },
+      { context: ctx },
+    );
+
+    expect(maintenances).toEqual([{ id: "m-ok" }]);
+  });
+
+  it("makes an unreadable maintenance indistinguishable from a missing one", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext([]);
+
+    const { maintenances } = await call(
+      router.resolveMaintenanceRefs,
+      { ids: ["m-ok", "m-missing"] },
+      { context: ctx },
+    );
+
+    expect(maintenances).toEqual([]);
+  });
+
+  it("discloses nothing beyond the id", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    const { maintenances } = await call(
+      router.resolveMaintenanceRefs,
+      { ids: ["m-ok"] },
+      { context: ctx },
+    );
+
+    expect(Object.keys(maintenances[0] ?? {})).toEqual(["id"]);
+  });
+
+  it("accepts an empty id list without querying", async () => {
+    const { router, findExistingMaintenanceIds } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    const { maintenances } = await call(
+      router.resolveMaintenanceRefs,
+      { ids: [] },
+      { context: ctx },
+    );
+
+    expect(maintenances).toEqual([]);
+    expect(findExistingMaintenanceIds).toHaveBeenCalledWith([]);
+  });
+
+  it("rejects an id list beyond the contract's bound", async () => {
+    const { router } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    await expect(
+      call(
+        router.resolveMaintenanceRefs,
+        { ids: Array.from({ length: 201 }, (_, i) => `m-${i}`) },
+        { context: ctx },
+      ),
+    ).rejects.toThrow();
   });
 });

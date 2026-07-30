@@ -177,6 +177,13 @@ export interface SatelliteConnectionRow {
   region: string;
   /** The single durable liveness source of truth; `status` is computed from it. */
   lastHeartbeatAt: Date | null;
+  /**
+   * This satellite's own offline tolerance (null = the platform default).
+   * Required on the row rather than looked up separately, so this read can
+   * never disagree with the admin list or the heartbeat monitor about the same
+   * satellite's status.
+   */
+  offlineThresholdMs: number | null;
   lastConnectionEvent: SatelliteConnectionEvent | null;
 }
 
@@ -198,7 +205,10 @@ export function toSatelliteConnectionState(
     return null;
   }
   return {
-    status: computeStatus(row.lastHeartbeatAt),
+    status: computeStatus({
+        lastHeartbeatAt: row.lastHeartbeatAt,
+        offlineThresholdMs: row.offlineThresholdMs,
+      }),
     name: row.name,
     region: row.region,
     lastSeenAt: row.lastHeartbeatAt ? row.lastHeartbeatAt.toISOString() : null,

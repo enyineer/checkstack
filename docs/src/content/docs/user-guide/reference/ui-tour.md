@@ -148,7 +148,12 @@ The theming page: pick a built-in palette or, if a `theme-*` plugin is installed
 
 ### About
 
-Shows the running core version and every loaded plugin with its version. Use this when filing bugs - the version table is the fastest way to confirm what is actually running.
+Shows two version numbers and every loaded plugin with its version. Use this when filing bugs - it is the fastest way to confirm what is actually running.
+
+The two numbers are different on purpose:
+
+- **Checkstack Release** is the number to quote in a bug report. It matches the GitHub release tag, the Docker image tag, and the release announcement, and it advances on every release.
+- **Checkstack Core** is the `@checkstack/backend` package's own version. It only advances when that package changes, so it is normally lower than the release version. A mismatch between the two is expected, not a fault.
 
 ## GitOps
 

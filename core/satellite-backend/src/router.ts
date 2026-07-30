@@ -12,6 +12,7 @@ import {
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import type { SatelliteService } from "./service";
+import type { SatelliteLivenessCache } from "./liveness-cache";
 
 /**
  * RPC router for satellite management.
@@ -22,8 +23,14 @@ export function createSatelliteRouter(props: {
   service: SatelliteService;
   signalService: SignalService;
   logger: Logger;
+  /**
+   * Short-TTL cache for the online-id list. The health-check executor asks per
+   * tick of every satellite-only check, so the uncached full scan behind this
+   * would scale with the number of such checks.
+   */
+  livenessCache: SatelliteLivenessCache;
 }) {
-  const { service, signalService, logger } = props;
+  const { service, signalService, logger, livenessCache } = props;
 
   const os = implement(satelliteContract)
     .$context<RpcContext>()
@@ -106,7 +113,9 @@ export function createSatelliteRouter(props: {
     }),
 
     getOnlineSatelliteIds: os.getOnlineSatelliteIds.handler(async () => {
-      const satelliteIds = await service.getOnlineSatelliteIds();
+      const satelliteIds = await livenessCache.getOnlineIds(() =>
+        service.getOnlineSatelliteIds(),
+      );
       return { satelliteIds };
     }),
   });

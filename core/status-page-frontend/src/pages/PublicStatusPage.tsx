@@ -27,8 +27,11 @@ import {
   useStatusWidgetRenderers,
   STATUS,
   StatusDetailLinkContext,
+  StatusMentionContext,
   type BuildDetailHref,
 } from "../renderers";
+import { usePublicMentions } from "../use-public-mentions";
+import { buildInAppDetailHref } from "../public-detail-href";
 import { useLoadRendererRemotes } from "../remote-renderers";
 
 /**
@@ -362,6 +365,16 @@ export const PublicStatusPageView: React.FC<{
       { refetchInterval: PUBLIC_REFRESH_INTERVAL_MS },
     );
 
+  // Resolve `#` mentions across everything this page renders, in one batched
+  // request. Scoped to THIS page: a reference resolves only when the page also
+  // publishes the referenced item, so an internal-only incident mentioned in a
+  // public update stays plain text.
+  const resolveMention = usePublicMentions({
+    slug,
+    content: data?.blocks,
+    buildDetailHref: buildDetailHref ?? null,
+  });
+
   // Load any third-party renderer remotes this page needs. No-op in the admin
   // app (renderers already present); the custom-domain bundle loads them, after
   // which the renderer map updates reactively. Built-in widgets need nothing.
@@ -440,15 +453,17 @@ export const PublicStatusPageView: React.FC<{
             />
           ) : (
             <StatusDetailLinkContext.Provider value={buildDetailHref ?? null}>
-              <div className="space-y-5">
-                {data.blocks.map((block) => (
-                  <BlockRenderer
-                    key={block.id}
-                    block={block}
-                    renderers={renderers}
-                  />
-                ))}
-              </div>
+              <StatusMentionContext.Provider value={resolveMention}>
+                <div className="space-y-5">
+                  {data.blocks.map((block) => (
+                    <BlockRenderer
+                      key={block.id}
+                      block={block}
+                      renderers={renderers}
+                    />
+                  ))}
+                </div>
+              </StatusMentionContext.Provider>
             </StatusDetailLinkContext.Provider>
           )}
 
@@ -484,5 +499,14 @@ export const PublicStatusPageView: React.FC<{
  */
 export const PublicStatusPage: React.FC = () => {
   const { slug = "" } = useParams();
-  return <PublicStatusPageView slug={slug} />;
+  // Detail linking on the ADMIN origin. The custom-domain bundle passes its own
+  // builder (its pages live at the host root); without one here, this page
+  // would render item titles and `#` mentions as plain text while the same
+  // page on a custom domain linked them.
+  return (
+    <PublicStatusPageView
+      slug={slug}
+      buildDetailHref={buildInAppDetailHref({ slug })}
+    />
+  );
 };

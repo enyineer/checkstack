@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HEARTBEAT_INTERVAL_MS } from "./constants";
 
 // =============================================================================
 // SATELLITE ENTITY SCHEMAS
@@ -28,6 +29,11 @@ export const SatelliteSchema = z.object({
    */
   capabilities: z.array(z.string()).default([]),
   lastHeartbeatAt: z.date().optional(),
+  /**
+   * This satellite's own offline tolerance, in milliseconds. Absent means the
+   * platform default ({@link OFFLINE_THRESHOLD_MS}) applies.
+   */
+  offlineThresholdMs: z.number().int().positive().optional(),
   version: z.string().optional(),
   createdAt: z.date(),
 });
@@ -45,12 +51,31 @@ export const SatelliteWithStatusSchema = SatelliteSchema.extend({
 export type SatelliteWithStatus = z.infer<typeof SatelliteWithStatusSchema>;
 
 /**
+ * A satellite's offline tolerance, in milliseconds.
+ *
+ * Bounded on BOTH ends deliberately. Below one heartbeat interval a satellite
+ * would be reported offline between two perfectly healthy heartbeats, which is
+ * a permanent false alarm rather than a tight setting; above 24 hours the
+ * satellite has effectively opted out of liveness reporting altogether.
+ */
+export const OfflineThresholdMsSchema = z
+  .number()
+  .int()
+  .min(HEARTBEAT_INTERVAL_MS, "Must be at least one heartbeat interval")
+  .max(24 * 60 * 60 * 1000, "Must be 24 hours or less");
+
+/**
  * Input schema for creating a new satellite.
  */
 export const CreateSatelliteSchema = z.object({
   name: z.string().min(1, "Name is required"),
   region: z.string().min(1, "Region is required"),
   tags: z.record(z.string(), z.string()).default({}),
+  /**
+   * Optional offline tolerance override. Omit to follow the platform default,
+   * which is what a satellite on a reliable link should do.
+   */
+  offlineThresholdMs: OfflineThresholdMsSchema.optional(),
 });
 
 export type CreateSatellite = z.infer<typeof CreateSatelliteSchema>;

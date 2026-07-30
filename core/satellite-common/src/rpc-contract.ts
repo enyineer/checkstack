@@ -2,7 +2,11 @@ import { z } from "zod";
 import { createClientDefinition, proc } from "@checkstack/common";
 import { satelliteAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import { SatelliteWithStatusSchema, CreateSatelliteSchema } from "./schemas";
+import {
+  SatelliteWithStatusSchema,
+  CreateSatelliteSchema,
+  OfflineThresholdMsSchema,
+} from "./schemas";
 
 /**
  * RPC contract for satellite management.
@@ -72,6 +76,12 @@ export const satelliteContract = {
         name: z.string().min(1).optional(),
         region: z.string().min(1).optional(),
         tags: z.record(z.string(), z.string()).optional(),
+        /**
+         * Offline tolerance override. `null` clears it, returning this
+         * satellite to the platform default - distinct from omitting the field,
+         * which leaves the current value untouched.
+         */
+        offlineThresholdMs: OfflineThresholdMsSchema.nullable().optional(),
       }),
     )
     .output(SatelliteWithStatusSchema),

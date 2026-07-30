@@ -1,5 +1,10 @@
-import React, { useState } from "react";
-import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
+import React, { useMemo, useState } from "react";
+import {
+  usePluginClient,
+  useApi,
+  useMentionResolution,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
 import type {
   MaintenanceStatus,
@@ -12,13 +17,19 @@ import {
 import {
   Button,
   StatusUpdateTimeline,
+  TimelineDot,
+  pillToneStyles,
+  neutralToneStyle,
   ConfirmationModal,
   useToast,
   toastError,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
-import { getMaintenanceStatusBadge } from "../utils/badges";
+import {
+  getMaintenanceStatusBadge,
+  getMaintenanceStatusTone,
+} from "../utils/badges";
 import { VisibilityBadge } from "../utils/visibilityBadge";
 
 interface Props {
@@ -60,6 +71,15 @@ export const MaintenanceUpdatesSection: React.FC<Props> = ({
   const maintenanceClient = usePluginClient(MaintenanceApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+  // Resolved over the updates this section renders, so a `#` reference becomes
+  // a link only when the viewer may actually open its target.
+  const mentionDocuments = useMemo(
+    () => updates.map((update) => update.message),
+    [updates],
+  );
+  const { resolveMention } = useMentionResolution({
+    documents: mentionDocuments,
+  });
 
   const [showUpdateForm, setShowUpdateForm] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState<MaintenanceUpdate | null>(
@@ -134,7 +154,29 @@ export const MaintenanceUpdatesSection: React.FC<Props> = ({
 
       <StatusUpdateTimeline
         updates={updates}
+        // Admin surface, but "can reach this page" is not "can read every
+        // record it references" - a mention resolves to a route only when the
+        // owning plugin confirms this viewer may read that specific target.
+        resolveMention={resolveMention}
         renderStatusBadge={getMaintenanceStatusBadge}
+        // Maintenance has NO severity, so its lifecycle is the one coloured
+        // dimension (see the "at most one coloured dimension per row" rule in
+        // `status-tone.ts`). Colouring the rail dot by the update's own status
+        // therefore adds no competing scale - it just makes the timeline
+        // readable at a glance. Updates that change nothing stay neutral, so
+        // the colour always means "the status moved here".
+        renderDot={(update) =>
+          update.statusChange ? (
+            <TimelineDot
+              className={
+                pillToneStyles[getMaintenanceStatusTone(update.statusChange)]
+                  .dot
+              }
+            />
+          ) : (
+            <TimelineDot className={neutralToneStyle.dot} />
+          )
+        }
         renderMeta={(u) => <VisibilityBadge visibility={u.visibility} />}
         renderActions={
           canManage

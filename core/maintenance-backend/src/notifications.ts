@@ -13,6 +13,7 @@ import {
   maintenanceCollapseKey,
   maintenanceSystemSubscription,
 } from "@checkstack/maintenance-common";
+import { buildMaintenanceNotificationBody } from "./notification-body";
 
 export async function notifyAffectedSystems(props: {
   catalogClient: InferClient<typeof CatalogApi>;
@@ -23,6 +24,16 @@ export async function notifyAffectedSystems(props: {
   systemIds: string[];
   systemNames?: Map<string, string>;
   action: "created" | "updated" | "started" | "completed";
+  /**
+   * The maintenance's own description - what is planned. Included so a
+   * subscriber learns the substance from the notification instead of having to
+   * open the app. User-supplied markdown, sanitized before it reaches the body.
+   */
+  description?: string | null;
+  /** Scheduled window start, rendered in the body as UTC. */
+  startAt?: Date | string | null;
+  /** Scheduled window end, rendered in the body as UTC. */
+  endAt?: Date | string | null;
   /**
    * The latest maintenance update's free-text message. When present it is
    * escaped, single-lined, truncated, and appended to the notification body as
@@ -39,6 +50,9 @@ export async function notifyAffectedSystems(props: {
     systemIds,
     systemNames,
     action,
+    description,
+    startAt,
+    endAt,
     updateMessage,
   } = props;
   void props.catalogClient;
@@ -71,7 +85,14 @@ export async function notifyAffectedSystems(props: {
       specId: maintenanceSystemSubscription.specId,
       resourceKeys: uniqueSystemIds,
       title: `Maintenance ${actionText}: ${maintenanceTitle}`,
-      body: `Maintenance **"${maintenanceTitle}"** has been ${actionText}.${messageSuffix}`,
+      body: buildMaintenanceNotificationBody({
+        maintenanceTitle,
+        actionText,
+        description,
+        startAt,
+        endAt,
+        updateMessageSuffix: messageSuffix,
+      }),
       importance: "info",
       action: { label: "View Maintenance", url: maintenanceDetailPath },
       collapseKey: maintenanceCollapseKey(maintenanceId),

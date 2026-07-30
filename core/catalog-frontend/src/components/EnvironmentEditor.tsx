@@ -9,6 +9,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
   useToast,
   toastError,
   useSeedFormOnOpen,
@@ -19,13 +24,21 @@ import {
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { buildClonedName } from "@checkstack/common";
 import { catalogAccess, catalogResourceTypes } from "@checkstack/catalog-common";
+import {
+  CLONE_SCOPE_NOTE,
+  isCreateMode,
+  resolveEditorMode,
+  type CatalogEditorMode,
+} from "./catalog-clone.logic";
 import {
   metadataToRows,
   rowsToMetadata,
   hasDuplicateKeys,
   type CustomFieldRow,
 } from "./environment-fields.logic";
+import { Copy } from "lucide-react";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 
 export interface EnvironmentEditorInitialData {
@@ -44,7 +57,13 @@ interface EnvironmentEditorProps {
     teamId?: string;
     metadata?: Record<string, string>;
   }) => Promise<void>;
+  /**
+   * The environment being edited, or - in `clone` mode - the one the new
+   * environment is seeded from.
+   */
   initialData?: EnvironmentEditorInitialData;
+  /** Defaults to `edit` when `initialData` is present, else `create`. */
+  mode?: CatalogEditorMode;
 }
 
 /**
@@ -58,8 +77,23 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
   onClose,
   onSave,
   initialData,
+  mode,
 }) => {
-  const [name, setName] = useState(initialData?.name ?? "");
+  const editorMode = resolveEditorMode({
+    mode,
+    hasInitialData: Boolean(initialData),
+  });
+  const isCloning = editorMode === "clone";
+  const creating = isCreateMode({ mode: editorMode });
+  // A clone opens with a suffixed name so it cannot be confused with - or saved
+  // over - the environment it was copied from.
+  const seededName = initialData
+    ? isCloning
+      ? buildClonedName({ name: initialData.name })
+      : initialData.name
+    : "";
+
+  const [name, setName] = useState(seededName);
   const [description, setDescription] = useState(
     initialData?.description ?? "",
   );
@@ -83,7 +117,7 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
   // environment while open, so a `useEffect([open, initialData])` would re-seed
   // on refetch and wipe in-progress edits.
   useSeedFormOnOpen(open, () => {
-    setName(initialData?.name ?? "");
+    setName(seededName);
     setDescription(initialData?.description ?? "");
     setFields(metadataToRows(initialData?.metadata));
     setOwnerTeamId(null);
@@ -105,7 +139,9 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
         name: name.trim(),
         description: description.trim() || undefined,
         metadata: rowsToMetadata(fields),
-        ...(initialData ? {} : { teamId: ownerTeamId ?? undefined }),
+        // A clone saves through the CREATE path, so it must carry the owning
+        // team like any other new environment - not be treated as an update.
+        ...(creating ? { teamId: ownerTeamId ?? undefined } : {}),
       });
       onClose();
     } catch (error) {
@@ -126,12 +162,18 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>
-              {initialData ? "Edit Environment" : "Create Environment"}
+              {editorMode === "edit"
+                ? "Edit Environment"
+                : isCloning
+                  ? "Clone Environment"
+                  : "Create Environment"}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              {initialData
+              {editorMode === "edit"
                 ? "Modify this environment and its custom fields"
-                : "Create a new environment with custom fields"}
+                : isCloning
+                  ? "Create a new environment starting from an existing environment's custom fields"
+                  : "Create a new environment with custom fields"}
             </DialogDescription>
           </DialogHeader>
 
@@ -165,8 +207,22 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
               description="Free-form key/value pairs (baseUrl, region, tier, ...). These surface to checks assigned to systems in this environment."
             />
 
-            {/* Owning team picker - only when creating a new environment. */}
-            {!initialData && (
+            {/* Clone scope - states plainly what did NOT come along, so nobody
+                assumes the copy inherited the source's team access. */}
+            {isCloning && initialData && (
+              <Alert variant="info">
+                <AlertIcon>
+                  <Copy className="h-4 w-4" />
+                </AlertIcon>
+                <AlertContent>
+                  <AlertTitle>Cloned from {initialData.name}</AlertTitle>
+                  <AlertDescription>{CLONE_SCOPE_NOTE}</AlertDescription>
+                </AlertContent>
+              </Alert>
+            )}
+
+            {/* Owning team picker - shown for every create, clones included. */}
+            {creating && (
               <div className="space-y-2">
                 <TeamOwnershipPicker
                   value={ownerTeamId}
@@ -185,7 +241,7 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
                 this is the home for adding/removing multiple teams and toggling
                 privacy, mirroring how systems manage it on their detail page. It
                 writes immediately, independent of this form's deferred Save. */}
-            {initialData?.id && (
+            {editorMode === "edit" && initialData?.id && (
               <TeamAccessEditor
                 resourceType={catalogResourceTypes.environment}
                 resourceId={initialData.id}
@@ -202,7 +258,7 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
             <Button type="submit" disabled={loading || !name.trim()}>
               {loading
                 ? "Saving..."
-                : initialData
+                : editorMode === "edit"
                   ? "Save Changes"
                   : "Create Environment"}
             </Button>

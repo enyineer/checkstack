@@ -127,28 +127,37 @@ test("a team member managing a check can open its editor and manage its anomaly 
     await createDialog
       .getByRole("button", { name: "Create", exact: true })
       .click();
-    await expect(page.getByText("Team created successfully")).toBeVisible({
-      timeout: NAV,
-    });
 
-    // Open the team's manage dialog.
-    await page
-      .getByRole("row", { name: new RegExp(TEAM_NAME) })
-      .getByRole("button", { name: /Manage/i })
-      .click();
+    // The teams list can lag the create: the success toast that used to be
+    // asserted here fires BEFORE the list refetches, so waiting on it never
+    // helped, and under full-suite load the lag has exceeded the test timeout.
+    // Reload if the row has not appeared rather than waiting indefinitely on a
+    // refetch that may already have settled elsewhere. Same pattern as
+    // rlac-automation-team.spec.ts, which is why that spec stays green under
+    // load while this one did not.
     const manage = page.getByRole("dialog");
-    await expect(
-      manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
-    ).toBeVisible();
+    await expect(async () => {
+      const row = page.getByRole("row", { name: new RegExp(TEAM_NAME) });
+      if (!(await row.isVisible().catch(() => false))) {
+        await page.reload();
+      }
+      await row.getByRole("button", { name: /Manage/i }).click();
+      // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+      await expect(
+        manage.getByRole("heading", { name: new RegExp(`Manage ${TEAM_NAME}`) }),
+      ).toBeVisible({ timeout: 5000 });
+    }).toPass({ timeout: NAV });
 
     // Add the member by email (combobox results are buttons in a portal).
     await manage
-      .getByPlaceholder("Search users by name or email")
+      .getByPlaceholder("Add a user by name or email")
       .fill(MEMBER.email);
     await page.getByRole("button", { name: new RegExp(MEMBER.name) }).click();
-    await expect(page.getByText("Member added successfully")).toBeVisible({
-      timeout: NAV,
-    });
+    // Durable outcome, not the auto-dismissing toast: the member is now listed
+    // in the team's manage dialog.
+    await expect(
+      manage.getByText(MEMBER.email, { exact: false }),
+    ).toBeVisible({ timeout: NAV });
 
     // Grant MANAGE on the check: pick the "Healthcheck" resource type (the
     // health-check config type is humanized from its access-rule resource
@@ -206,10 +215,22 @@ test("a team member managing a check can open its editor and manage its anomaly 
       name: "Save Defaults",
     });
     await expect(saveDefaults).toBeEnabled({ timeout: NAV });
+
+    // Assert the WRITE's response rather than the "settings saved" toast. The
+    // toast auto-dismisses, so asserting it races its own display duration -
+    // the flake this suite kept hitting. The response is durable and says
+    // exactly what this test is about: a team-scoped member's write is
+    // AUTHORIZED (a 403 from the parentScope gate fails here loudly, where a
+    // missing toast could be mistaken for a slow render).
+    const saved = memberPage.waitForResponse(
+      (response) =>
+        response.url().includes("/api/anomaly/updateAnomalyConfig") &&
+        response.request().method() === "POST",
+      { timeout: NAV },
+    );
     await saveDefaults.click();
-    await expect(
-      memberPage.getByText("Anomaly detection settings saved"),
-    ).toBeVisible({ timeout: NAV });
+    const savedResponse = await saved;
+    expect(savedResponse.status()).toBe(200);
   } finally {
     await memberContext.close();
   }

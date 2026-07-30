@@ -29,7 +29,7 @@ import {
   Button,
   Input,
   Label,
-  Textarea,
+  MarkdownEditor,
   Checkbox,
   useToast,
   Select,
@@ -59,6 +59,13 @@ interface Props {
   incident?: IncidentWithSystems;
   systems: System[];
   onSave: () => void;
+  /**
+   * Systems to pre-select when opening in CREATE mode (no `incident`). Lets a
+   * caller open the editor already scoped to a system - e.g. "Report incident"
+   * on that system's overview page. Ignored when editing an existing incident,
+   * whose own systems win.
+   */
+  presetSystemIds?: string[];
 }
 
 export const IncidentEditor: React.FC<Props> = ({
@@ -67,6 +74,7 @@ export const IncidentEditor: React.FC<Props> = ({
   incident,
   systems,
   onSave,
+  presetSystemIds,
 }) => {
   const incidentClient = usePluginClient(IncidentApi);
   const accessApi = useApi(accessApiRef);
@@ -176,12 +184,12 @@ export const IncidentEditor: React.FC<Props> = ({
       setDescription("");
       setSeverity("major");
       setHealthOverride("none");
-      setSelectedSystemIds(new Set());
+      setSelectedSystemIds(new Set(presetSystemIds));
       setSuppressNotifications(false);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
-  }, [incident, open]);
+  }, [incident, open, presetSystemIds]);
 
   // Per-field error map (single source of truth for inline errors + validity).
   const fieldErrors = deriveIncidentFieldErrors({
@@ -196,7 +204,12 @@ export const IncidentEditor: React.FC<Props> = ({
   // and team access are self-persisting on the detail page, so they are not
   // part of this dialog's "unsaved" surface.
   const isDirty = (() => {
-    const initialSystemIds = incident ? incident.systemIds.toSorted() : [];
+    // In create mode the baseline is whatever was PRE-SELECTED (e.g. opened
+    // from a system's "Report incident"), not an empty set - otherwise the form
+    // counts as dirty the moment it opens and closing it nags to discard.
+    const initialSystemIds = incident
+      ? incident.systemIds.toSorted()
+      : [...(presetSystemIds ?? [])].toSorted();
     const currentSystemIds = [...selectedSystemIds].toSorted();
     const systemsChanged =
       initialSystemIds.length !== currentSystemIds.length ||
@@ -344,10 +357,10 @@ export const IncidentEditor: React.FC<Props> = ({
 
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea
+              <MarkdownEditor
                 id="description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={setDescription}
                 placeholder="Details about the incident..."
                 rows={3}
               />

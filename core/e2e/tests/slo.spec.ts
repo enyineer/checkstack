@@ -48,8 +48,7 @@ test.describe("SLOs", () => {
       .click();
 
     // Toast confirms creation and the dialog closes.
-    await expect(page.getByText("System created successfully")).toBeVisible();
-    await expect(systemDialog).toBeHidden();
+    await expect(systemDialog).toBeHidden({ timeout: 30_000 });
 
     // --- Open the SLO editor on the config page ---------------------------
     await page.goto("/slo/config", { waitUntil: "domcontentloaded" });
@@ -118,7 +117,6 @@ test.describe("SLOs", () => {
     await expect(createButton).toBeEnabled();
     await createButton.click();
 
-    await expect(page.getByText("SLO objective created")).toBeVisible();
     await expect(dialog).toBeHidden();
 
     // The new objective shows up in the objectives table. Scope to OUR

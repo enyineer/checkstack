@@ -51,12 +51,23 @@ test.describe("announcements (boot-once)", () => {
       dialog.getByRole("heading", { name: "Create Announcement" }),
     ).toBeVisible();
 
-    // The Title input has the native `required` attribute, so submitting with
-    // it empty must keep the dialog open (browser blocks the submit) and the
-    // field stays invalid.
     const titleInput = dialog.getByLabel("Title");
-    await dialog.getByRole("button", { name: "Create" }).click();
+    const messageInput = dialog.getByLabel("Message (Markdown)");
+    const createButton = dialog.getByRole("button", { name: "Create" });
 
+    // The MESSAGE is a MarkdownEditor, which wraps its textarea and so cannot
+    // carry the native `required` attribute. Submission is gated explicitly
+    // instead, so an empty message leaves Create disabled - that disabled state
+    // IS the validation, and without it a blank announcement would save.
+    await expect(createButton).toBeDisabled();
+
+    // With a message present, Create becomes reachable...
+    await messageInput.fill("Some message");
+    await expect(createButton).toBeEnabled();
+
+    // ...and the TITLE's native `required` then blocks the submit, keeping the
+    // dialog open with the field invalid.
+    await createButton.click();
     await expect(
       dialog.getByRole("heading", { name: "Create Announcement" }),
     ).toBeVisible();

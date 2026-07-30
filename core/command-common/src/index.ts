@@ -34,6 +34,15 @@ export const SearchResultSchema = z.object({
   shortcuts: z.array(z.string()).optional(),
   /** Access rule IDs required to see this result */
   requiredAccessRules: z.array(z.string()).optional(),
+  /**
+   * Team-capability gate. When present, a caller who lacks the global
+   * `requiredAccessRules` is STILL shown this item if a team of theirs can
+   * create/manage `objectType` (or its `parentType`). Keeps team-scoped users
+   * from losing commands they are authorized to run - see `filterByAccessRules`.
+   */
+  manageCapability: z
+    .object({ objectType: z.string(), parentType: z.string().optional() })
+    .optional(),
 });
 
 export type SearchResult = z.infer<typeof SearchResultSchema>;
@@ -55,6 +64,15 @@ export const CommandSchema = z.object({
   route: z.string(),
   /** Access rule IDs required to see/execute this command */
   requiredAccessRules: z.array(z.string()).optional(),
+  /**
+   * Team-capability gate. When present, a caller who lacks the global
+   * `requiredAccessRules` is STILL shown this item if a team of theirs can
+   * create/manage `objectType` (or its `parentType`). Keeps team-scoped users
+   * from losing commands they are authorized to run - see `filterByAccessRules`.
+   */
+  manageCapability: z
+    .object({ objectType: z.string(), parentType: z.string().optional() })
+    .optional(),
 });
 
 export type Command = z.infer<typeof CommandSchema>;
@@ -107,13 +125,33 @@ export const CommandApi = createClientDefinition(
 // =============================================================================
 
 /**
- * Filter items by user access rules.
- * Items without requiredAccessRules are always included.
- * Users with the wildcard "*" access rule can see all items.
+ * Filter items by what the caller may actually do.
+ *
+ * An item is visible when it declares no `requiredAccessRules`, when the caller
+ * holds the wildcard `*`, when the caller holds EVERY required global rule, OR -
+ * crucially - when the item declares a `manageCapability` whose type the caller
+ * can manage through a TEAM grant.
+ *
+ * That last arm is why this is not a plain global-rule check: a team-scoped user
+ * (e.g. a team with a create-capability grant for `incident.incident`) holds no
+ * global `incident.incident.manage` rule, so a global-only filter hid "Create
+ * Incident" from exactly the people allowed to run it. This mirrors the
+ * `manageCapability` gate routes/nav already use (see `.claude/rules/rlac.md`).
+ *
+ * `manageableTypes` is the set of qualified resource types the caller can
+ * create/manage via a team grant; pass an empty set to reduce to pure global-rule
+ * gating.
  */
 export function filterByAccessRules<
-  T extends { requiredAccessRules?: string[] }
->(items: T[], userAccessRules: string[]): T[] {
+  T extends {
+    requiredAccessRules?: string[];
+    manageCapability?: { objectType: string; parentType?: string };
+  }
+>(
+  items: T[],
+  userAccessRules: string[],
+  manageableTypes: ReadonlySet<string> = new Set()
+): T[] {
   // Wildcard access rule means access to everything
   const hasWildcard = userAccessRules.includes("*");
 
@@ -126,9 +164,19 @@ export function filterByAccessRules<
     if (hasWildcard) {
       return true;
     }
-    // Check if user has all required access rules
-    return item.requiredAccessRules.every((rule) =>
-      userAccessRules.includes(rule)
+    // Global path: the caller holds every required rule outright.
+    if (
+      item.requiredAccessRules.every((rule) => userAccessRules.includes(rule))
+    ) {
+      return true;
+    }
+    // Team path: a grant on the declared type (or its parent) authorizes it.
+    const capability = item.manageCapability;
+    if (!capability) return false;
+    return (
+      manageableTypes.has(capability.objectType) ||
+      (capability.parentType !== undefined &&
+        manageableTypes.has(capability.parentType))
     );
   });
 }
