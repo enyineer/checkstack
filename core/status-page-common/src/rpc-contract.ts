@@ -232,6 +232,40 @@ export const statusPageContract = {
     .input(z.object({ slug: z.string(), id: z.string() }))
     .output(MaintenanceDtoItemSchema.nullable()),
 
+  /**
+   * Which of these cross-entity references does this published page surface?
+   *
+   * Lets a public page render a `#` mention written in an update as a link to
+   * the referenced item's PUBLIC detail page. Gated exactly like
+   * {@link getPublishedIncident}: a reference resolves only when this page
+   * actually publishes the target, so an internal-only incident referenced from
+   * a public update stays plain text rather than becoming a link that confirms
+   * it exists.
+   *
+   * Echoes back only the refs that resolve - no titles, no statuses - so it
+   * discloses nothing the page does not already show. An unresolvable ref is
+   * simply absent, indistinguishable from one that never existed.
+   */
+  resolvePublicMentions: proc({
+    operationType: "query",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(
+      z.object({
+        slug: z.string(),
+        refs: z
+          .array(z.object({ type: z.string(), id: z.string() }))
+          .max(200),
+      }),
+    )
+    .output(
+      z.object({
+        refs: z.array(z.object({ type: z.string(), id: z.string() })),
+      }),
+    ),
+
   // ----- Email subscriptions (public, anonymous double-opt-in) -----
 
   /**

@@ -6,6 +6,7 @@ import {
   Markdown,
   StatusPill,
   pillToneStyles,
+  type MentionResolver,
   type StatusPillTone,
 } from "@checkstack/ui";
 import { ArrowLeft, FileQuestion, Wrench } from "lucide-react";
@@ -15,6 +16,9 @@ import {
   statusPublicRoutes,
 } from "@checkstack/status-page-common";
 import { resolveRoute } from "@checkstack/common";
+import type { BuildDetailHref } from "../renderers";
+import { usePublicMentions } from "../use-public-mentions";
+import { buildInAppDetailHref } from "../public-detail-href";
 import { severityTone } from "../utils/severityTone";
 import {
   maintenanceStatusLabel,
@@ -68,7 +72,8 @@ interface StatusChangePresenter {
 const UpdatesTimeline: React.FC<{
   updates: PublicUpdate[];
   status: StatusChangePresenter;
-}> = ({ updates, status }) => {
+  resolveMention: MentionResolver;
+}> = ({ updates, status, resolveMention }) => {
   if (updates.length === 0) return null;
   return (
     <ol className="mt-5 space-y-4 border-l border-border pl-4">
@@ -96,7 +101,12 @@ const UpdatesTimeline: React.FC<{
           )}
           {/* Sanitized markdown - render the authored formatting rather than the
               raw source (the reported bug showed the raw string). */}
-          <Markdown className="text-sm text-foreground">{u.message}</Markdown>
+          <Markdown
+            className="text-sm text-foreground"
+            resolveMention={resolveMention}
+          >
+            {u.message}
+          </Markdown>
           <p className="text-[11px] tabular-nums text-muted-foreground">
             {formatAt(u.at)}
           </p>
@@ -116,9 +126,17 @@ const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
 };
 
 /** The event's long-form description, rendered as markdown when present. */
-const Description: React.FC<{ description?: string }> = ({ description }) =>
+const Description: React.FC<{
+  description?: string;
+  resolveMention: MentionResolver;
+}> = ({ description, resolveMention }) =>
   description && description.trim().length > 0 ? (
-    <Markdown className="mt-4 text-sm text-foreground">{description}</Markdown>
+    <Markdown
+      className="mt-4 text-sm text-foreground"
+      resolveMention={resolveMention}
+    >
+      {description}
+    </Markdown>
   ) : null;
 
 const LoadingShell: React.FC = () => (
@@ -145,9 +163,23 @@ export const PublicIncidentDetailView: React.FC<{
   slug: string;
   id: string;
   backHref: string;
-}> = ({ slug, id, backHref }) => {
+  /**
+   * Builds hrefs for mentions pointing at OTHER items on this page. The
+   * custom-domain bundle passes its own (the page lives at the host root
+   * there); the in-app wrapper below uses the shared admin-origin builder.
+   */
+  buildDetailHref?: BuildDetailHref;
+}> = ({ slug, id, backHref, buildDetailHref }) => {
   const client = usePluginClient(StatusPageApi);
   const { data, isLoading } = client.getPublishedIncident.useQuery({ slug, id });
+  // Same page scope as the status page itself: a `#` reference in this
+  // incident's description or updates links only to another item the SAME page
+  // publishes.
+  const resolveMention = usePublicMentions({
+    slug,
+    content: data,
+    buildDetailHref: buildDetailHref ?? buildInAppDetailHref({ slug }),
+  });
 
   useEffect(() => {
     if (!data?.title) return;
@@ -188,8 +220,15 @@ export const PublicIncidentDetailView: React.FC<{
           Affected: {data.systems.join(", ")}
         </p>
       )}
-      <Description description={data.description} />
-      <UpdatesTimeline updates={data.updates} status={INCIDENT_STATUS_PRESENTER} />
+      <Description
+        description={data.description}
+        resolveMention={resolveMention}
+      />
+      <UpdatesTimeline
+        updates={data.updates}
+        status={INCIDENT_STATUS_PRESENTER}
+        resolveMention={resolveMention}
+      />
     </DetailShell>
   );
 };
@@ -198,11 +237,19 @@ export const PublicMaintenanceDetailView: React.FC<{
   slug: string;
   id: string;
   backHref: string;
-}> = ({ slug, id, backHref }) => {
+  /** See PublicIncidentDetailView. */
+  buildDetailHref?: BuildDetailHref;
+}> = ({ slug, id, backHref, buildDetailHref }) => {
   const client = usePluginClient(StatusPageApi);
   const { data, isLoading } = client.getPublishedMaintenance.useQuery({
     slug,
     id,
+  });
+  // See PublicIncidentDetailView.
+  const resolveMention = usePublicMentions({
+    slug,
+    content: data,
+    buildDetailHref: buildDetailHref ?? buildInAppDetailHref({ slug }),
   });
 
   useEffect(() => {
@@ -241,10 +288,14 @@ export const PublicMaintenanceDetailView: React.FC<{
       )}
       {/* What the maintenance involves - previously the page showed only the
           title, window, and affected systems. */}
-      <Description description={data.description} />
+      <Description
+        description={data.description}
+        resolveMention={resolveMention}
+      />
       <UpdatesTimeline
         updates={data.updates}
         status={MAINTENANCE_STATUS_PRESENTER}
+        resolveMention={resolveMention}
       />
     </DetailShell>
   );

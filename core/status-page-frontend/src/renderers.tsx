@@ -10,6 +10,7 @@ import {
 import { Markdown, MarkdownBlock, formatPercent,
   StatusPill,
   pillToneStyles,
+  type MentionResolver,
   type StatusPillTone,
 } from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
@@ -155,6 +156,16 @@ export type BuildDetailHref = (args: {
 
 export const StatusDetailLinkContext =
   React.createContext<BuildDetailHref | null>(null);
+
+/**
+ * Resolves `#` mentions inside authored markdown on a public page. Provided by
+ * {@link PublicStatusPageView}; consumed wherever a widget renders an update
+ * message. Null (the default) means "resolve nothing", so mentions render as
+ * plain text - the safe default for any surface that has not opted in, such as
+ * the builder preview.
+ */
+export const StatusMentionContext =
+  React.createContext<MentionResolver | null>(null);
 
 /** Wrap children in a plain link when an href is available, else render as-is. */
 const MaybeLink: React.FC<{
@@ -425,6 +436,7 @@ const UpdatesTimeline: React.FC<{
   updates: Update[];
   status: StatusChangePresenter;
 }> = ({ updates, status }) => {
+  const resolveMention = React.useContext(StatusMentionContext);
   if (updates.length === 0) return null;
   return (
     <ol className="mt-3 space-y-3 border-l border-border pl-4">
@@ -453,8 +465,15 @@ const UpdatesTimeline: React.FC<{
           )}
           {/* Sanitized markdown (rehype-sanitize inside <Markdown>): this is the
               public, anonymous status page, so the update body must render its
-              formatting without opening an XSS surface. */}
-          <Markdown className="text-sm text-foreground">{u.message}</Markdown>
+              formatting without opening an XSS surface. A `#` mention becomes a
+              link only when THIS page also publishes the referenced item; see
+              StatusMentionContext. */}
+          <Markdown
+            className="text-sm text-foreground"
+            {...(resolveMention ? { resolveMention } : {})}
+          >
+            {u.message}
+          </Markdown>
           <p className="text-[11px] tabular-nums text-muted-foreground">
             {formatAt(u.at)}
           </p>
@@ -654,13 +673,18 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
 };
 
 const TextRenderer: React.FC<RendererProps> = ({ data, label }) => {
+  // A Text block is operator-authored markdown, so it can carry `#` mentions
+  // just like an update can - and they resolve under the same page-scoped rule.
+  const resolveMention = React.useContext(StatusMentionContext);
   const parsed = TextDtoSchema.safeParse(data);
   if (!parsed.success || !parsed.data.markdown.trim()) return null;
   return (
     <div>
       <BlockLabel label={label} />
       <div className="text-sm leading-relaxed text-muted-foreground">
-        <MarkdownBlock>{parsed.data.markdown}</MarkdownBlock>
+        <MarkdownBlock {...(resolveMention ? { resolveMention } : {})}>
+          {parsed.data.markdown}
+        </MarkdownBlock>
       </div>
     </div>
   );

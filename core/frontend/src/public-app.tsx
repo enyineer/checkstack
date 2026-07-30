@@ -76,24 +76,38 @@ function eventDetailFromPath(
 }
 
 /** Route element for the incident detail page (reads `:id` from the router). */
-const IncidentRoute: React.FC<{ slug: string; backHref: string }> = ({
-  slug,
-  backHref,
-}) => {
+const IncidentRoute: React.FC<{
+  slug: string;
+  backHref: string;
+  buildDetailHref: BuildDetailHref;
+}> = ({ slug, backHref, buildDetailHref }) => {
   const { id = "" } = useParams();
   return (
-    <PublicIncidentDetailView slug={slug} id={id} backHref={backHref} />
+    <PublicIncidentDetailView
+      slug={slug}
+      id={id}
+      backHref={backHref}
+      // On a custom domain the detail pages live at the host ROOT, so `#`
+      // mentions must use this host's real paths, not the admin origin's.
+      buildDetailHref={buildDetailHref}
+    />
   );
 };
 
 /** Route element for the maintenance detail page. */
-const MaintenanceRoute: React.FC<{ slug: string; backHref: string }> = ({
-  slug,
-  backHref,
-}) => {
+const MaintenanceRoute: React.FC<{
+  slug: string;
+  backHref: string;
+  buildDetailHref: BuildDetailHref;
+}> = ({ slug, backHref, buildDetailHref }) => {
   const { id = "" } = useParams();
   return (
-    <PublicMaintenanceDetailView slug={slug} id={id} backHref={backHref} />
+    <PublicMaintenanceDetailView
+      slug={slug}
+      id={id}
+      backHref={backHref}
+      buildDetailHref={buildDetailHref}
+    />
   );
 };
 
@@ -194,13 +208,21 @@ function PublicRoot() {
                     <Route
                       path="/incident/:id"
                       element={
-                        <IncidentRoute slug={slug} backHref={backHref} />
+                        <IncidentRoute
+                          slug={slug}
+                          backHref={backHref}
+                          buildDetailHref={buildDetailHref}
+                        />
                       }
                     />
                     <Route
                       path="/maintenance/:id"
                       element={
-                        <MaintenanceRoute slug={slug} backHref={backHref} />
+                        <MaintenanceRoute
+                          slug={slug}
+                          backHref={backHref}
+                          buildDetailHref={buildDetailHref}
+                        />
                       }
                     />
                     <Route

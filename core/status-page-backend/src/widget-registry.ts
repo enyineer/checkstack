@@ -97,6 +97,21 @@ export interface WidgetTypeDefinition {
     ctx: WidgetResolveContext;
   }): Promise<unknown | null>;
   /**
+   * OPTIONAL: the cross-entity MENTION type whose records this widget
+   * surfaces, e.g. `"incident"`. Set it alongside {@link resolveDetail}.
+   *
+   * Lets a public page resolve a `#` reference written in one item's update
+   * into a link to another item's public detail page - but ONLY when that
+   * target is itself surfaced by this page, which is the same anti-enumeration
+   * gate `resolveDetail` already enforces.
+   *
+   * Declared BY THE OWNING PLUGIN rather than mapped in the platform: the
+   * status-page packages must not know that `"incident"` means the incidents
+   * widget, or they would depend upward on a domain plugin. The owner knows
+   * both halves and states the correspondence once.
+   */
+  mentionType?: string;
+  /**
    * Publish-time gate: throw if the EDITOR (the `userClient`, scoped to the
    * caller) cannot read every resource this config binds — "you cannot publish
    * what you cannot see". REQUIRED for any widget whose `boundResources` is

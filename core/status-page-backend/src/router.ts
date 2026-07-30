@@ -136,6 +136,20 @@ export function createStatusPageRouter({
     },
   );
 
+  const resolvePublicMentions = os.resolvePublicMentions.handler(
+    async ({ input, context }) => {
+      const isAuthenticated =
+        context.user?.type === "user" || context.user?.type === "application";
+      return {
+        refs: await service.resolvePublicMentions({
+          slug: input.slug,
+          refs: input.refs,
+          isAuthenticated,
+        }),
+      };
+    },
+  );
+
   const subscribeToStatusPage = os.subscribeToStatusPage.handler(
     async ({ input }) => subscriberService.subscribe(input),
   );
@@ -176,6 +190,7 @@ export function createStatusPageRouter({
     getPublishedStatusPage,
     getPublishedIncident,
     getPublishedMaintenance,
+    resolvePublicMentions,
     subscribeToStatusPage,
     verifyStatusPageSubscription,
     unsubscribeFromStatusPage,

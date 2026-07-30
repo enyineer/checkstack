@@ -1,5 +1,8 @@
 import { CatalogApi, assertCatalogResourcesReadable } from "@checkstack/catalog-common";
-import { IncidentApi } from "@checkstack/incident-common";
+import {
+  IncidentApi,
+  INCIDENT_MENTION_TYPE,
+} from "@checkstack/incident-common";
 import {
   pluginMetadata as statusPagePluginMetadata,
   IncidentsConfigSchema,
@@ -127,6 +130,10 @@ async function labelsFor(
 const incidents: WidgetTypeDefinition = {
   id: "incidents",
   displayName: "Incidents",
+  // Lets a public page turn a `#` reference to an incident into a link to its
+  // public detail page - but only for an incident THIS page surfaces, which is
+  // the same gate `resolveDetail` below enforces.
+  mentionType: INCIDENT_MENTION_TYPE,
   description: "Recent unresolved incidents with their update timeline.",
   category: "Events",
   binding: "systems",

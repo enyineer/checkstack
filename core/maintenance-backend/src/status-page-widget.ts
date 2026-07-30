@@ -1,5 +1,8 @@
 import { CatalogApi, assertCatalogResourcesReadable } from "@checkstack/catalog-common";
-import { MaintenanceApi } from "@checkstack/maintenance-common";
+import {
+  MaintenanceApi,
+  MAINTENANCE_MENTION_TYPE,
+} from "@checkstack/maintenance-common";
 import {
   pluginMetadata as statusPagePluginMetadata,
   MaintenanceConfigSchema,
@@ -125,6 +128,9 @@ function iso(value: string | Date): string {
 const maintenance: WidgetTypeDefinition = {
   id: "maintenance",
   displayName: "Scheduled maintenance",
+  // See the incidents widget: enables public resolution of `#` references to a
+  // maintenance window this page surfaces.
+  mentionType: MAINTENANCE_MENTION_TYPE,
   description: "Upcoming and in-progress maintenance windows.",
   category: "Events",
   binding: "systems",

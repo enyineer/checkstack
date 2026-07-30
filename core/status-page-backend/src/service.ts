@@ -707,4 +707,80 @@ export class StatusPageService {
       itemSchema: MaintenanceDtoItemSchema,
     });
   }
+
+  /**
+   * Which of these cross-entity references does THIS published page surface?
+   *
+   * Backs mention resolution on a public page: an update saying "caused by
+   * #Database upgrade" becomes a link to that maintenance's public detail page,
+   * but only when the same page actually publishes it.
+   *
+   * The gate is deliberately the SAME one the detail page uses - a reference
+   * resolves exactly when `resolveDetail` would return the item - so the link
+   * can never lead somewhere the page would refuse to render. That closes the
+   * confidentiality hole directly: an internal-only incident referenced from a
+   * public update stays plain text, because no block on this page surfaces it.
+   *
+   * Which widget owns a mention type is declared BY the widget
+   * ({@link WidgetTypeDefinition.mentionType}), so this stays ignorant of what
+   * `"incident"` means.
+   */
+  async resolvePublicMentions(input: {
+    slug: string;
+    refs: Array<{ type: string; id: string }>;
+    isAuthenticated: boolean;
+  }): Promise<Array<{ type: string; id: string }>> {
+    if (input.refs.length === 0) return [];
+
+    const row = await this.loadPublishedRow({
+      slug: input.slug,
+      isAuthenticated: input.isAuthenticated,
+    });
+    if (!row || row.publishedLayout === null) return [];
+
+    const { ctx } = this.loadPublishedForResolve(row);
+
+    // De-duplicate first: one page can reference the same item from several
+    // updates, and each distinct ref should cost at most one resolve.
+    const seen = new Set<string>();
+    const distinct = input.refs.filter((ref) => {
+      const key = `${ref.type}/${ref.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const resolved = await Promise.all(
+      distinct.map(async (ref) => {
+        for (const block of row.publishedLayout ?? []) {
+          const widget = this.deps.registry.get(block.type);
+          if (!widget?.resolveDetail) continue;
+          if (widget.mentionType !== ref.type) continue;
+
+          try {
+            const item = await widget.resolveDetail({
+              id: ref.id,
+              config: block.config,
+              ctx,
+            });
+            if (item !== null) return ref;
+          } catch (error) {
+            // Same posture as `resolvePublishedDetail`: a failing widget makes
+            // its references unlinkable, never accidentally linkable.
+            this.deps.logger.warn(
+              "Status page mention widget failed to resolve",
+              {
+                slug: row.slug,
+                blockType: block.type,
+                error: extractErrorMessage(error),
+              },
+            );
+          }
+        }
+        return null;
+      }),
+    );
+
+    return resolved.filter((ref) => ref !== null);
+  }
 }
