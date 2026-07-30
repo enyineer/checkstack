@@ -1,6 +1,6 @@
 import "@checkstack/test-utils-frontend/setup";
 import { describe, expect, it, mock } from "bun:test";
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { Markdown, MarkdownBlock } from "./Markdown";
 
 /**
@@ -16,6 +16,12 @@ import { Markdown, MarkdownBlock } from "./Markdown";
  * throws.
  *
  * These tests pin the whole path from authored markdown to a resolved link.
+ *
+ * Every query is scoped to its OWN render container via `within(container)`.
+ * RTL's destructured queries are bound to `document.body`, so two renders in
+ * one file that produce the same accessible name collide as "found multiple
+ * elements" the moment cleanup does not run between them - which is a property
+ * of the runner, not of the component. Scoping removes the dependency.
  */
 describe("Markdown renders cross-entity mentions", () => {
   const MENTION = "[Database upgrade](checkstack:maintenance/abc-123)";
@@ -32,45 +38,49 @@ describe("Markdown renders cross-entity mentions", () => {
   });
 
   it("renders a resolved mention as a real link", () => {
-    const { getByRole } = render(
+    const { container } = render(
       <Markdown resolveMention={() => "/maintenance/abc-123"}>
         {MENTION}
       </Markdown>,
     );
 
-    const link = getByRole("link", { name: "Database upgrade" });
+    const link = within(container).getByRole("link", {
+      name: "Database upgrade",
+    });
     expect(link.getAttribute("href")).toBe("/maintenance/abc-123");
   });
 
   it("renders an UNRESOLVED mention as plain text, never a dead link", () => {
-    const { queryByRole, getByText } = render(
+    const { container } = render(
       <Markdown resolveMention={() => undefined}>{MENTION}</Markdown>,
     );
 
-    expect(getByText("Database upgrade")).toBeTruthy();
-    expect(queryByRole("link")).toBeNull();
+    expect(within(container).getByText("Database upgrade")).toBeTruthy();
+    expect(within(container).queryByRole("link")).toBeNull();
   });
 
   it("MarkdownBlock resolves mentions too", () => {
-    const { getByRole } = render(
+    const { container } = render(
       <MarkdownBlock resolveMention={() => "/maintenance/abc-123"}>
         {MENTION}
       </MarkdownBlock>,
     );
 
     expect(
-      getByRole("link", { name: "Database upgrade" }).getAttribute("href"),
+      within(container)
+        .getByRole("link", { name: "Database upgrade" })
+        .getAttribute("href"),
     ).toBe("/maintenance/abc-123");
   });
 
   it("still renders an ordinary external link", () => {
-    const { getByRole } = render(
+    const { container } = render(
       <Markdown>{"[docs](https://example.com/x)"}</Markdown>,
     );
 
-    expect(getByRole("link", { name: "docs" }).getAttribute("href")).toBe(
-      "https://example.com/x",
-    );
+    expect(
+      within(container).getByRole("link", { name: "docs" }).getAttribute("href"),
+    ).toBe("https://example.com/x");
   });
 
   it("does NOT treat an ordinary link as a mention", () => {
@@ -88,12 +98,12 @@ describe("Markdown renders cross-entity mentions", () => {
   it("drops a javascript: href, which the sanitizer must still refuse", () => {
     // Widening the protocol allow-list for `checkstack:` must not widen it for
     // anything executable.
-    const { queryByRole } = render(
+    const { container } = render(
       // eslint-disable-next-line no-script-url -- the point of the test
       <Markdown>{"[click](javascript:alert(1))"}</Markdown>,
     );
 
-    const link = queryByRole("link");
+    const link = within(container).queryByRole("link");
     expect(link?.getAttribute("href") ?? "").not.toContain("javascript:");
   });
 });
