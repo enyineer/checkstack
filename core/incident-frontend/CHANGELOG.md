@@ -1,5 +1,217 @@
 # @checkstack/incident-frontend
 
+## 0.17.0
+
+### Minor Changes
+
+- 88f4333: Report an incident or schedule maintenance straight from a system
+
+  The system overview showed a system's incidents and maintenances but offered no
+  way to open one for it - you had to navigate to the incidents/maintenance page
+  and re-pick the system by hand.
+
+  Both panels now carry an action ("Report incident" / "Schedule maintenance")
+  that deep-links to the editor with the system already selected, via
+  `?action=create&systemId=<id>`. The pages consume both params and clear them, so
+  a refresh doesn't reopen the dialog.
+
+  The action is gated on `useProcedureAccess` over the CREATE procedure's
+  contract, so it appears for a global manager AND for someone who can manage this
+  system through a team (the `create.parent` gate) - exactly who the backend
+  accepts. Gating on the bare global rule would have hidden it from the
+  team-scoped users it is most useful to.
+
+  The editors' unsaved-changes baseline accounts for the pre-selection, so opening
+  a pre-scoped form and closing it again doesn't falsely prompt to discard.
+
+- 88f4333: Link incidents and maintenances with `#` mentions
+
+  Typing `#` in a markdown field now opens a picker over every mentionable record
+  and inserts a reference. Referencing another record previously meant pasting a
+  URL, which cannot be right everywhere: an admin URL is meaningless on a public
+  status page, a status-page URL is meaningless in the admin UI, and neither works
+  in an email.
+
+  A mention therefore stores WHAT it points at, never where:
+  `[Database upgrade](checkstack:maintenance/<id>)`. That is an ordinary markdown
+  link - readable in the raw source, parsed unchanged by existing tooling - and
+  only the href is resolved per render context.
+
+  Resolution may REFUSE: a resolver returning nothing renders the label as plain
+  text rather than a link. That is a confidentiality property, not a nicety - an
+  internal-only incident referenced from a public status update must not become a
+  link that confirms it exists. A renderer given no resolver links nothing.
+
+  Incident and maintenance detail pages gained a **Referenced items** section,
+  derived by scanning the authored markdown on each render. Nothing is stored
+  twice, so an edit that drops a reference drops it from the list too.
+
+  The platform owns the contract (`registerMentionRoutes` / `setMentionSearch` in
+  `@checkstack/frontend-api`); each owning plugin registers its own type, so no
+  plugin imports another. Search only ever offers records the caller may read.
+
+  Scope: resolution is wired for the admin UI. Public status pages and notification
+  bodies do not resolve mentions yet, so a mention renders there as plain text -
+  the safe default above, not a broken link.
+
+  Precisely: the admin resolver maps a well-formed reference to a route WITHOUT
+  checking that the target still exists or that this viewer may read it, so a
+  mention to a deleted or unreadable record links to a not-found or an access gate.
+  That is deliberate - gating on the provider's fetched list would silently
+  downgrade valid references to plain text (the incident search excludes resolved
+  incidents by default), and silently dropping a valid link is worse than one that
+  lands on a gate the backend already enforces. The confidentiality property is
+  carried by the public renderers, which resolve nothing.
+
+- 88f4333: Markdown editor with a live preview tab and formatting toolbar
+
+  Markdown fields were plain textareas with a "Markdown supported" hint, so an
+  author found out how their text rendered only after saving - or, for a
+  notification, after it had already been delivered.
+
+  New `MarkdownEditor` in `@checkstack/ui`: Write / Preview tabs plus a toolbar
+  (bold, italic, link, code, lists, quote). Adopted by the incident and maintenance
+  update forms and descriptions, and the announcement message.
+
+  The preview renders through `MarkdownBlock` - the same component, remark/rehype
+  chain and sanitiser used for the saved content. A second renderer here would be
+  free to drift, and a preview that disagrees with the real render is worse than no
+  preview.
+
+  Toolbar marks toggle rather than only adding, and mark lengths are matched
+  exactly so italic (`*`) never claims bold's (`**`) delimiters and silently
+  downgrades an author's emphasis.
+
+  Note for adopters: `MarkdownEditor` wraps its textarea, so `required` on it does
+  nothing - gate submission explicitly instead.
+
+- 88f4333: Resolve `#` mentions on public status pages, and check viewability in the admin UI
+
+  Cross-entity mentions previously resolved only in the admin UI, and did so
+  without asking whether the reader could actually open the target. Public
+  surfaces resolved nothing at all. Three changes, one per delivery context.
+
+  **The admin UI now checks viewability.** `useMentionResolution({ documents })`
+  collects the references a page is about to render and asks each owning plugin -
+  in ONE batched request - which of them this viewer may read. A mention to a
+  deleted or unreadable record now renders as plain text instead of a link to a
+  not-found page or an access gate. Backed by new `resolveIncidentRefs` /
+  `resolveMaintenanceRefs` procedures, which return ids only (so an unreadable
+  record is indistinguishable from a deleted one) and carry the same `listKey`
+  read post-filter as their list procedures. They are deliberately not a filter
+  over the authoring search list, which hides resolved incidents and would
+  silently downgrade valid references.
+
+  **Public status pages now resolve mentions.** A reference becomes a link to the
+  target's public detail page when - and only when - the same page publishes that
+  target, which is exactly the anti-enumeration gate the detail pages already
+  apply. So an operator writing "caused by #Database upgrade" in a public update
+  gets a working link, while a mention of an internal-only incident stays plain
+  text rather than becoming a link that confirms it exists. Widgets opt in by
+  declaring a `mentionType`, so the status-page packages take no dependency on any
+  domain plugin.
+
+  **BREAKING CHANGE (behavioural, no API change):** the in-app public status page
+  at `/statuspage/view/<slug>` now builds detail-page hrefs. Previously it passed
+  none, so incident and maintenance titles rendered as plain text there while the
+  same page on a custom domain linked them. Both now behave identically.
+
+  **Notification bodies no longer leak the internal scheme.** `checkstack:` is
+  meaningless outside a Checkstack renderer, and channels leaked it differently:
+  the email sanitiser stripped the href and left a dead anchor, while Slack's
+  mrkdwn emitted `<checkstack:maintenance/9f1c-abc|Database upgrade>` straight to
+  the recipient (Discord, Telegram and Teams render markdown natively and would
+  have passed it through too). `sanitizeUpdateMessage` now flattens every mention
+  to its label before the body reaches any channel, so no channel has to know the
+  scheme exists. Flattening also happens before the length bound, so the excerpt
+  budget is spent on visible text rather than on an internal URI.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+- 88f4333: Name the single maintenance or incident on the system overview cards
+
+  When a system has exactly one leading maintenance window (or one active
+  incident), its card now shows the TITLE, linked to the record, instead of the
+  count. A bare "1" told the reader nothing they could not already infer from the
+  card being there, and forced a second click to learn anything.
+
+  With two or more there is no single thing to name, so the count remains.
+
+- 88f4333: Colour timeline dots, and fix the rail they hang from
+
+  Status-update timeline dots were uniformly grey, so the rail carried no
+  information. They are now toned:
+
+  - **Maintenance** dots take the update's own status. Maintenance has no severity,
+    so its lifecycle is the one coloured dimension and nothing competes with it.
+  - **Incident** dots take the incident's SEVERITY, keeping status on a neutral
+    pill. Incidents carry both an urgency and a lifecycle, and `status-tone.ts`
+    gives the hue to the urgency - colouring both would put two competing scales on
+    one row.
+  - **Public status pages** now tone the dot to match the status label already
+    rendered beside it.
+
+  An update that changes nothing stays neutral, so a coloured dot always means "the
+  status moved here".
+
+  Also fixes the rail itself: it anchored its left EDGE at `left-4`, putting its
+  centre at 16.25px while every dot centres at 16px, so each dot sat a hair off the
+  line. The rail is now centred on the same axis, and a new exported `TimelineDot`
+  owns the positioning so the four separate copies of that maths cannot diverge
+  again.
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+  - @checkstack/auth-frontend@0.16.0
+  - @checkstack/common@0.24.0
+  - @checkstack/incident-common@1.11.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/dashboard-frontend@0.12.0
+  - @checkstack/notification-frontend@0.10.0
+  - @checkstack/tips-frontend@0.5.6
+  - @checkstack/catalog-common@2.8.2
+  - @checkstack/signal-frontend@0.3.8
+
 ## 0.16.5
 
 ### Patch Changes

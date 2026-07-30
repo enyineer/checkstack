@@ -1,5 +1,110 @@
 # @checkstack/satellite-frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+- 88f4333: Per-satellite offline threshold, connectivity notifications, and stop satellite-only checks going silent
+
+  **A satellite going offline was invisible, and so were its checks.** Three
+  related changes:
+
+  **Per-satellite offline threshold.** The 45-second global constant is now a
+  per-satellite override (**Offline after**, 2 minutes to 24 hours), because
+  tolerance is a property of the link, not of the platform: a satellite on a flaky
+  uplink needs grace that should not be forced on every other satellite. The
+  threshold is carried on every row read by `computeStatus`, so the entity read,
+  the admin list and the heartbeat monitor cannot disagree about the same
+  satellite. Additive, nullable column - existing satellites keep the default.
+
+  **Connectivity notifications.** Satellites are now a notification target with a
+  **Satellite connectivity** subscription: a warning when a satellite stops
+  heartbeating, informational when it returns. A reconnect only notifies if the
+  satellite was actually offline, so a redeploy is not an event. (The same
+  transitions remain available as `satellite.heartbeat_lost` / `.connected`
+  automation triggers for anyone wanting different routing.)
+
+  **Satellite-only checks no longer go silent.** BUG FIX: a check with
+  `includeLocal: false` whose satellites were all offline recorded NOTHING, so it
+  displayed its last known status indefinitely - a dead probe was indistinguishable
+  from a passing one. The core now records a `degraded` run with a clear message.
+  Degraded rather than unhealthy because the target may be fine; what failed is our
+  ability to observe it. Liveness that cannot be resolved is treated as "executing"
+  so a transient lookup failure cannot mark the whole fleet degraded at once.
+
+  Checks also surface staleness: a last run older than five intervals (minimum ten
+  minutes) is highlighted, so an ageing status is visible even with no run to
+  explain it. Paused checks are never stale, and neither is a RETIRED slice - one
+  whose environment was removed or whose satellite was unassigned - because
+  warning about something you retired on purpose trains operators to ignore the
+  badge.
+
+  The unobservable run does NOT notify subscribers. One offline satellite degrades
+  every check assigned to it in the same tick, and `healthy -> degraded` is an
+  escalation, so notifying per check would turn a single root cause into one alert
+  per check. The satellite's own connectivity subscription reports the cause once;
+  the runs are still recorded, so health and the UI stay honest.
+
+  Satellite liveness is cached on the shared platform cache with a 5s TTL. The
+  executor asks per tick of every satellite-only check and the read is a full
+  scan, so the uncached version scaled with the number of such checks. The TTL is
+  well below the smallest offline threshold the schema allows, so a cached answer
+  can lag a transition by one tick but never span one.
+
+  Corrects the user guide, which claimed offline satellites produced failed runs -
+  they produced nothing at all.
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+  - @checkstack/common@0.24.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/gitops-frontend@0.8.0
+  - @checkstack/satellite-common@0.12.0
+  - @checkstack/tips-frontend@0.5.6
+  - @checkstack/gitops-common@0.7.5
+  - @checkstack/signal-frontend@0.3.8
+
 ## 0.8.4
 
 ### Patch Changes

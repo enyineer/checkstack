@@ -1,5 +1,101 @@
 # @checkstack/incident-common
 
+## 1.11.0
+
+### Minor Changes
+
+- 88f4333: Resolve `#` mentions on public status pages, and check viewability in the admin UI
+
+  Cross-entity mentions previously resolved only in the admin UI, and did so
+  without asking whether the reader could actually open the target. Public
+  surfaces resolved nothing at all. Three changes, one per delivery context.
+
+  **The admin UI now checks viewability.** `useMentionResolution({ documents })`
+  collects the references a page is about to render and asks each owning plugin -
+  in ONE batched request - which of them this viewer may read. A mention to a
+  deleted or unreadable record now renders as plain text instead of a link to a
+  not-found page or an access gate. Backed by new `resolveIncidentRefs` /
+  `resolveMaintenanceRefs` procedures, which return ids only (so an unreadable
+  record is indistinguishable from a deleted one) and carry the same `listKey`
+  read post-filter as their list procedures. They are deliberately not a filter
+  over the authoring search list, which hides resolved incidents and would
+  silently downgrade valid references.
+
+  **Public status pages now resolve mentions.** A reference becomes a link to the
+  target's public detail page when - and only when - the same page publishes that
+  target, which is exactly the anti-enumeration gate the detail pages already
+  apply. So an operator writing "caused by #Database upgrade" in a public update
+  gets a working link, while a mention of an internal-only incident stays plain
+  text rather than becoming a link that confirms it exists. Widgets opt in by
+  declaring a `mentionType`, so the status-page packages take no dependency on any
+  domain plugin.
+
+  **BREAKING CHANGE (behavioural, no API change):** the in-app public status page
+  at `/statuspage/view/<slug>` now builds detail-page hrefs. Previously it passed
+  none, so incident and maintenance titles rendered as plain text there while the
+  same page on a custom domain linked them. Both now behave identically.
+
+  **Notification bodies no longer leak the internal scheme.** `checkstack:` is
+  meaningless outside a Checkstack renderer, and channels leaked it differently:
+  the email sanitiser stripped the href and left a dead anchor, while Slack's
+  mrkdwn emitted `<checkstack:maintenance/9f1c-abc|Database upgrade>` straight to
+  the recipient (Discord, Telegram and Teams render markdown natively and would
+  have passed it through too). `sanitizeUpdateMessage` now flattens every mention
+  to its label before the body reaches any channel, so no channel has to know the
+  scheme exists. Flattening also happens before the length bound, so the excerpt
+  budget is spent on visible text rather than on an internal URI.
+
+### Patch Changes
+
+- 1deaac5: Make endpoint authorization self-documenting in the generated API docs
+
+  Every procedure's authorization is now derived from its contract metadata (its
+  `access` rules + `instanceAccess` mode) via a shared mode-descriptor registry and
+  emitted into the OpenAPI spec - both structurally (`x-orpc-meta.authorization`)
+  and as a human `**Authorization.**` sentence folded into the operation
+  description. Previously the docs surfaced only a flat list of global rule ids, so
+  an integrator (an API-key/application principal that CAN hold team grants) never
+  saw the team-grant / per-object dimension, and endpoints gated purely in the
+  handler showed no restriction at all.
+
+  For authorization that no declarative mode can express and is therefore enforced
+  in the handler (a compound OR, a graded verdict, a DB-derived id set), a new
+  optional `accessNote` on the procedure metadata surfaces the real rule in the
+  docs as an explicitly handler-enforced addendum. The note is documentation, not a
+  guarantee: per `.claude/rules/rlac.md` the drift guard for such authz is
+  behavioral tests over an extracted pure decision function, and the note must
+  state exactly what those tests pin.
+
+  Every handler-enforced authorization endpoint now carries such a note so the docs
+  are complete: the team read/scoping and team-management endpoints
+  (`@checkstack/auth-common`), the health-check assignment/history reads
+  (`@checkstack/healthcheck-common`), the audience-graded incident/maintenance
+  reads (`@checkstack/incident-common`, `@checkstack/maintenance-common`), status
+  -page publish's bound-resource check (`@checkstack/status-page-common`), the
+  stream `setSystemLinks` readable-additions check
+  (`@checkstack/{metricstream,tracestream,logstream}-common`), and the automation
+  `runAs` escalation guard (`@checkstack/automation-common`). These are
+  metadata-only additions - no runtime behavior changed. The notes describe the
+  rule for API-doc readers only; the drift guard is behavioral tests over the
+  check's decision function (per `.claude/rules/rlac.md`), so the notes name no
+  internal test files.
+
+  The API docs viewer (`@checkstack/api-docs-frontend`) now renders each
+  operation's description as Markdown, so the `**Authorization.**` block (and any
+  inline `code`) formats correctly instead of showing raw markdown.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/catalog-common@2.8.2
+  - @checkstack/signal-common@0.3.2
+
 ## 1.10.5
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/logstream-common",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Log stream contracts, schemas, access rules and signals",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

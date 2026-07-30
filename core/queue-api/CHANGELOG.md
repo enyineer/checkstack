@@ -1,5 +1,17 @@
 # @checkstack/queue-api
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+
 ## 0.4.0
 
 ### Minor Changes

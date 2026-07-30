@@ -1,5 +1,91 @@
 # @checkstack/ai-backend
 
+## 0.11.5
+
+### Patch Changes
+
+- 88f4333: Resolve `#` mentions on public status pages, and check viewability in the admin UI
+
+  Cross-entity mentions previously resolved only in the admin UI, and did so
+  without asking whether the reader could actually open the target. Public
+  surfaces resolved nothing at all. Three changes, one per delivery context.
+
+  **The admin UI now checks viewability.** `useMentionResolution({ documents })`
+  collects the references a page is about to render and asks each owning plugin -
+  in ONE batched request - which of them this viewer may read. A mention to a
+  deleted or unreadable record now renders as plain text instead of a link to a
+  not-found page or an access gate. Backed by new `resolveIncidentRefs` /
+  `resolveMaintenanceRefs` procedures, which return ids only (so an unreadable
+  record is indistinguishable from a deleted one) and carry the same `listKey`
+  read post-filter as their list procedures. They are deliberately not a filter
+  over the authoring search list, which hides resolved incidents and would
+  silently downgrade valid references.
+
+  **Public status pages now resolve mentions.** A reference becomes a link to the
+  target's public detail page when - and only when - the same page publishes that
+  target, which is exactly the anti-enumeration gate the detail pages already
+  apply. So an operator writing "caused by #Database upgrade" in a public update
+  gets a working link, while a mention of an internal-only incident stays plain
+  text rather than becoming a link that confirms it exists. Widgets opt in by
+  declaring a `mentionType`, so the status-page packages take no dependency on any
+  domain plugin.
+
+  **BREAKING CHANGE (behavioural, no API change):** the in-app public status page
+  at `/statuspage/view/<slug>` now builds detail-page hrefs. Previously it passed
+  none, so incident and maintenance titles rendered as plain text there while the
+  same page on a custom domain linked them. Both now behave identically.
+
+  **Notification bodies no longer leak the internal scheme.** `checkstack:` is
+  meaningless outside a Checkstack renderer, and channels leaked it differently:
+  the email sanitiser stripped the href and left a dead anchor, while Slack's
+  mrkdwn emitted `<checkstack:maintenance/9f1c-abc|Database upgrade>` straight to
+  the recipient (Discord, Telegram and Teams render markdown natively and would
+  have passed it through too). `sanitizeUpdateMessage` now flattens every mention
+  to its label before the body reaches any channel, so no channel has to know the
+  scheme exists. Flattening also happens before the length bound, so the excerpt
+  budget is spent on visible text rather than on an internal URI.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/ai-common@0.6.8
+  - @checkstack/catalog-common@2.8.2
+  - @checkstack/integration-backend@0.7.10
+  - @checkstack/sdk@0.136.1
+
 ## 0.11.4
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/secrets-common",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Shared schemas, contract, and access rules for the Secrets platform",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

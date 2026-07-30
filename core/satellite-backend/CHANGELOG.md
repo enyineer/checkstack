@@ -1,5 +1,117 @@
 # @checkstack/satellite-backend
 
+## 0.10.0
+
+### Minor Changes
+
+- 88f4333: Per-satellite offline threshold, connectivity notifications, and stop satellite-only checks going silent
+
+  **A satellite going offline was invisible, and so were its checks.** Three
+  related changes:
+
+  **Per-satellite offline threshold.** The 45-second global constant is now a
+  per-satellite override (**Offline after**, 2 minutes to 24 hours), because
+  tolerance is a property of the link, not of the platform: a satellite on a flaky
+  uplink needs grace that should not be forced on every other satellite. The
+  threshold is carried on every row read by `computeStatus`, so the entity read,
+  the admin list and the heartbeat monitor cannot disagree about the same
+  satellite. Additive, nullable column - existing satellites keep the default.
+
+  **Connectivity notifications.** Satellites are now a notification target with a
+  **Satellite connectivity** subscription: a warning when a satellite stops
+  heartbeating, informational when it returns. A reconnect only notifies if the
+  satellite was actually offline, so a redeploy is not an event. (The same
+  transitions remain available as `satellite.heartbeat_lost` / `.connected`
+  automation triggers for anyone wanting different routing.)
+
+  **Satellite-only checks no longer go silent.** BUG FIX: a check with
+  `includeLocal: false` whose satellites were all offline recorded NOTHING, so it
+  displayed its last known status indefinitely - a dead probe was indistinguishable
+  from a passing one. The core now records a `degraded` run with a clear message.
+  Degraded rather than unhealthy because the target may be fine; what failed is our
+  ability to observe it. Liveness that cannot be resolved is treated as "executing"
+  so a transient lookup failure cannot mark the whole fleet degraded at once.
+
+  Checks also surface staleness: a last run older than five intervals (minimum ten
+  minutes) is highlighted, so an ageing status is visible even with no run to
+  explain it. Paused checks are never stale, and neither is a RETIRED slice - one
+  whose environment was removed or whose satellite was unassigned - because
+  warning about something you retired on purpose trains operators to ignore the
+  badge.
+
+  The unobservable run does NOT notify subscribers. One offline satellite degrades
+  every check assigned to it in the same tick, and `healthy -> degraded` is an
+  escalation, so notifying per check would turn a single root cause into one alert
+  per check. The satellite's own connectivity subscription reports the cause once;
+  the runs are still recorded, so health and the UI stay honest.
+
+  Satellite liveness is cached on the shared platform cache with a 5s TTL. The
+  executor asks per tick of every satellite-only check and the read is a full
+  scan, so the uncached version scaled with the number of such checks. The TTL is
+  well below the smallest offline threshold the schema allows, so a cached answer
+  can lag a transition by one tick but never span one.
+
+  Corrects the user guide, which claimed offline satellites produced failed runs -
+  they produced nothing at all.
+
+### Patch Changes
+
+- 88f4333: Cover the features that shipped on logic-only tests
+
+  Inline mentions shipped completely inert while ~90 unit tests passed, because
+  those tests proved the pure functions and nothing proved the render path. Four
+  features carried exactly the same shape of coverage. Each now has a guard that
+  was VERIFIED to fail when the thing it guards is broken.
+
+  - **HTTP proxy.** `fetch({ proxy })` had never run: every test covered the URL
+    we build, the SSRF host we guard and the field contracts, but no test routed a
+    request through an actual proxy. A real proxy server now proves the request
+    arrives there, that credentials are sent, that a 407 is a COMPLETED request
+    (not a transport failure), that an unreachable proxy IS a transport failure,
+    and that an empty templated proxy falls back to a direct connection.
+  - **Status-coloured timeline dots.** The feature was `StatusUpdateTimeline`
+    forwarding a caller's `renderDot`; the colour helpers were tested but the
+    one-line forward was not. Now pinned, including per-item independence and the
+    newest-first ordering a dot renderer must not assume away.
+  - **System custom-field preview.** `SystemPreviewPicker` had no render coverage
+    at all. Now covers the empty case, that the SELECTION is displayed, and that
+    "No system" reports `null` rather than leaking the internal sentinel.
+  - **Per-satellite offline threshold.** `computeStatus` is called from five
+    places and a site that forgets the per-satellite value silently falls back to
+    the global default, so the admin list, the entity read and the monitor
+    disagree about the same satellite. A behavioural drift guard now drives the
+    real reads with a heartbeat stale by the global default but fresh by the
+    satellite's own threshold - and the shorter-threshold direction too.
+
+  Tests only; no runtime behaviour changes.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+  - @checkstack/common@0.24.0
+  - @checkstack/healthcheck-common@1.19.1
+  - @checkstack/automation-common@0.10.3
+  - @checkstack/command-backend@0.3.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/satellite-common@0.12.0
+  - @checkstack/healthcheck-backend@1.23.0
+  - @checkstack/automation-backend@0.11.9
+  - @checkstack/secrets-backend@0.3.10
+  - @checkstack/cache-api@0.3.21
+  - @checkstack/gitops-backend@0.5.28
+  - @checkstack/gitops-common@0.7.5
+  - @checkstack/queue-api@0.4.1
+  - @checkstack/script-packages-backend@0.4.7
+  - @checkstack/script-packages-common@0.4.3
+  - @checkstack/secrets-common@0.3.4
+  - @checkstack/signal-common@0.3.2
+
 ## 0.9.4
 
 ### Patch Changes

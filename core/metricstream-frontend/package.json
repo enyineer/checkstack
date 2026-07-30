@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/metricstream-frontend",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Metric stream management and viewer UI",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

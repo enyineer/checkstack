@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/metricstream-common",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Metric stream contracts, schemas, access rules and signals",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

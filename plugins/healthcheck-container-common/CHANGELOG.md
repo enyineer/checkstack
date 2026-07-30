@@ -1,5 +1,17 @@
 # @checkstack/healthcheck-container-common
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+
 ## 0.1.2
 
 ### Patch Changes

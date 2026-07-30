@@ -1,5 +1,36 @@
 # @checkstack/automation-backend
 
+## 0.11.9
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+  - @checkstack/common@0.24.0
+  - @checkstack/healthcheck-common@1.19.1
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/automation-common@0.10.3
+  - @checkstack/command-backend@0.3.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/ai-backend@0.11.5
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/ai-common@0.6.8
+  - @checkstack/gitops-backend@0.5.28
+  - @checkstack/gitops-common@0.7.5
+  - @checkstack/integration-common@0.9.11
+  - @checkstack/queue-api@0.4.1
+  - @checkstack/script-packages-backend@0.4.7
+  - @checkstack/sdk@0.136.1
+  - @checkstack/secrets-common@0.3.4
+  - @checkstack/signal-common@0.3.2
+  - @checkstack/template-engine@0.4.13
+
 ## 0.11.8
 
 ### Patch Changes

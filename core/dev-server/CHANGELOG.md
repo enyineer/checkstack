@@ -1,5 +1,17 @@
 # @checkstack/dev-server
 
+## 2.2.11
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+
 ## 2.2.10
 
 ### Patch Changes

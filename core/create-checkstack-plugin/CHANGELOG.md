@@ -1,5 +1,12 @@
 # create-checkstack-plugin
 
+## 0.1.18
+
+### Patch Changes
+
+- Updated dependencies [bd60aff]
+  - @checkstack/scripts@0.7.7
+
 ## 0.1.17
 
 ### Patch Changes

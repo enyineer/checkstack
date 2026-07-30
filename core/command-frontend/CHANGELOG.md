@@ -1,5 +1,77 @@
 # @checkstack/command-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 88f4333: Show command-palette actions to team-scoped users
+
+  The palette filtered commands against the caller's GLOBAL access rules only, so a
+  user whose team holds a create-capability grant - but who holds no global
+  `incident.incident.manage` / `maintenance.maintenance.manage` rule - never saw
+  "Create Incident" or "Create Maintenance", nor their keyboard shortcuts. The
+  palette hid the actions from exactly the people authorized to run them.
+
+  Commands can now declare a `manageCapability` (mirroring the gate routes and nav
+  already use). `filterByAccessRules` shows an item when the caller holds the
+  global rules OR can create/manage the declared type through a team grant, and the
+  command backend resolves that per request via `hasAnyTypeGrant` (with
+  `includeCreator`, so a team member who may CREATE the type qualifies before
+  owning an instance). It fails closed: an auth error leaves pure global gating.
+  The incident and maintenance commands declare their types.
+
+  `useGlobalShortcuts` no longer takes `userAccessRules` and no longer re-checks
+  access: the server-filtered list is authoritative. That re-check tested the
+  global rules only and would have dropped team-scoped users' shortcuts - both call
+  sites already defeated it by passing `["*"]`.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+  - @checkstack/common@0.24.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/command-common@0.4.0
+  - @checkstack/frontend-api@0.18.0
+
 ## 0.5.15
 
 ### Patch Changes

@@ -1,5 +1,102 @@
 # @checkstack/auth-frontend
 
+## 0.16.0
+
+### Minor Changes
+
+- 88f4333: Role editor: alphabetised categories, bulk select, and role cloning
+
+  Access-rule categories in the role dialog are now sorted alphabetically (by their
+  rendered label, at both the category and the rule level) instead of following
+  plugin registration order, so a category can be found by scanning rather than by
+  reading the whole list.
+
+  Each category gained **Select all** / **Clear** actions. They respect the same
+  guards the individual checkboxes do - the anonymous role still cannot be granted
+  rules no public endpoint uses, and a locked role stays read-only.
+
+  Roles can be **cloned**: a new role seeded from an existing one's access rules,
+  saved as a create. The dialog now takes an explicit `mode` rather than inferring
+  "editing" from the presence of a role, which is what made the third state
+  expressible at all.
+
+  Adds a shared `buildClonedName` helper to `@checkstack/common` so every clone
+  affordance in the product produces the same name shape.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+- 88f4333: Clarify the team-access editor and guard against locking yourself out
+
+  Four fixes to the "Who can change this" editor and the team member picker, from
+  user feedback:
+
+  - **The "Manage" checkbox read as "manage the team".** It sets the selected
+    team's grant on THIS resource, but the label plus a gear icon suggested it
+    would open the team itself. It is now labelled **"Can edit"** (with no gear),
+    naming its effect on the resource.
+  - **The team name is now a link** to that team (`/teams?team=<id>`), which opens
+    its members dialog directly. That gives "take me to the team" its own
+    affordance instead of overloading the checkbox. The Teams page consumes the
+    `team` query param once and then clears it.
+  - **Revoking your own team's access now asks first.** A team-scoped user could
+    remove (or downgrade) their own team's only edit grant and afterwards be unable
+    to change the resource _or_ restore the permission. That case now shows a
+    confirmation explaining the consequence. Global `auth.teams.manage` admins are
+    not warned - they can always restore it. The decision is a pure, unit-tested
+    `isSelfRevokingChange`.
+  - **The add-member field explained.** Its placeholder ("Add a user by name or
+    email") and new helper text state that it adds a NEW member from the whole
+    directory rather than filtering current members, and that a user is only
+    findable after their first sign-in (SSO/LDAP accounts materialise on login).
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+  - @checkstack/common@0.24.0
+  - @checkstack/healthcheck-common@1.19.1
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/incident-common@1.11.0
+  - @checkstack/maintenance-common@1.11.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/catalog-common@2.8.2
+
 ## 0.15.0
 
 ### Minor Changes

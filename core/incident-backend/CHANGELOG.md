@@ -1,5 +1,101 @@
 # @checkstack/incident-backend
 
+## 1.14.0
+
+### Minor Changes
+
+- 88f4333: Resolve `#` mentions on public status pages, and check viewability in the admin UI
+
+  Cross-entity mentions previously resolved only in the admin UI, and did so
+  without asking whether the reader could actually open the target. Public
+  surfaces resolved nothing at all. Three changes, one per delivery context.
+
+  **The admin UI now checks viewability.** `useMentionResolution({ documents })`
+  collects the references a page is about to render and asks each owning plugin -
+  in ONE batched request - which of them this viewer may read. A mention to a
+  deleted or unreadable record now renders as plain text instead of a link to a
+  not-found page or an access gate. Backed by new `resolveIncidentRefs` /
+  `resolveMaintenanceRefs` procedures, which return ids only (so an unreadable
+  record is indistinguishable from a deleted one) and carry the same `listKey`
+  read post-filter as their list procedures. They are deliberately not a filter
+  over the authoring search list, which hides resolved incidents and would
+  silently downgrade valid references.
+
+  **Public status pages now resolve mentions.** A reference becomes a link to the
+  target's public detail page when - and only when - the same page publishes that
+  target, which is exactly the anti-enumeration gate the detail pages already
+  apply. So an operator writing "caused by #Database upgrade" in a public update
+  gets a working link, while a mention of an internal-only incident stays plain
+  text rather than becoming a link that confirms it exists. Widgets opt in by
+  declaring a `mentionType`, so the status-page packages take no dependency on any
+  domain plugin.
+
+  **BREAKING CHANGE (behavioural, no API change):** the in-app public status page
+  at `/statuspage/view/<slug>` now builds detail-page hrefs. Previously it passed
+  none, so incident and maintenance titles rendered as plain text there while the
+  same page on a custom domain linked them. Both now behave identically.
+
+  **Notification bodies no longer leak the internal scheme.** `checkstack:` is
+  meaningless outside a Checkstack renderer, and channels leaked it differently:
+  the email sanitiser stripped the href and left a dead anchor, while Slack's
+  mrkdwn emitted `<checkstack:maintenance/9f1c-abc|Database upgrade>` straight to
+  the recipient (Discord, Telegram and Teams render markdown natively and would
+  have passed it through too). `sanitizeUpdateMessage` now flattens every mention
+  to its label before the body reaches any channel, so no channel has to know the
+  scheme exists. Flattening also happens before the length bound, so the excerpt
+  budget is spent on visible text rather than on an internal URI.
+
+### Patch Changes
+
+- 88f4333: Show command-palette actions to team-scoped users
+
+  The palette filtered commands against the caller's GLOBAL access rules only, so a
+  user whose team holds a create-capability grant - but who holds no global
+  `incident.incident.manage` / `maintenance.maintenance.manage` rule - never saw
+  "Create Incident" or "Create Maintenance", nor their keyboard shortcuts. The
+  palette hid the actions from exactly the people authorized to run them.
+
+  Commands can now declare a `manageCapability` (mirroring the gate routes and nav
+  already use). `filterByAccessRules` shows an item when the caller holds the
+  global rules OR can create/manage the declared type through a team grant, and the
+  command backend resolves that per request via `hasAnyTypeGrant` (with
+  `includeCreator`, so a team member who may CREATE the type qualifies before
+  owning an instance). It fails closed: an auth error leaves pure global gating.
+  The incident and maintenance commands declare their types.
+
+  `useGlobalShortcuts` no longer takes `userAccessRules` and no longer re-checks
+  access: the server-filtered list is authoritative. That re-check tested the
+  global rules only and would have dropped team-scoped users' shortcuts - both call
+  sites already defeated it by passing `["*"]`.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/status-page-common@0.7.0
+  - @checkstack/incident-common@1.11.0
+  - @checkstack/automation-common@0.10.3
+  - @checkstack/command-backend@0.3.0
+  - @checkstack/status-page-backend@0.7.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/ai-backend@0.11.5
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/automation-backend@0.11.9
+  - @checkstack/ai-common@0.6.8
+  - @checkstack/cache-api@0.3.21
+  - @checkstack/catalog-backend@1.10.2
+  - @checkstack/catalog-common@2.8.2
+  - @checkstack/integration-backend@0.7.10
+  - @checkstack/integration-common@0.9.11
+  - @checkstack/signal-common@0.3.2
+  - @checkstack/cache-utils@0.3.2
+
 ## 1.13.6
 
 ### Patch Changes

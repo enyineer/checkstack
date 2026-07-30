@@ -1,5 +1,181 @@
 # @checkstack/common
 
+## 0.24.0
+
+### Minor Changes
+
+- 88f4333: Role editor: alphabetised categories, bulk select, and role cloning
+
+  Access-rule categories in the role dialog are now sorted alphabetically (by their
+  rendered label, at both the category and the rule level) instead of following
+  plugin registration order, so a category can be found by scanning rather than by
+  reading the whole list.
+
+  Each category gained **Select all** / **Clear** actions. They respect the same
+  guards the individual checkboxes do - the anonymous role still cannot be granted
+  rules no public endpoint uses, and a locked role stays read-only.
+
+  Roles can be **cloned**: a new role seeded from an existing one's access rules,
+  saved as a create. The dialog now takes an explicit `mode` rather than inferring
+  "editing" from the presence of a role, which is what made the third state
+  expressible at all.
+
+  Adds a shared `buildClonedName` helper to `@checkstack/common` so every clone
+  affordance in the product produces the same name shape.
+
+- 1deaac5: Make endpoint authorization self-documenting in the generated API docs
+
+  Every procedure's authorization is now derived from its contract metadata (its
+  `access` rules + `instanceAccess` mode) via a shared mode-descriptor registry and
+  emitted into the OpenAPI spec - both structurally (`x-orpc-meta.authorization`)
+  and as a human `**Authorization.**` sentence folded into the operation
+  description. Previously the docs surfaced only a flat list of global rule ids, so
+  an integrator (an API-key/application principal that CAN hold team grants) never
+  saw the team-grant / per-object dimension, and endpoints gated purely in the
+  handler showed no restriction at all.
+
+  For authorization that no declarative mode can express and is therefore enforced
+  in the handler (a compound OR, a graded verdict, a DB-derived id set), a new
+  optional `accessNote` on the procedure metadata surfaces the real rule in the
+  docs as an explicitly handler-enforced addendum. The note is documentation, not a
+  guarantee: per `.claude/rules/rlac.md` the drift guard for such authz is
+  behavioral tests over an extracted pure decision function, and the note must
+  state exactly what those tests pin.
+
+  Every handler-enforced authorization endpoint now carries such a note so the docs
+  are complete: the team read/scoping and team-management endpoints
+  (`@checkstack/auth-common`), the health-check assignment/history reads
+  (`@checkstack/healthcheck-common`), the audience-graded incident/maintenance
+  reads (`@checkstack/incident-common`, `@checkstack/maintenance-common`), status
+  -page publish's bound-resource check (`@checkstack/status-page-common`), the
+  stream `setSystemLinks` readable-additions check
+  (`@checkstack/{metricstream,tracestream,logstream}-common`), and the automation
+  `runAs` escalation guard (`@checkstack/automation-common`). These are
+  metadata-only additions - no runtime behavior changed. The notes describe the
+  rule for API-doc readers only; the drift guard is behavioral tests over the
+  check's decision function (per `.claude/rules/rlac.md`), so the notes name no
+  internal test files.
+
+  The API docs viewer (`@checkstack/api-docs-frontend`) now renders each
+  operation's description as Markdown, so the `**Authorization.**` block (and any
+  inline `code`) formats correctly instead of showing raw markdown.
+
+- 88f4333: Link incidents and maintenances with `#` mentions
+
+  Typing `#` in a markdown field now opens a picker over every mentionable record
+  and inserts a reference. Referencing another record previously meant pasting a
+  URL, which cannot be right everywhere: an admin URL is meaningless on a public
+  status page, a status-page URL is meaningless in the admin UI, and neither works
+  in an email.
+
+  A mention therefore stores WHAT it points at, never where:
+  `[Database upgrade](checkstack:maintenance/<id>)`. That is an ordinary markdown
+  link - readable in the raw source, parsed unchanged by existing tooling - and
+  only the href is resolved per render context.
+
+  Resolution may REFUSE: a resolver returning nothing renders the label as plain
+  text rather than a link. That is a confidentiality property, not a nicety - an
+  internal-only incident referenced from a public status update must not become a
+  link that confirms it exists. A renderer given no resolver links nothing.
+
+  Incident and maintenance detail pages gained a **Referenced items** section,
+  derived by scanning the authored markdown on each render. Nothing is stored
+  twice, so an edit that drops a reference drops it from the list too.
+
+  The platform owns the contract (`registerMentionRoutes` / `setMentionSearch` in
+  `@checkstack/frontend-api`); each owning plugin registers its own type, so no
+  plugin imports another. Search only ever offers records the caller may read.
+
+  Scope: resolution is wired for the admin UI. Public status pages and notification
+  bodies do not resolve mentions yet, so a mention renders there as plain text -
+  the safe default above, not a broken link.
+
+  Precisely: the admin resolver maps a well-formed reference to a route WITHOUT
+  checking that the target still exists or that this viewer may read it, so a
+  mention to a deleted or unreadable record links to a not-found or an access gate.
+  That is deliberate - gating on the provider's fetched list would silently
+  downgrade valid references to plain text (the incident search excludes resolved
+  incidents by default), and silently dropping a valid link is worse than one that
+  lands on a gate the backend already enforces. The confidentiality property is
+  carried by the public renderers, which resolve nothing.
+
+- 88f4333: Resolve `#` mentions on public status pages, and check viewability in the admin UI
+
+  Cross-entity mentions previously resolved only in the admin UI, and did so
+  without asking whether the reader could actually open the target. Public
+  surfaces resolved nothing at all. Three changes, one per delivery context.
+
+  **The admin UI now checks viewability.** `useMentionResolution({ documents })`
+  collects the references a page is about to render and asks each owning plugin -
+  in ONE batched request - which of them this viewer may read. A mention to a
+  deleted or unreadable record now renders as plain text instead of a link to a
+  not-found page or an access gate. Backed by new `resolveIncidentRefs` /
+  `resolveMaintenanceRefs` procedures, which return ids only (so an unreadable
+  record is indistinguishable from a deleted one) and carry the same `listKey`
+  read post-filter as their list procedures. They are deliberately not a filter
+  over the authoring search list, which hides resolved incidents and would
+  silently downgrade valid references.
+
+  **Public status pages now resolve mentions.** A reference becomes a link to the
+  target's public detail page when - and only when - the same page publishes that
+  target, which is exactly the anti-enumeration gate the detail pages already
+  apply. So an operator writing "caused by #Database upgrade" in a public update
+  gets a working link, while a mention of an internal-only incident stays plain
+  text rather than becoming a link that confirms it exists. Widgets opt in by
+  declaring a `mentionType`, so the status-page packages take no dependency on any
+  domain plugin.
+
+  **BREAKING CHANGE (behavioural, no API change):** the in-app public status page
+  at `/statuspage/view/<slug>` now builds detail-page hrefs. Previously it passed
+  none, so incident and maintenance titles rendered as plain text there while the
+  same page on a custom domain linked them. Both now behave identically.
+
+  **Notification bodies no longer leak the internal scheme.** `checkstack:` is
+  meaningless outside a Checkstack renderer, and channels leaked it differently:
+  the email sanitiser stripped the href and left a dead anchor, while Slack's
+  mrkdwn emitted `<checkstack:maintenance/9f1c-abc|Database upgrade>` straight to
+  the recipient (Discord, Telegram and Teams render markdown natively and would
+  have passed it through too). `sanitizeUpdateMessage` now flattens every mention
+  to its label before the body reaches any channel, so no channel has to know the
+  scheme exists. Flattening also happens before the length bound, so the excerpt
+  budget is spent on visible text rather than on an internal URI.
+
+- 1deaac5: Add the `objectRef` instanceAccess mode and move the relation-write authz onto it
+
+  The relation-tuple writes (`writeRelation` / `removeRelation` / `setObjectPublic`)
+  administer team access on ANY resource type, so their authorization could not be
+  expressed by the existing `instanceAccess` modes (which all assume a fixed
+  resource type) and was enforced by hand in the auth handlers with `access: []` -
+  leaving the contract unable to declare the rule and the API docs showing no
+  restriction.
+
+  A new `objectRef` mode reads the object's TYPE and id from the request body
+  (`typeParam` / `idParam`) and authorizes via the same engine native scoping uses:
+  the endpoint's own access rule (`auth.teams.manage`) is the global admin
+  OR-override, otherwise the caller must be able to manage the referenced object
+  (its own `<type>.manage` rule on a non-private object, or a team editor/owner
+  grant on it). `autoAuthMiddleware` enforces it, the boot validator recognises it
+  (input paths cross-checked), and the auth handlers drop their hand-rolled checks.
+  Behaviour is unchanged; the authorization is now contract-declared and enforced
+  by the middleware rather than the handler.
+
+### Patch Changes
+
+- 88f4333: Fix polynomial ReDoS in mention scanning
+
+  The mention link pattern allowed a raw `[` inside the label, so a run of `[[[[`
+  started a label scan at every bracket that could only fail at the closing `](` -
+  quadratic in the input length (CodeQL `js/polynomial-redos`, HIGH). The
+  documents scanned are operator-authored incident and maintenance update text, so
+  the input is genuinely uncontrolled.
+
+  Excluding a raw `[` costs nothing: `buildMentionMarkdown` escapes brackets, so a
+  legitimate mention never contains one - a bracketed title arrives as `\[`, which
+  the escape branch already matches.
+
+  Guarded by a timing regression test. A quadratic pattern still returns the right
+  answer, just far too slowly, so no correctness test could have caught this.
+
 ## 0.23.0
 
 ### Minor Changes
