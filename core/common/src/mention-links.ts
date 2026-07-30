@@ -119,27 +119,30 @@ export function buildMentionMarkdown({
  * Built fresh per call: a `g`-flagged regex carries `lastIndex` between uses,
  * so a shared instance would skip matches on every other call.
  *
- * The label class excludes a RAW `[` as well as `]` and `\`. That is not just
- * tidiness - it is what keeps matching LINEAR. Allowing `[` let a string of
- * many `[[[[` start a label scan at every one of them and fail only at the
- * closing `](`, which is quadratic in the input length (CodeQL
- * `js/polynomial-redos`, HIGH). These documents are operator-authored update
- * text, i.e. genuinely uncontrolled input.
+ * Every repetition is BOUNDED, and that is what makes matching linear.
  *
- * Excluding it costs nothing: `buildMentionMarkdown` ESCAPES brackets in a
- * label, so a legitimate mention never contains a raw `[` - a bracketed title
- * arrives as `\[`, which the `\\.` branch matches.
+ * With an unbounded `*`, the label can consume an arbitrarily long run before
+ * discovering there is no `](` after it - and because the scan restarts at each
+ * `[`, an input like `[` followed by many `\[Z` costs O(n) work at O(n) start
+ * positions (CodeQL `js/polynomial-redos`, HIGH). The documents scanned are
+ * operator-authored incident and maintenance update text, so this is genuinely
+ * uncontrolled input. Tightening the character classes does NOT fix it: the
+ * cost comes from the unbounded repetition itself, not from any ambiguity
+ * inside it.
  *
- * The HREF class is bounded for the same reason, and it is the one that
- * actually mattered. `[^\s)]+` consumed the whole remaining string on input
- * like `[](checkstack:` repeated, then gave a character back per failed `\)`
- * attempt - O(n) backtracking at O(n) start positions. Excluding brackets and
- * parens makes each attempt stop at the next one. A real href is
- * `checkstack:<type>/<id>` with both segments `[\w.-]+` (see SAFE_SEGMENT), so
- * none of those characters is ever valid in one.
+ * The bounds are far above anything real. A label is a record title and an
+ * href is `checkstack:<type>/<id>` with both segments `[\w.-]+` (see
+ * SAFE_SEGMENT); 512 characters each is generous, and a mention that somehow
+ * exceeded one would simply not be listed - the same graceful degradation this
+ * best-effort index already has for malformed input.
+ *
+ * The classes stay narrow for correctness, not speed: the label excludes a raw
+ * `[`/`]` (a real one arrives backslash-escaped, which the `\\.` branch
+ * matches) and the href excludes brackets and parens, none of which is ever
+ * valid in one.
  */
 const mentionLinkPattern = () =>
-  /\[((?:\\.|[^\\\][])*)]\(\s*(checkstack:[^\s()[\]]+)\s*\)/g;
+  /\[((?:\\.|[^\\\][]){0,512})]\(\s{0,8}(checkstack:[^\s()[\]]{1,512})\s{0,8}\)/g;
 
 /**
  * Whether a resolved URL can be embedded in a markdown link destination

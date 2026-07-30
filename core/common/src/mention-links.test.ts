@@ -400,6 +400,43 @@ describe("mention scanning stays linear on hostile input", () => {
     expect(elapsed).toBeLessThan(1000);
   });
 
+  test("a long run of escaped brackets does not blow up", () => {
+    // The shape CodeQL actually named: '[' then many repetitions of '\[Z'.
+    // The label could consume the whole run before discovering there is no
+    // `](` after it, at O(n) start positions. Measured: unbounded 16.8x for 4x
+    // input (quadratic), bounded 4.6x (linear).
+    const hostile = "[" + String.raw`\[Z`.repeat(20_000);
+
+    const started = performance.now();
+    extractMentions({ markdown: hostile });
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  test("a label longer than the bound is simply not listed", () => {
+    // The documented trade-off of bounding: graceful degradation, the same as
+    // this best-effort index already gives malformed input. 512 is far above
+    // any real record title.
+    const overlong = buildMentionMarkdown({
+      type: "incident",
+      id: "abc",
+      label: "x".repeat(600),
+    });
+
+    expect(extractMentions({ markdown: overlong })).toEqual([]);
+  });
+
+  test("a realistic long title is still listed", () => {
+    const realistic = buildMentionMarkdown({
+      type: "incident",
+      id: "abc",
+      label: "Checkout degraded for EU customers during the payment migration",
+    });
+
+    expect(extractMentions({ markdown: realistic })).toHaveLength(1);
+  });
+
   test("still finds a mention whose label has ESCAPED brackets", () => {
     // The fix must not cost the bracketed-title case, which is what
     // buildMentionMarkdown actually emits.
