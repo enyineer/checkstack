@@ -102,8 +102,14 @@ test.describe("Status pages", () => {
         await blockSelect.click();
       }
       await headingOption.click();
-      await expect(blockSelect).toContainText("Heading");
-    }).toPass({ timeout: 30_000 });
+      // Bounded on purpose: this runs inside a `toPass` retry loop, so it must
+      // fail fast enough for the loop to retry - the global expect timeout
+      // would burn most of the budget on one attempt. But not too tight
+      // either: at 3s every attempt failed to even find the trigger on a
+      // loaded machine. ~10s per attempt over 60s gives roughly six real
+      // tries, which is what this oscillating popover needs.
+      await expect(blockSelect).toContainText("Heading", { timeout: 10_000 });
+    }).toPass({ timeout: 60_000 });
 
     const addBlockButton = page.getByRole("button", { name: "Add" });
     await expect(addBlockButton).toBeEnabled();

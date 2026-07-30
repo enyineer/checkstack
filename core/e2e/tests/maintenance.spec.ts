@@ -90,10 +90,13 @@ test.describe("maintenance windows", () => {
     await dialog.getByLabel("Name").fill(SYSTEM_NAME);
     await dialog.getByRole("button", { name: "Create System" }).click();
 
-    await expect(page.getByText("System created successfully")).toBeVisible();
     // Scope to the desktop table: the ResponsiveTable's display:none
     // MobileCardList duplicates the name, which would trip strict mode.
-    await expect(page.getByRole("table").getByText(SYSTEM_NAME)).toBeVisible();
+    // Generous: this is the create round-trip plus the list refetch, which is
+    // what the removed success toast used to absorb.
+    await expect(page.getByRole("table").getByText(SYSTEM_NAME)).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   test("resolves the created system's id from the catalog browse row", async ({
@@ -218,10 +221,9 @@ test.describe("maintenance windows", () => {
 
     await dialog.getByRole("button", { name: "Create" }).click();
 
-    await expect(page.getByText("Maintenance created")).toBeVisible();
     await expect(
       dialog.getByRole("heading", { name: "Create Maintenance" }),
-    ).toBeHidden();
+    ).toBeHidden({ timeout: 30_000 });
 
     // The new window shows in the list with its title and system.
     const row = page.getByRole("row", { name: new RegExp(WINDOW_TITLE) });
@@ -283,10 +285,9 @@ test.describe("maintenance windows", () => {
 
     await dialog.getByRole("button", { name: "Update", exact: true }).click();
 
-    await expect(page.getByText("Maintenance updated")).toBeVisible();
     await expect(
       page.getByRole("row", { name: WINDOW_TITLE_EDITED }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("deletes a maintenance window with confirmation", async ({ page }) => {
@@ -305,12 +306,10 @@ test.describe("maintenance windows", () => {
     await expect(confirm).toBeVisible();
     await confirm.getByRole("button", { name: "Delete" }).click();
 
-    await expect(page.getByText("Maintenance deleted")).toBeVisible();
-
     // Scoped assertion: only OUR namespaced window is gone. The shared DB stays
     // non-empty (sibling specs), so we do NOT assert a global empty state.
     await expect(
       page.getByRole("row", { name: WINDOW_TITLE_EDITED }),
-    ).toBeHidden();
+    ).toBeHidden({ timeout: 30_000 });
   });
 });

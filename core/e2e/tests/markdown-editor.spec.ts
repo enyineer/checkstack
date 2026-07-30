@@ -106,7 +106,10 @@ test.describe("markdown editor", () => {
     const previewTab = editorTabs.getByRole("tab", { name: "preview" });
     await expect(async () => {
       await previewTab.click();
-      await expect(previewTab).toHaveAttribute("aria-selected", "true");
+      // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+      await expect(previewTab).toHaveAttribute("aria-selected", "true", {
+        timeout: 5000,
+      });
     }).toPass({ timeout: NAV });
     const preview = dialog.getByRole("tabpanel");
     await expect(preview.getByText("Postgres", { exact: true })).toBeVisible();
@@ -142,7 +145,10 @@ test.describe("markdown editor", () => {
       .getByRole("tab", { name: "preview" });
     await expect(async () => {
       await previewTab.click();
-      await expect(previewTab).toHaveAttribute("aria-selected", "true");
+      // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+      await expect(previewTab).toHaveAttribute("aria-selected", "true", {
+        timeout: 5000,
+      });
     }).toPass({ timeout: NAV });
 
     await expect(dialog.getByText("Nothing to preview.")).toBeVisible();
@@ -293,23 +299,84 @@ test.describe("markdown editor", () => {
       .click();
 
     await page.getByRole("button", { name: "Post Update" }).click();
+    // The form closes only in the mutation's onSuccess. Asserted on the message
+    // FIELD, never the submit button, which relabels to "Posting..." the moment
+    // submit starts and would make this pass before the post landed.
+    await expect(page.getByLabel("Update Message")).toBeHidden({
+      timeout: NAV,
+    });
 
-    // The timeline resolves the mention to an in-app route for this (admin)
-    // context, rather than leaving the raw token or a dead link.
-    const mentionLink = page
-      .getByRole("link", { name: MAINTENANCE_TITLE })
-      .first();
-    await expect(mentionLink).toBeVisible({ timeout: NAV });
-    await expect(mentionLink).toHaveAttribute(
-      "href",
-      /\/maintenance\/[\w-]+/,
-    );
+    // TWO links now carry the maintenance title: the INLINE mention inside the
+    // update, and the "Referenced items" chip below it.
+    //
+    // The count is the point. This used to assert
+    // `getByRole("link", { name: MAINTENANCE_TITLE }).first()`, which matched
+    // the CHIP - a plain router Link that renders whether or not the inline
+    // mention works. So the test passed while every inline mention rendered as
+    // dead text (react-markdown blanks any href outside its safe-protocol list
+    // before the renderer sees it). Asserting the count is what distinguishes
+    // "the mention resolved" from "the chip exists".
+    const mentionLinks = page.getByRole("link", { name: MAINTENANCE_TITLE });
+    await expect(mentionLinks).toHaveCount(2, { timeout: NAV });
+    for (const link of await mentionLinks.all()) {
+      await expect(link).toHaveAttribute("href", /\/maintenance\/[\w-]+/);
+    }
 
     // "Referenced items" is DERIVED from the authored text on render - nothing
     // is stored twice - so the freshly posted update populates it immediately.
     await expect(page.getByText("Referenced items")).toBeVisible({
       timeout: NAV,
     });
+  });
+
+  /**
+   * The MAINTENANCE detail page is the third authoring surface (admin incident
+   * detail, admin maintenance detail, public status page) and had no mention
+   * coverage at all. It renders through the same `StatusUpdateTimeline` +
+   * `Markdown` path, but nothing proved that - and the react-markdown
+   * `urlTransform` defect broke every one of them identically while the
+   * incident test still passed on the "Referenced items" chip.
+   */
+  test("a mention posted on the MAINTENANCE detail page also resolves", async ({
+    page,
+  }) => {
+    await page.goto(`/maintenance/system/${systemId}/history`, {
+      waitUntil: "commit",
+    });
+    await page
+      .getByRole("row", { name: new RegExp(escapeRegex(MAINTENANCE_TITLE)) })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: MAINTENANCE_TITLE }),
+    ).toBeVisible({ timeout: NAV });
+
+    const message = await openUpdateForm(page);
+    await message.fill("Caused by ");
+    await message.press("#");
+    // Human-paced: the picker's trigger state is synced from key events, so
+    // machine-speed input can leave it behind and insert over a stale range.
+    await message.pressSequentially("Checkout", { delay: 25 });
+
+    const suggestions = page.getByRole("listbox", {
+      name: "Mention suggestions",
+    });
+    await expect(suggestions).toBeVisible({ timeout: NAV });
+    await suggestions
+      .getByRole("option", { name: new RegExp(escapeRegex(INCIDENT_TITLE)) })
+      .click();
+    await expect(message).toHaveValue(/\(checkstack:incident\/[\w-]+\)/);
+
+    await page.getByRole("button", { name: "Post Update" }).click();
+    await expect(page.getByLabel("Update Message")).toBeHidden({
+      timeout: NAV,
+    });
+
+    // Inline mention + "Referenced items" chip, both pointing at the incident.
+    const mentionLinks = page.getByRole("link", { name: INCIDENT_TITLE });
+    await expect(mentionLinks).toHaveCount(2, { timeout: NAV });
+    for (const link of await mentionLinks.all()) {
+      await expect(link).toHaveAttribute("href", /\/incident\/[\w-]+/);
+    }
   });
 });
 

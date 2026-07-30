@@ -62,7 +62,8 @@ async function expandBrowseSections(page: Page): Promise<void> {
     while ((await collapsed.count()) > 0) {
       await collapsed.first().click();
     }
-    await expect(collapsed).toHaveCount(0);
+    // SHORT: inside a `toPass` loop, so it must fail fast enough to retry.
+    await expect(collapsed).toHaveCount(0, { timeout: 5000 });
   }).toPass({ timeout: NAV_TIMEOUT });
 }
 

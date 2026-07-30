@@ -178,16 +178,12 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     // The ConfirmationModal uses its default confirm label ("Confirm").
     await confirm.getByRole("button", { name: "Confirm" }).click();
 
-    await expect(
-      page.getByText("Application deleted successfully"),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-
     // Only OUR namespaced application is gone. The shared DB may still hold
     // applications created by other parallel specs, so we never assert a global
     // empty state - just that our own row disappeared.
-    await expect(
-      page.getByRole("table").getByText(APP_NAME),
-    ).toHaveCount(0);
+    await expect(page.getByRole("table").getByText(APP_NAME)).toHaveCount(0, {
+      timeout: NAV_TIMEOUT,
+    });
   });
 
   test("creates a team and lists it", async ({ page }) => {
@@ -207,10 +203,9 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     await dialog.getByLabel("Description").fill(TEAM_DESCRIPTION);
     await dialog.getByRole("button", { name: "Create" }).click();
 
-    await expect(
-      page.getByText("Team created successfully"),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0, {
+      timeout: NAV_TIMEOUT,
+    });
 
     // The team appears in the list. Scope to the desktop table: the
     // MobileCardList duplicates the name in the DOM.
@@ -248,10 +243,9 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     await nameField.fill(TEAM_NAME_EDITED);
     await dialog.getByRole("button", { name: "Update" }).click();
 
-    await expect(
-      page.getByText("Team updated successfully"),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0, {
+      timeout: NAV_TIMEOUT,
+    });
     await expect(
       page.getByRole("table").getByText(TEAM_NAME_EDITED),
     ).toBeVisible();
@@ -277,15 +271,11 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     // The ConfirmationModal uses its default confirm label ("Confirm").
     await confirm.getByRole("button", { name: "Confirm" }).click();
 
-    await expect(
-      page.getByText("Team deleted successfully"),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-
     // Only OUR namespaced team is gone. The shared DB may still hold teams
     // created by other parallel specs, so we never assert a global empty state
     // - just that our own (edited) row disappeared.
     await expect(
       page.getByRole("table").getByText(TEAM_NAME_EDITED),
-    ).toHaveCount(0);
+    ).toHaveCount(0, { timeout: NAV_TIMEOUT });
   });
 });

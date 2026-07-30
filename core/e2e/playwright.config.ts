@@ -42,6 +42,19 @@ export default createPlaywrightConfig({
   baseURL: "http://localhost:3100",
   testDir: "./tests",
   overrides: {
+    /**
+     * Playwright's default expect timeout is 5s, which is too tight for this
+     * suite: specs run fully parallel against ONE shared backend, so a create
+     * round-trip plus the list refetch behind it routinely exceeds 5s under
+     * worker contention. Assertions written as "the row appears" / "the dialog
+     * closes" then fail with nothing wrong.
+     *
+     * This does not weaken anything - a genuinely broken assertion still fails,
+     * just later. It only stops a slow-but-correct app from reading as a
+     * failure. Individual assertions still override it where they need longer
+     * (navigation, a 60s grant propagation).
+     */
+    expect: { timeout: 15_000 },
     // Specs are data-isolated, so a retry safely re-creates its own namespaced
     // data on the shared DB - normal in-process retries are fine again.
     retries: process.env.CI ? 2 : 0,
