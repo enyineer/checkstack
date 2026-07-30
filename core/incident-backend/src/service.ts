@@ -156,6 +156,30 @@ export class IncidentService {
   }
 
   /**
+   * Which of these incident ids EXIST?
+   *
+   * The read-permission half of the answer is applied by the contract's
+   * `listKey` post-filter, so this only has to establish existence - a
+   * reference to a deleted incident must not become a link either.
+   *
+   * Selects the id column alone: the caller (viewability-aware mention
+   * rendering) needs nothing else, and fetching titles here would put the
+   * titles of not-yet-filtered incidents into memory for no reason.
+   */
+  async findExistingIncidentIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+
+    const rows = await withScopedTransaction(this.db, (tx) =>
+      tx
+        .select({ id: incidents.id })
+        .from(incidents)
+        .where(inArray(incidents.id, [...new Set(ids)])),
+    );
+
+    return rows.map((row) => row.id);
+  }
+
+  /**
    * Get single incident with full details
    */
   async getIncident(id: string): Promise<IncidentDetail | undefined> {

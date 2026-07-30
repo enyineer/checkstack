@@ -56,6 +56,38 @@ export const incidentContract = {
     )
     .output(z.object({ incidents: z.array(IncidentWithSystemsSchema) })),
 
+  /**
+   * Of the given incident ids, which may the caller READ?
+   *
+   * Backs viewability-aware mention rendering: a `#` reference to an incident
+   * becomes a link only when the reader may actually open it, and renders as
+   * plain text otherwise.
+   *
+   * Deliberately a DEDICATED procedure rather than a filter over
+   * {@link listIncidents}: that list is shaped for browsing (it hides resolved
+   * incidents unless asked, and any future pagination would hide more), so a
+   * reference missing from it is not evidence the caller cannot read it.
+   * Answering from the ids themselves keeps "may I see this?" separate from
+   * "what would I like to browse?".
+   *
+   * Returns only the id, and only for readable incidents. Nothing about an
+   * unreadable or deleted incident is disclosed - not its title, not its
+   * existence - so an absent id is indistinguishable from one that never
+   * existed. That is why the response carries no titles: the label already
+   * lives in the authored markdown.
+   *
+   * `listKey: "incidents"` applies the same per-id read post-filter as
+   * `listIncidents`, so this can never be more permissive than the list.
+   */
+  resolveIncidentRefs: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+    instanceAccess: { listKey: "incidents" },
+  })
+    .input(z.object({ ids: z.array(z.string()).max(200) }))
+    .output(z.object({ incidents: z.array(z.object({ id: z.string() })) })),
+
   /** Get a single incident with all details */
   getIncident: proc({
     operationType: "query",

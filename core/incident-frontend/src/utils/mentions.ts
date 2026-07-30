@@ -1,14 +1,16 @@
 import { resolveRoute } from "@checkstack/common";
 import { registerMentionRoutes } from "@checkstack/frontend-api";
-import { incidentRoutes } from "@checkstack/incident-common";
+import {
+  INCIDENT_MENTION_TYPE,
+  incidentRoutes,
+} from "@checkstack/incident-common";
 
 /**
- * The mention type incidents own.
- *
- * STABLE by contract: it is baked into every mention already written into an
- * update or a description, so changing it orphans them all.
+ * Re-exported so existing frontend imports keep working. The constant itself
+ * lives in `incident-common` because the backend's status-page widget must
+ * declare the SAME value (see `mentionType` on the widget definition).
  */
-export const INCIDENT_MENTION_TYPE = "incident";
+export { INCIDENT_MENTION_TYPE } from "@checkstack/incident-common";
 
 /**
  * Register the routing half of the incident mention provider.

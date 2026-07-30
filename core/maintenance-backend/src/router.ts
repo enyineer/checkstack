@@ -241,6 +241,17 @@ export function createRouter({
       };
     }),
 
+    resolveMaintenanceRefs: os.resolveMaintenanceRefs.handler(
+      async ({ input }) => {
+        // Existence here; READ permission via the contract's
+        // `listKey: "maintenances"` post-filter on the way out. An id failing
+        // either test is simply absent, so deleted and unreadable are
+        // indistinguishable to the caller.
+        const ids = await service.findExistingMaintenanceIds(input.ids);
+        return { maintenances: ids.map((id) => ({ id })) };
+      },
+    ),
+
     getMaintenance: os.getMaintenance.handler(async ({ input, context }) => {
       const result = await cache.wrapMaintenance(input.id, () =>
         service.getMaintenance(input.id),

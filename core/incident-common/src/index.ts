@@ -69,6 +69,7 @@ export {
 export * from "./plugin-metadata";
 export * from "./notifications";
 export { incidentRoutes } from "./routes";
+export { INCIDENT_MENTION_TYPE } from "./mentions";
 
 // =============================================================================
 // REALTIME SIGNALS

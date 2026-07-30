@@ -56,6 +56,7 @@ export {
 export * from "./plugin-metadata";
 export * from "./notifications";
 export { maintenanceRoutes } from "./routes";
+export { MAINTENANCE_MENTION_TYPE } from "./mentions";
 
 // =============================================================================
 // REALTIME SIGNALS

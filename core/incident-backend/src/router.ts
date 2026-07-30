@@ -249,6 +249,15 @@ export function createRouter({
       };
     }),
 
+    resolveIncidentRefs: os.resolveIncidentRefs.handler(async ({ input }) => {
+      // Existence is checked here; READ permission is applied by the
+      // contract's `listKey: "incidents"` post-filter on the way out. An id
+      // that fails either test is simply absent from the response, so a
+      // deleted incident and an unreadable one look identical to the caller.
+      const ids = await service.findExistingIncidentIds(input.ids);
+      return { incidents: ids.map((id) => ({ id })) };
+    }),
+
     getIncident: os.getIncident.handler(async ({ input, context }) => {
       const result = await cache.wrapIncident(input.id, () =>
         service.getIncident(input.id),

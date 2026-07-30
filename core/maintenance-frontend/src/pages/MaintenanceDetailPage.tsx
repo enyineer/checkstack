@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   useParams,
   Link,
@@ -11,7 +11,7 @@ import {
   accessApiRef,
   useApi,
   ExtensionSlot,
-  useMentions,
+  useMentionResolution,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
@@ -67,7 +67,6 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const maintenanceClient = usePluginClient(MaintenanceApi);
-  const { resolveMention } = useMentions();
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
@@ -97,6 +96,21 @@ const MaintenanceDetailPageContent: React.FC = () => {
 
   const systems = systemsData?.systems ?? [];
   const loading = maintenanceLoading || systemsLoading;
+
+  // Every authored document on this page, so mention viewability is resolved
+  // in ONE batched request before anything renders. Also feeds
+  // `ReferencedItems`, so the chips and the inline links can never disagree.
+  const mentionDocuments = useMemo(
+    () => [
+      maintenance?.description ?? "",
+      ...(maintenance?.updates ?? []).map((update) => update.message),
+    ],
+    [maintenance],
+  );
+  // Links ONLY the references this viewer may actually open.
+  const { resolveMention } = useMentionResolution({
+    documents: mentionDocuments,
+  });
 
   // Complete mutation
   const completeMutation = maintenanceClient.closeMaintenance.useMutation({
@@ -280,10 +294,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 stored twice, so an edit that drops a reference drops it here
                 too. */}
             <ReferencedItems
-              documents={[
-                maintenance.description ?? "",
-                ...maintenance.updates.map((update) => update.message),
-              ]}
+              documents={mentionDocuments}
               resolve={(ref) => {
                 const url = resolveMention(ref);
                 // The label comes from the authored link text, so no lookup is

@@ -1,14 +1,16 @@
 import { resolveRoute } from "@checkstack/common";
 import { registerMentionRoutes } from "@checkstack/frontend-api";
-import { maintenanceRoutes } from "@checkstack/maintenance-common";
+import {
+  MAINTENANCE_MENTION_TYPE,
+  maintenanceRoutes,
+} from "@checkstack/maintenance-common";
 
 /**
- * The mention type maintenance windows own.
- *
- * STABLE by contract: it is baked into every mention already written into an
- * update or a description, so changing it orphans them all.
+ * Re-exported so existing frontend imports keep working. The constant itself
+ * lives in `maintenance-common` because the backend's status-page widget must
+ * declare the SAME value (see `mentionType` on the widget definition).
  */
-export const MAINTENANCE_MENTION_TYPE = "maintenance";
+export { MAINTENANCE_MENTION_TYPE } from "@checkstack/maintenance-common";
 
 /**
  * Register the routing half of the maintenance mention provider.

@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   usePluginClient,
   useApi,
-  useMentions,
+  useMentionResolution,
   accessApiRef,
 } from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
@@ -81,7 +81,15 @@ export const IncidentUpdatesSection: React.FC<Props> = ({
   const incidentClient = usePluginClient(IncidentApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
-  const { resolveMention } = useMentions();
+  // Resolved over the updates this section renders, so a `#` reference becomes
+  // a link only when the viewer may actually open its target.
+  const mentionDocuments = useMemo(
+    () => updates.map((update) => update.message),
+    [updates],
+  );
+  const { resolveMention } = useMentionResolution({
+    documents: mentionDocuments,
+  });
 
   const [showUpdateForm, setShowUpdateForm] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState<IncidentUpdate | null>(
@@ -156,8 +164,9 @@ export const IncidentUpdatesSection: React.FC<Props> = ({
 
       <StatusUpdateTimeline
         updates={updates}
-        // Admin surface: the viewer already holds the read grants that got them
-        // here, so mentions resolve to in-app routes.
+        // Admin surface, but "can reach this page" is not "can read every
+        // record it references" - a mention resolves to a route only when the
+        // owning plugin confirms this viewer may read that specific target.
         resolveMention={resolveMention}
         renderStatusBadge={getIncidentStatusBadge}
         {...(severity

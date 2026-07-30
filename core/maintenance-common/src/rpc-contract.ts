@@ -45,6 +45,28 @@ export const maintenanceContract = {
     .output(z.object({ maintenances: z.array(MaintenanceWithSystemsSchema) })),
 
   /** Get a single maintenance with all details */
+  /**
+   * Of the given maintenance ids, which may the caller READ?
+   *
+   * Backs viewability-aware mention rendering: a `#` reference becomes a link
+   * only when the reader may actually open it, and renders as plain text
+   * otherwise. See `resolveIncidentRefs` in `@checkstack/incident-common` for
+   * the full rationale - the two are deliberately identical in shape.
+   *
+   * Returns only ids, and only for readable maintenances, so an unreadable or
+   * deleted one is indistinguishable from one that never existed.
+   */
+  resolveMaintenanceRefs: proc({
+    operationType: "query",
+    userType: "public",
+    access: [maintenanceAccess.maintenance.read],
+    // Same per-id read post-filter as `listMaintenances`, so this can never be
+    // more permissive than the list.
+    instanceAccess: { listKey: "maintenances" },
+  })
+    .input(z.object({ ids: z.array(z.string()).max(200) }))
+    .output(z.object({ maintenances: z.array(z.object({ id: z.string() })) })),
+
   getMaintenance: proc({
     operationType: "query",
     userType: "public",

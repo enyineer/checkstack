@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router";
 import {
   usePluginClient,
@@ -7,7 +7,7 @@ import {
   useQueryClient,
   wrapInSuspense,
   ExtensionSlot,
-  useMentions,
+  useMentionResolution,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { IncidentApi } from "../api";
@@ -59,7 +59,6 @@ const IncidentDetailPageContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const incidentClient = usePluginClient(IncidentApi);
-  const { resolveMention } = useMentions();
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const queryClient = useQueryClient();
@@ -90,6 +89,23 @@ const IncidentDetailPageContent: React.FC = () => {
 
   const systems = systemsData?.systems ?? [];
   const loading = incidentLoading || systemsLoading;
+
+  // Every authored document on this page, so mention viewability is resolved
+  // in ONE batched request before anything renders. Also feeds
+  // `ReferencedItems`, so the chips and the inline links can never disagree
+  // about which references are linkable.
+  const mentionDocuments = useMemo(
+    () => [
+      incident?.description ?? "",
+      ...(incident?.updates ?? []).map((update) => update.message),
+    ],
+    [incident],
+  );
+  // Links ONLY the references this viewer may actually open; anything
+  // unreadable, deleted, or still being checked renders as plain text.
+  const { resolveMention } = useMentionResolution({
+    documents: mentionDocuments,
+  });
 
   // Resolve mutation
   // Resolving (or a status change) lifts any health override this incident
@@ -276,10 +292,7 @@ const IncidentDetailPageContent: React.FC = () => {
                   stored twice, so an edit that drops a reference drops it here
                   too. */}
               <ReferencedItems
-                documents={[
-                  incident.description ?? "",
-                  ...incident.updates.map((update) => update.message),
-                ]}
+                documents={mentionDocuments}
                 resolve={(ref) => {
                   const url = resolveMention(ref);
                   // The label comes from the authored link text, so no lookup
