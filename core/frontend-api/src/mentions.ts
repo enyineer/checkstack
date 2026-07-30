@@ -43,8 +43,31 @@ export interface MentionProvider {
   /**
    * The in-app route for a referenced record, or `undefined` when this viewer
    * should not get a link (see `MentionResolver` in `@checkstack/ui`).
+   *
+   * This is a pure id-to-path mapping and asks NOTHING about existence or
+   * permission - see {@link MentionProvider.resolveRefs} for that.
    */
   toRoute: (props: { id: string }) => string | undefined;
+  /**
+   * Of the given ids, which may the CURRENT viewer actually read?
+   *
+   * Optional, and installed from React (see {@link setMentionResolve}) because
+   * answering needs an RPC client. A provider that does not implement it has
+   * every reference treated as unviewable, so its mentions render as plain
+   * text - the fail-closed direction.
+   *
+   * MUST be authoritative rather than derived from the provider's own search
+   * list: that list is filtered for authoring (the incident search hides
+   * resolved incidents, and any pagination hides more), so a reference absent
+   * from it is not evidence the viewer cannot read it. Back this with a
+   * dedicated batch read whose access filter is the backend's.
+   */
+  resolveRefs?: (props: { ids: string[] }) => Promise<string[]>;
+}
+
+/** Stable key for a ref, used wherever refs go into a Set or a query key. */
+export function mentionRefKey({ type, id }: MentionRef): string {
+  return `${type}/${id}`;
 }
 
 /**
@@ -163,6 +186,66 @@ export function setMentionSearch({
 }
 
 /**
+ * Install the viewability half of a provider from inside React.
+ *
+ * Split out for the same reason as {@link setMentionSearch}: the registry is
+ * process-global so a render path can reach it, but the check needs an RPC
+ * client that only React context can supply.
+ */
+export function setMentionResolve({
+  type,
+  resolveRefs,
+}: {
+  type: string;
+  resolveRefs: NonNullable<MentionProvider["resolveRefs"]>;
+}): void {
+  const provider = registry().get(type);
+  if (!provider) return;
+  registry().set(type, { ...provider, resolveRefs });
+}
+
+/**
+ * Of the given refs, which may the current viewer read?
+ *
+ * Returns a Set of {@link mentionRefKey} values. Each provider is asked once
+ * for all of its own ids, so a document referencing twenty incidents costs one
+ * request, not twenty.
+ *
+ * Fails CLOSED in every degenerate case - an unregistered type, a provider
+ * with no `resolveRefs`, a provider that throws - because the alternative is
+ * to link a record the viewer may not be allowed to know exists.
+ */
+export async function resolveViewableMentions({
+  refs,
+}: {
+  refs: MentionRef[];
+}): Promise<Set<string>> {
+  const byType = new Map<string, string[]>();
+  for (const ref of refs) {
+    const ids = byType.get(ref.type);
+    if (ids) ids.push(ref.id);
+    else byType.set(ref.type, [ref.id]);
+  }
+
+  const perType = await Promise.all(
+    [...byType.entries()].map(async ([type, ids]) => {
+      const provider = registry().get(type);
+      if (!provider?.resolveRefs) return [];
+      try {
+        const viewable = await provider.resolveRefs({
+          ids: [...new Set(ids)],
+        });
+        return viewable.map((id) => mentionRefKey({ type, id }));
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  return new Set(perType.flat());
+}
+
+/**
  * Register the routing half of a provider.
  *
  * Safe to call at module scope. `search` defaults to returning nothing, so a
@@ -180,5 +263,6 @@ export function registerMentionRoutes({
     displayName,
     toRoute,
     search: existing?.search ?? (async () => []),
+    ...(existing?.resolveRefs ? { resolveRefs: existing.resolveRefs } : {}),
   });
 }

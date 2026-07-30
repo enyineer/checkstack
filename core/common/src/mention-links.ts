@@ -105,6 +105,76 @@ export function buildMentionMarkdown({
   return `[${safeLabel}](${buildMentionHref({ type, id })})`;
 }
 
+/**
+ * Matches a markdown inline link whose href is a mention, capturing the label
+ * and the href.
+ *
+ * Intentionally simple: this is a best-effort index for a UI affordance, not a
+ * markdown parser, and a missed reference degrades to "not listed" rather than
+ * to anything incorrect. The label allows BACKSLASH-ESCAPED brackets (`\[`,
+ * `\]`), which is exactly what `buildMentionMarkdown` writes for a title
+ * containing them. A naive `[^\]]*` stops at the first escaped `]` and loses
+ * the reference entirely.
+ *
+ * Built fresh per call: a `g`-flagged regex carries `lastIndex` between uses,
+ * so a shared instance would skip matches on every other call.
+ */
+const mentionLinkPattern = () =>
+  /\[((?:\\.|[^\\\]])*)]\(\s*(checkstack:[^\s)]+)\s*\)/g;
+
+/**
+ * Whether a resolved URL can be embedded in a markdown link destination
+ * without breaking out of it.
+ *
+ * Whitespace ends the destination and `(`/`)` nest it, so a URL containing
+ * either would produce malformed markdown - and, worse, could let a crafted
+ * resolver output inject trailing syntax. Resolvers here build URLs from
+ * `resolveRoute`, so this should never fire; it exists so that if one ever
+ * does, {@link rewriteMentions} fails CLOSED to a plain label.
+ */
+const isEmbeddableUrl = (url: string) => !/[\s()<>]/.test(url);
+
+/**
+ * Rewrite every mention in a markdown document for one delivery context.
+ *
+ * `resolve` returns the URL a mention should point at here, or `undefined` for
+ * "not linkable in this context". An unresolved mention is flattened to its
+ * LABEL - the link syntax is removed entirely rather than left pointing at the
+ * internal `checkstack:` scheme.
+ *
+ * That flattening is the whole point. A `checkstack:` href is meaningless
+ * outside a renderer that understands it, and different channels leak it
+ * differently: an email sanitiser strips the href and leaves a dead `<a>`,
+ * while Slack's mrkdwn happily emits `<checkstack:incident/123|Label>` and
+ * shows the internal URI to the recipient. Rewriting before the body reaches
+ * any channel means no channel has to know the scheme exists.
+ *
+ * The label is emitted exactly as authored (escapes intact), so a title
+ * containing brackets stays literal text and cannot form new markdown syntax.
+ */
+export function rewriteMentions({
+  markdown,
+  resolve,
+}: {
+  markdown: string;
+  resolve: (ref: MentionRef) => string | undefined;
+}): string {
+  return markdown.replaceAll(
+    mentionLinkPattern(),
+    (whole, rawLabel: string, href: string) => {
+      const ref = parseMentionHref({ href });
+      // Not a well-formed mention after all - leave the source untouched
+      // rather than mangling a link this function does not own.
+      if (!ref) return whole;
+
+      const url = resolve(ref);
+      if (!url || !isEmbeddableUrl(url)) return rawLabel;
+
+      return `[${rawLabel}](${url})`;
+    },
+  );
+}
+
 /** A mention found in a document, with the label the author gave it. */
 export interface ExtractedMention extends MentionRef {
   /**
@@ -131,16 +201,7 @@ export function extractMentions({
   const found: ExtractedMention[] = [];
   const seen = new Set<string>();
 
-  // Matches a markdown inline link whose href is a mention, capturing both the
-  // label and the href. Intentionally simple: this is a best-effort index for a
-  // UI affordance, not a markdown parser, and a missed reference degrades to
-  // "not listed" rather than to anything incorrect.
-  // The label allows BACKSLASH-ESCAPED brackets (`\[`, `\]`), which is exactly
-  // what `buildMentionMarkdown` writes for a title containing them. A naive
-  // `[^\]]*` stops at the first escaped `]` and loses the reference entirely.
-  const linkPattern = /\[((?:\\.|[^\\\]])*)]\(\s*(checkstack:[^\s)]+)\s*\)/g;
-
-  for (const match of markdown.matchAll(linkPattern)) {
+  for (const match of markdown.matchAll(mentionLinkPattern())) {
     const ref = parseMentionHref({ href: match[2] });
     if (!ref) continue;
     const key = `${ref.type}/${ref.id}`;

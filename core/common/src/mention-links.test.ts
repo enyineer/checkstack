@@ -5,6 +5,7 @@ import {
   extractMentions,
   isMentionHref,
   parseMentionHref,
+  rewriteMentions,
 } from "./mention-links";
 
 describe("buildMentionHref / parseMentionHref", () => {
@@ -174,5 +175,175 @@ describe("mention labels cannot break the link syntax", () => {
     const found = extractMentions({ markdown });
     expect(found).toHaveLength(1);
     expect(found[0]?.id).toBe("real");
+  });
+});
+
+describe("rewriteMentions", () => {
+  const linkTo = (url: string) => () => url;
+
+  test("rewrites a mention to the resolved URL", () => {
+    const markdown = `See ${buildMentionMarkdown({
+      type: "maintenance",
+      id: "m1",
+      label: "Database upgrade",
+    })} for details.`;
+
+    expect(
+      rewriteMentions({ markdown, resolve: linkTo("/maintenance/m1") }),
+    ).toBe("See [Database upgrade](/maintenance/m1) for details.");
+  });
+
+  test("FLATTENS an unresolved mention to its label, dropping the link", () => {
+    // The whole point: a `checkstack:` href is meaningless outside a renderer
+    // that understands it, and channels leak it differently - Slack would emit
+    // `<checkstack:maintenance/m1|Database upgrade>` to the recipient.
+    const markdown = `See ${buildMentionMarkdown({
+      type: "maintenance",
+      id: "m1",
+      label: "Database upgrade",
+    })} for details.`;
+
+    const out = rewriteMentions({ markdown, resolve: () => undefined });
+
+    expect(out).toBe("See Database upgrade for details.");
+    expect(out).not.toContain("checkstack:");
+  });
+
+  test("resolves each mention independently", () => {
+    const markdown = [
+      buildMentionMarkdown({ type: "incident", id: "i1", label: "Outage" }),
+      buildMentionMarkdown({ type: "incident", id: "i2", label: "Secret" }),
+    ].join(" and ");
+
+    const out = rewriteMentions({
+      markdown,
+      resolve: ({ id }) => (id === "i1" ? "/incident/i1" : undefined),
+    });
+
+    expect(out).toBe("[Outage](/incident/i1) and Secret");
+  });
+
+  test("leaves ordinary links untouched", () => {
+    const markdown = "See [the docs](https://example.com/a(b)) please.";
+    expect(rewriteMentions({ markdown, resolve: linkTo("/nope") })).toBe(
+      markdown,
+    );
+  });
+
+  test("leaves text with no links at all untouched", () => {
+    const markdown = "Plain **prose** with `code` and a list:\n- one\n- two";
+    expect(rewriteMentions({ markdown, resolve: linkTo("/x") })).toBe(markdown);
+  });
+
+  test("preserves an escaped label so brackets stay literal", () => {
+    const label = "Outage [EU-West]";
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "i1",
+      label,
+    });
+
+    // Escapes stay intact in both directions, so the rendered text reads as the
+    // author's title rather than forming new markdown syntax.
+    expect(rewriteMentions({ markdown, resolve: linkTo("/i/1") })).toBe(
+      String.raw`[Outage \[EU-West\]](/i/1)`,
+    );
+    expect(rewriteMentions({ markdown, resolve: () => undefined })).toBe(
+      String.raw`Outage \[EU-West\]`,
+    );
+  });
+
+  test("a hostile label cannot inject a second link when flattened", () => {
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "real",
+      label: "evil](checkstack:incident/injected) tail",
+    });
+
+    const out = rewriteMentions({ markdown, resolve: () => undefined });
+
+    // The injected `](checkstack:...)` survives only as ESCAPED text. What
+    // matters is that no renderer can pick a reference back out of it - the
+    // escape keeps the bracket literal, so the injected href never becomes a
+    // link destination in any channel.
+    expect(out).toContain(String.raw`\]`);
+    expect(extractMentions({ markdown: out })).toEqual([]);
+  });
+
+  test("a resolved hostile label still yields exactly ONE link", () => {
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "real",
+      label: "evil](checkstack:incident/injected) tail",
+    });
+
+    const out = rewriteMentions({ markdown, resolve: () => "/incident/real" });
+
+    // The escaped bracket keeps the whole title inside the label, so the only
+    // destination is the one the resolver chose.
+    expect(out).toBe(
+      String.raw`[evil\](checkstack:incident/injected) tail](/incident/real)`,
+    );
+    expect(extractMentions({ markdown: out })).toEqual([]);
+  });
+
+  test("fails CLOSED for a URL that would break out of the link destination", () => {
+    // A resolver should never produce one, but if it did, an unescaped space or
+    // paren would terminate the destination early and leave the remainder as
+    // loose markdown next to a malformed link.
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "i1",
+      label: "Outage",
+    });
+
+    for (const bad of ["/a b", "/a(b)", "/a)x", "/a<b>"]) {
+      expect(rewriteMentions({ markdown, resolve: () => bad })).toBe("Outage");
+    }
+  });
+
+  test("rewrites EVERY occurrence, not just the first", () => {
+    // A `g` regex kept across calls carries `lastIndex` and skips matches.
+    const one = buildMentionMarkdown({ type: "incident", id: "i1", label: "A" });
+    const markdown = `${one} ${one} ${one}`;
+
+    expect(rewriteMentions({ markdown, resolve: linkTo("/x") })).toBe(
+      "[A](/x) [A](/x) [A](/x)",
+    );
+  });
+
+  test("is stable across repeated calls", () => {
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "i1",
+      label: "A",
+    });
+
+    const first = rewriteMentions({ markdown, resolve: linkTo("/x") });
+    const second = rewriteMentions({ markdown, resolve: linkTo("/x") });
+    expect(second).toBe(first);
+  });
+
+  test("passes the parsed ref to the resolver", () => {
+    const seen: Array<{ type: string; id: string }> = [];
+    rewriteMentions({
+      markdown: buildMentionMarkdown({
+        type: "maintenance",
+        id: "m-9",
+        label: "L",
+      }),
+      resolve: (ref) => {
+        seen.push(ref);
+        return undefined;
+      },
+    });
+
+    expect(seen).toEqual([{ type: "maintenance", id: "m-9" }]);
+  });
+
+  test("leaves a malformed checkstack link untouched rather than mangling it", () => {
+    // Not a well-formed mention (no id), so it is not this function's to edit.
+    const markdown = "[x](checkstack:incident)";
+    expect(rewriteMentions({ markdown, resolve: linkTo("/x") })).toBe(markdown);
   });
 });
