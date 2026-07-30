@@ -347,3 +347,57 @@ describe("rewriteMentions", () => {
     expect(rewriteMentions({ markdown, resolve: linkTo("/x") })).toBe(markdown);
   });
 });
+
+describe("mention scanning stays linear on hostile input", () => {
+  /**
+   * REGRESSION: the label class once allowed a raw `[`, so a run of `[[[[`
+   * started a label scan at every bracket that could only fail at the closing
+   * `](` - quadratic in the input length (CodeQL js/polynomial-redos, HIGH).
+   *
+   * These documents are operator-authored update text, so the input is
+   * genuinely uncontrolled. Asserting a time BOUND is the only way to catch a
+   * regression here: a quadratic pattern still returns the right answer, just
+   * far too slowly, so every correctness test would keep passing.
+   */
+  const hostile = (n: number) => "[".repeat(n) + "](checkstack:incident/x)";
+
+  test("a long run of brackets does not blow up", () => {
+    const started = performance.now();
+    extractMentions({ markdown: hostile(20_000) });
+    const elapsed = performance.now() - started;
+
+    // Quadratic took seconds at this size; linear is single-digit ms. The
+    // bound is deliberately loose so a slow CI runner cannot flake it.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  test("scales roughly linearly, not quadratically", () => {
+    const time = (n: number) => {
+      const started = performance.now();
+      extractMentions({ markdown: hostile(n) });
+      return performance.now() - started;
+    };
+    time(4000); // warm up, so JIT does not skew the first measurement
+
+    const small = time(4000);
+    const large = time(16_000);
+
+    // 4x the input. Linear predicts ~4x; quadratic predicts ~16x. Allow a very
+    // generous factor so this measures the COMPLEXITY CLASS, not the machine.
+    expect(large).toBeLessThan(Math.max(small, 1) * 40);
+  });
+
+  test("still finds a mention whose label has ESCAPED brackets", () => {
+    // The fix must not cost the bracketed-title case, which is what
+    // buildMentionMarkdown actually emits.
+    const markdown = buildMentionMarkdown({
+      type: "incident",
+      id: "abc",
+      label: "Payments [EU] down",
+    });
+
+    expect(extractMentions({ markdown })).toEqual([
+      { type: "incident", id: "abc", label: "Payments [EU] down" },
+    ]);
+  });
+});

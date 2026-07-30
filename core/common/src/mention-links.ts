@@ -118,9 +118,20 @@ export function buildMentionMarkdown({
  *
  * Built fresh per call: a `g`-flagged regex carries `lastIndex` between uses,
  * so a shared instance would skip matches on every other call.
+ *
+ * The label class excludes a RAW `[` as well as `]` and `\`. That is not just
+ * tidiness - it is what keeps matching LINEAR. Allowing `[` let a string of
+ * many `[[[[` start a label scan at every one of them and fail only at the
+ * closing `](`, which is quadratic in the input length (CodeQL
+ * `js/polynomial-redos`, HIGH). These documents are operator-authored update
+ * text, i.e. genuinely uncontrolled input.
+ *
+ * Excluding it costs nothing: `buildMentionMarkdown` ESCAPES brackets in a
+ * label, so a legitimate mention never contains a raw `[` - a bracketed title
+ * arrives as `\[`, which the `\\.` branch matches.
  */
 const mentionLinkPattern = () =>
-  /\[((?:\\.|[^\\\]])*)]\(\s*(checkstack:[^\s)]+)\s*\)/g;
+  /\[((?:\\.|[^\\\][])*)]\(\s*(checkstack:[^\s)]+)\s*\)/g;
 
 /**
  * Whether a resolved URL can be embedded in a markdown link destination
