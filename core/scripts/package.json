@@ -34,7 +34,7 @@
     "handlebars": "^4.7.8",
     "inquirer": "^13.4.1",
     "react": "^19.0.0",
-    "tar": "^7.5.16",
+    "tar": "^7.5.21",
     "zod": "^4.4.3"
   },
   "devDependencies": {
