@@ -387,6 +387,19 @@ describe("mention scanning stays linear on hostile input", () => {
     expect(large).toBeLessThan(Math.max(small, 1) * 40);
   });
 
+  test("a long run of `[](checkstack:` does not blow up", () => {
+    // The shape CodeQL actually named. The HREF class was the real culprit:
+    // `[^\s)]+` consumed the whole remaining string, then gave back one
+    // character per failed `)` attempt, at every start position.
+    const hostile = "[](checkstack:".repeat(20_000);
+
+    const started = performance.now();
+    extractMentions({ markdown: hostile });
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   test("still finds a mention whose label has ESCAPED brackets", () => {
     // The fix must not cost the bracketed-title case, which is what
     // buildMentionMarkdown actually emits.

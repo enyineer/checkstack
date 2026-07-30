@@ -129,9 +129,17 @@ export function buildMentionMarkdown({
  * Excluding it costs nothing: `buildMentionMarkdown` ESCAPES brackets in a
  * label, so a legitimate mention never contains a raw `[` - a bracketed title
  * arrives as `\[`, which the `\\.` branch matches.
+ *
+ * The HREF class is bounded for the same reason, and it is the one that
+ * actually mattered. `[^\s)]+` consumed the whole remaining string on input
+ * like `[](checkstack:` repeated, then gave a character back per failed `\)`
+ * attempt - O(n) backtracking at O(n) start positions. Excluding brackets and
+ * parens makes each attempt stop at the next one. A real href is
+ * `checkstack:<type>/<id>` with both segments `[\w.-]+` (see SAFE_SEGMENT), so
+ * none of those characters is ever valid in one.
  */
 const mentionLinkPattern = () =>
-  /\[((?:\\.|[^\\\][])*)]\(\s*(checkstack:[^\s)]+)\s*\)/g;
+  /\[((?:\\.|[^\\\][])*)]\(\s*(checkstack:[^\s()[\]]+)\s*\)/g;
 
 /**
  * Whether a resolved URL can be embedded in a markdown link destination
