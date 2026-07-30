@@ -1,5 +1,28 @@
 # @checkstack/tips-frontend
 
+## 0.5.6
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+  - @checkstack/auth-frontend@0.16.0
+  - @checkstack/common@0.24.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/tips-common@0.3.13
+
 ## 0.5.5
 
 ### Patch Changes

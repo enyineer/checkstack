@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/infrastructure-common",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

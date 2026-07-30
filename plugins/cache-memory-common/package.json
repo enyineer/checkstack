@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/cache-memory-common",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "type": "module",
   "sideEffects": [
     "**/*.css"

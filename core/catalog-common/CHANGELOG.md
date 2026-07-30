@@ -1,5 +1,21 @@
 # @checkstack/catalog-common
 
+## 2.8.2
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/signal-common@0.3.2
+
 ## 2.8.1
 
 ### Patch Changes

@@ -1,5 +1,33 @@
 # @checkstack/catalog-backend
 
+## 1.10.2
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/command-backend@0.3.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/ai-backend@0.11.5
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/auth-backend@0.14.0
+  - @checkstack/automation-backend@0.11.9
+  - @checkstack/ai-common@0.6.8
+  - @checkstack/cache-api@0.3.21
+  - @checkstack/catalog-common@2.8.2
+  - @checkstack/gitops-backend@0.5.28
+  - @checkstack/gitops-common@0.7.5
+  - @checkstack/signal-common@0.3.2
+  - @checkstack/cache-utils@0.3.2
+
 ## 1.10.1
 
 ### Patch Changes

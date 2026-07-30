@@ -1,5 +1,32 @@
 # @checkstack/satellite
 
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/healthcheck-common@1.19.1
+  - @checkstack/metricstream-common@0.2.2
+  - @checkstack/tracestream-common@0.1.2
+  - @checkstack/logstream-common@0.4.2
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/satellite-common@0.12.0
+  - @checkstack/telemetry-common@0.2.0
+  - @checkstack/healthcheck-execution@0.35.1
+  - @checkstack/k8s-events-common@0.1.2
+  - @checkstack/script-packages-backend@0.4.7
+  - @checkstack/secrets-common@0.3.4
+  - @checkstack/ingest-utils@0.2.1
+  - @checkstack/otlp-wire@0.1.1
+
 ## 0.9.0
 
 ### Minor Changes

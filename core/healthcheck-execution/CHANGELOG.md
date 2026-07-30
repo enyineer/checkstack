@@ -1,5 +1,19 @@
 # @checkstack/healthcheck-execution
 
+## 0.35.1
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/template-engine@0.4.13
+
 ## 0.35.0
 
 ### Minor Changes

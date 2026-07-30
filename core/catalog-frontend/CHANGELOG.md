@@ -1,5 +1,120 @@
 # @checkstack/catalog-frontend
 
+## 0.22.0
+
+### Minor Changes
+
+- 88f4333: Clone systems and environments
+
+  Systems and environments gained a **Clone** row action, which opens the editor
+  pre-seeded from the source record and saves as a create.
+
+  The clone is deliberately SHALLOW: name (suffixed), description and custom
+  fields only. Group and environment memberships, tags, contacts, links, team
+  grants and health-check assignments are NOT copied, and the dialog says so.
+  Duplicating health-check assignments in particular would silently multiply probe
+  volume and notification noise with every clone.
+
+  Cloning is gated on CREATE, not on manage of the source, and a GitOps lock on
+  the source does not block it - the copy is a new, unmanaged record.
+
+- 88f4333: Preview system custom fields in the health-check editor
+
+  The editor gained a **System** picker beside the existing "Preview as"
+  environment picker, so `{{ system.metadata.<key> }}` resolves in the preview line
+  and offers `{{ }}` autocomplete.
+
+  Previously system templating could only be previewed when the editor happened to
+  be opened FROM a system: a shared-config authoring flow and every edit-mode
+  session got no preview and no completions at all, because the systems list was
+  not even fetched in edit mode.
+
+  Selecting only a system is now enough to preview - an environment is no longer
+  required, since `system.metadata.*` is fully resolvable without one. Both pickers
+  only offer resources the caller may read.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+### Patch Changes
+
+- 88f4333: Cover the features that shipped on logic-only tests
+
+  Inline mentions shipped completely inert while ~90 unit tests passed, because
+  those tests proved the pure functions and nothing proved the render path. Four
+  features carried exactly the same shape of coverage. Each now has a guard that
+  was VERIFIED to fail when the thing it guards is broken.
+
+  - **HTTP proxy.** `fetch({ proxy })` had never run: every test covered the URL
+    we build, the SSRF host we guard and the field contracts, but no test routed a
+    request through an actual proxy. A real proxy server now proves the request
+    arrives there, that credentials are sent, that a 407 is a COMPLETED request
+    (not a transport failure), that an unreachable proxy IS a transport failure,
+    and that an empty templated proxy falls back to a direct connection.
+  - **Status-coloured timeline dots.** The feature was `StatusUpdateTimeline`
+    forwarding a caller's `renderDot`; the colour helpers were tested but the
+    one-line forward was not. Now pinned, including per-item independence and the
+    newest-first ordering a dot renderer must not assume away.
+  - **System custom-field preview.** `SystemPreviewPicker` had no render coverage
+    at all. Now covers the empty case, that the SELECTION is displayed, and that
+    "No system" reports `null` rather than leaking the internal sentinel.
+  - **Per-satellite offline threshold.** `computeStatus` is called from five
+    places and a site that forgets the per-satellite value silently falls back to
+    the global default, so the admin list, the entity read and the monitor
+    disagree about the same satellite. A behavioural drift guard now drives the
+    real reads with a heartbeat stale by the global default but fresh by the
+    satellite's own threshold - and the shorter-threshold direction too.
+
+  Tests only; no runtime behaviour changes.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [56e5375]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+  - @checkstack/auth-frontend@0.16.0
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/ui@1.31.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/notification-common@1.9.0
+  - @checkstack/gitops-frontend@0.8.0
+  - @checkstack/notification-frontend@0.10.0
+  - @checkstack/tips-frontend@0.5.6
+  - @checkstack/catalog-common@2.8.2
+
 ## 0.21.2
 
 ### Patch Changes

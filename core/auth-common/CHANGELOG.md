@@ -1,5 +1,75 @@
 # @checkstack/auth-common
 
+## 0.17.0
+
+### Minor Changes
+
+- 1deaac5: Add the `objectRef` instanceAccess mode and move the relation-write authz onto it
+
+  The relation-tuple writes (`writeRelation` / `removeRelation` / `setObjectPublic`)
+  administer team access on ANY resource type, so their authorization could not be
+  expressed by the existing `instanceAccess` modes (which all assume a fixed
+  resource type) and was enforced by hand in the auth handlers with `access: []` -
+  leaving the contract unable to declare the rule and the API docs showing no
+  restriction.
+
+  A new `objectRef` mode reads the object's TYPE and id from the request body
+  (`typeParam` / `idParam`) and authorizes via the same engine native scoping uses:
+  the endpoint's own access rule (`auth.teams.manage`) is the global admin
+  OR-override, otherwise the caller must be able to manage the referenced object
+  (its own `<type>.manage` rule on a non-private object, or a team editor/owner
+  grant on it). `autoAuthMiddleware` enforces it, the boot validator recognises it
+  (input paths cross-checked), and the auth handlers drop their hand-rolled checks.
+  Behaviour is unchanged; the authorization is now contract-declared and enforced
+  by the middleware rather than the handler.
+
+### Patch Changes
+
+- 1deaac5: Make endpoint authorization self-documenting in the generated API docs
+
+  Every procedure's authorization is now derived from its contract metadata (its
+  `access` rules + `instanceAccess` mode) via a shared mode-descriptor registry and
+  emitted into the OpenAPI spec - both structurally (`x-orpc-meta.authorization`)
+  and as a human `**Authorization.**` sentence folded into the operation
+  description. Previously the docs surfaced only a flat list of global rule ids, so
+  an integrator (an API-key/application principal that CAN hold team grants) never
+  saw the team-grant / per-object dimension, and endpoints gated purely in the
+  handler showed no restriction at all.
+
+  For authorization that no declarative mode can express and is therefore enforced
+  in the handler (a compound OR, a graded verdict, a DB-derived id set), a new
+  optional `accessNote` on the procedure metadata surfaces the real rule in the
+  docs as an explicitly handler-enforced addendum. The note is documentation, not a
+  guarantee: per `.claude/rules/rlac.md` the drift guard for such authz is
+  behavioral tests over an extracted pure decision function, and the note must
+  state exactly what those tests pin.
+
+  Every handler-enforced authorization endpoint now carries such a note so the docs
+  are complete: the team read/scoping and team-management endpoints
+  (`@checkstack/auth-common`), the health-check assignment/history reads
+  (`@checkstack/healthcheck-common`), the audience-graded incident/maintenance
+  reads (`@checkstack/incident-common`, `@checkstack/maintenance-common`), status
+  -page publish's bound-resource check (`@checkstack/status-page-common`), the
+  stream `setSystemLinks` readable-additions check
+  (`@checkstack/{metricstream,tracestream,logstream}-common`), and the automation
+  `runAs` escalation guard (`@checkstack/automation-common`). These are
+  metadata-only additions - no runtime behavior changed. The notes describe the
+  rule for API-doc readers only; the drift guard is behavioral tests over the
+  check's decision function (per `.claude/rules/rlac.md`), so the notes name no
+  internal test files.
+
+  The API docs viewer (`@checkstack/api-docs-frontend`) now renders each
+  operation's description as Markdown, so the `**Authorization.**` block (and any
+  inline `code`) formats correctly instead of showing raw markdown.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+
 ## 0.16.0
 
 ### Minor Changes

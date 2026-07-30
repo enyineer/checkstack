@@ -1,5 +1,57 @@
 # @checkstack/telemetry-backend
 
+## 0.2.0
+
+### Minor Changes
+
+- 1deaac5: Split telemetry "Test connection" so its authorization is contract-declared
+
+  `testSourceConfig` used to accept an optional `sourceId` (to reuse an existing
+  source's stored secrets) and verified MANAGE on that source with a hand-rolled
+  check in the handler - the one telemetry endpoint whose authorization was not
+  declared on the contract. It is now split into two procedures, each fully
+  declared:
+
+  - `testSourceConfig` - the fresh-editor dry run (no stored secrets), `typeScoped`
+    at manage level, as before but with `sourceId` removed from its input.
+  - `testExistingSource` - the secret-reuse dry run, `sourceId` required and
+    authorized by the `idParam` instanceAccess mode (MANAGE on that source),
+    enforced by the middleware. The hand-rolled `assertCanManageSource` handler
+    check is deleted.
+
+  The "Test connection" button calls whichever procedure fits (it has a `sourceId`
+  or not), so the UI is unchanged.
+
+  BREAKING CHANGE: `testSourceConfig` no longer accepts a `sourceId` - callers that
+  reused stored secrets by passing one must call the new `testExistingSource`
+  instead. Authorization behaviour is unchanged (still MANAGE on the referenced
+  source), only the endpoint split.
+
+### Patch Changes
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/auth-common@0.17.0
+  - @checkstack/satellite-backend@0.10.0
+  - @checkstack/backend-api@0.35.0
+  - @checkstack/satellite-common@0.12.0
+  - @checkstack/telemetry-common@0.2.0
+  - @checkstack/secrets-backend@0.3.10
+  - @checkstack/cache-api@0.3.21
+  - @checkstack/queue-api@0.4.1
+  - @checkstack/secrets-common@0.3.4
+  - @checkstack/signal-common@0.3.2
+  - @checkstack/cache-utils@0.3.2
+  - @checkstack/ingest-utils@0.2.1
+
 ## 0.1.1
 
 ### Patch Changes

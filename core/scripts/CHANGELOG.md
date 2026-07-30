@@ -1,5 +1,22 @@
 # @checkstack/scripts
 
+## 0.7.7
+
+### Patch Changes
+
+- bd60aff: Security: auto-remediated fixable vulnerabilities flagged by the daily scan.
+
+  - `tar` 7.5.20 → 7.5.21 (GHSA-r292-9mhp-454m)
+  - `brace-expansion` 5.0.7 → 5.0.8 (CVE-2026-14257)
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+
 ## 0.7.6
 
 ### Patch Changes

@@ -1,5 +1,208 @@
 # @checkstack/ui
 
+## 1.31.0
+
+### Minor Changes
+
+- 88f4333: Auto theme option, and fix Auto never updating
+
+  The theme control is now a three-way Light / Dark / **Auto** selector. Auto
+  persists `system` and follows the operating system's preference.
+
+  This fixes two related bugs:
+
+  - **Auto was a one-way door.** The backend, schema and `ThemeProvider` had always
+    supported `system`, but both toggles were binary and could only ever write
+    `light` or `dark`. Touching the control once destroyed a user's Auto
+    preference permanently, with nothing able to write it back.
+  - **Auto did not react.** `ThemeProvider` read `matchMedia(...).matches` during
+    render with no listener, so a live OS light/dark switch did not repaint until
+    something unrelated re-rendered. It now subscribes and repaints immediately.
+
+  Theme resolution is extracted into a pure `resolveTheme` (exported from
+  `@checkstack/ui`), and a value read from `localStorage` is now narrowed rather
+  than cast - a hand-edited value can no longer put a bogus class on `<html>`.
+
+- 88f4333: Link incidents and maintenances with `#` mentions
+
+  Typing `#` in a markdown field now opens a picker over every mentionable record
+  and inserts a reference. Referencing another record previously meant pasting a
+  URL, which cannot be right everywhere: an admin URL is meaningless on a public
+  status page, a status-page URL is meaningless in the admin UI, and neither works
+  in an email.
+
+  A mention therefore stores WHAT it points at, never where:
+  `[Database upgrade](checkstack:maintenance/<id>)`. That is an ordinary markdown
+  link - readable in the raw source, parsed unchanged by existing tooling - and
+  only the href is resolved per render context.
+
+  Resolution may REFUSE: a resolver returning nothing renders the label as plain
+  text rather than a link. That is a confidentiality property, not a nicety - an
+  internal-only incident referenced from a public status update must not become a
+  link that confirms it exists. A renderer given no resolver links nothing.
+
+  Incident and maintenance detail pages gained a **Referenced items** section,
+  derived by scanning the authored markdown on each render. Nothing is stored
+  twice, so an edit that drops a reference drops it from the list too.
+
+  The platform owns the contract (`registerMentionRoutes` / `setMentionSearch` in
+  `@checkstack/frontend-api`); each owning plugin registers its own type, so no
+  plugin imports another. Search only ever offers records the caller may read.
+
+  Scope: resolution is wired for the admin UI. Public status pages and notification
+  bodies do not resolve mentions yet, so a mention renders there as plain text -
+  the safe default above, not a broken link.
+
+  Precisely: the admin resolver maps a well-formed reference to a route WITHOUT
+  checking that the target still exists or that this viewer may read it, so a
+  mention to a deleted or unreadable record links to a not-found or an access gate.
+  That is deliberate - gating on the provider's fetched list would silently
+  downgrade valid references to plain text (the incident search excludes resolved
+  incidents by default), and silently dropping a valid link is worse than one that
+  lands on a gate the backend already enforces. The confidentiality property is
+  carried by the public renderers, which resolve nothing.
+
+- 88f4333: Fix cross-entity mentions rendering as dead text everywhere
+
+  Inline `#` mentions never became links - not in the admin UI, not on incident or
+  maintenance detail pages, not anywhere. `react-markdown` blanks any `href` whose
+  protocol is outside its safe list BEFORE the rehype plugins run, so
+  `checkstack:maintenance/<id>` reached the anchor renderer as `""`. The renderer
+  then saw no mention, took the ordinary-link branch, and emitted an `<a>` with no
+  href.
+
+  The failure was invisible: the label still rendered, nothing threw, and the page
+  looked correct - only the link was missing. Two filters had to be widened, since
+  either one alone still drops the href:
+
+  - `urlTransform` now passes the mention scheme through and defers everything
+    else to `defaultUrlTransform`, so `javascript:`/`data:` stay blocked.
+  - The sanitizer's URL-protocol allow-list gains the same scheme, so it does not
+    strip the href immediately afterwards.
+
+  The mention href is never emitted to the DOM either way: the anchor renderer
+  replaces it with a resolved in-app URL or renders plain text.
+
+  `Markdown.mentions.test.tsx` pins the whole path from authored markdown to a
+  rendered anchor, including that an unresolved mention stays plain text and that
+  `javascript:` is still refused. The e2e that appeared to cover this asserted
+  `getByRole("link", …).first()`, which matched the "Referenced items" chip - a
+  plain router link that renders whether or not the inline mention works - so it
+  passed throughout. It now asserts both links and their hrefs.
+
+- 88f4333: Markdown editor with a live preview tab and formatting toolbar
+
+  Markdown fields were plain textareas with a "Markdown supported" hint, so an
+  author found out how their text rendered only after saving - or, for a
+  notification, after it had already been delivered.
+
+  New `MarkdownEditor` in `@checkstack/ui`: Write / Preview tabs plus a toolbar
+  (bold, italic, link, code, lists, quote). Adopted by the incident and maintenance
+  update forms and descriptions, and the announcement message.
+
+  The preview renders through `MarkdownBlock` - the same component, remark/rehype
+  chain and sanitiser used for the saved content. A second renderer here would be
+  free to drift, and a preview that disagrees with the real render is worse than no
+  preview.
+
+  Toolbar marks toggle rather than only adding, and mark lengths are matched
+  exactly so italic (`*`) never claims bold's (`**`) delimiters and silently
+  downgrades an author's emphasis.
+
+  Note for adopters: `MarkdownEditor` wraps its textarea, so `required` on it does
+  nothing - gate submission explicitly instead.
+
+- 56e5375: Migrate the frontend from react-router-dom v7 to react-router v8
+
+  Resolves GHSA-qwww-vcr4-c8h2 (HIGH): React Router before 8.3.0 has an RSC-mode
+  CSRF bypass that lets an action execute before the 400 response. Checkstack runs
+  a client-side SPA (`<BrowserRouter>`) and does not use RSC mode, so the platform
+  was not exploitable through it - but the advisory kept the dependency-graph
+  security gate red on every pull request, and the fix is only available in the 8.x
+  line, which the auto-remediation deliberately will not reach (it refuses major
+  bumps).
+
+  `react-router-dom` has no v8: it was folded into `react-router` in v7 and v8
+  ships as `react-router` only. So this is a package swap rather than a range bump:
+
+  - 31 packages now depend on `react-router@^8.3.0` instead of
+    `react-router-dom@^7.16.0`, and 97 source files import from `react-router`.
+  - The Module Federation host share, `optimizeDeps` and `dedupe` entries move to
+    `react-router` (shared singleton `requiredVersion` `^8.0.0`). Remotes never
+    shared the router, so the remote contract is unchanged.
+  - The syncpack unified-range group tracks `react-router`, keeping the enforced
+    single-range guarantee that a past four-range regression motivated.
+
+  The API surface Checkstack uses is unchanged between v7 and v8 - `BrowserRouter`,
+  `MemoryRouter`, `Routes`, `Route`, `Link`, `NavLink`, `useLocation`,
+  `useNavigate`, `useParams` and `useSearchParams` are all exported by v8 with the
+  same signatures - so no routing code changed beyond the import specifier. v8
+  requires React >= 19.2.7, which the workspace already pins.
+
+- 88f4333: Colour timeline dots, and fix the rail they hang from
+
+  Status-update timeline dots were uniformly grey, so the rail carried no
+  information. They are now toned:
+
+  - **Maintenance** dots take the update's own status. Maintenance has no severity,
+    so its lifecycle is the one coloured dimension and nothing competes with it.
+  - **Incident** dots take the incident's SEVERITY, keeping status on a neutral
+    pill. Incidents carry both an urgency and a lifecycle, and `status-tone.ts`
+    gives the hue to the urgency - colouring both would put two competing scales on
+    one row.
+  - **Public status pages** now tone the dot to match the status label already
+    rendered beside it.
+
+  An update that changes nothing stays neutral, so a coloured dot always means "the
+  status moved here".
+
+  Also fixes the rail itself: it anchored its left EDGE at `left-4`, putting its
+  centre at 16.25px while every dot centres at 16px, so each dot sat a hair off the
+  line. The rail is now centred on the same axis, and a new exported `TimelineDot`
+  owns the positioning so the four separate copies of that maths cannot diverge
+  again.
+
+### Patch Changes
+
+- 88f4333: Cover the features that shipped on logic-only tests
+
+  Inline mentions shipped completely inert while ~90 unit tests passed, because
+  those tests proved the pure functions and nothing proved the render path. Four
+  features carried exactly the same shape of coverage. Each now has a guard that
+  was VERIFIED to fail when the thing it guards is broken.
+
+  - **HTTP proxy.** `fetch({ proxy })` had never run: every test covered the URL
+    we build, the SSRF host we guard and the field contracts, but no test routed a
+    request through an actual proxy. A real proxy server now proves the request
+    arrives there, that credentials are sent, that a 407 is a COMPLETED request
+    (not a transport failure), that an unreachable proxy IS a transport failure,
+    and that an empty templated proxy falls back to a direct connection.
+  - **Status-coloured timeline dots.** The feature was `StatusUpdateTimeline`
+    forwarding a caller's `renderDot`; the colour helpers were tested but the
+    one-line forward was not. Now pinned, including per-item independence and the
+    newest-first ordering a dot renderer must not assume away.
+  - **System custom-field preview.** `SystemPreviewPicker` had no render coverage
+    at all. Now covers the empty case, that the SELECTION is displayed, and that
+    "No system" reports `null` rather than leaking the internal sentinel.
+  - **Per-satellite offline threshold.** `computeStatus` is called from five
+    places and a site that forgets the per-satellite value silently falls back to
+    the global default, so the admin list, the entity read and the monitor
+    disagree about the same satellite. A behavioural drift guard now drives the
+    real reads with a heartbeat stale by the global default but fresh by the
+    satellite's own threshold - and the shorter-threshold direction too.
+
+  Tests only; no runtime behaviour changes.
+
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [88f4333]
+- Updated dependencies [1deaac5]
+  - @checkstack/common@0.24.0
+  - @checkstack/frontend-api@0.18.0
+  - @checkstack/template-engine@0.4.13
+
 ## 1.30.0
 
 ### Minor Changes
