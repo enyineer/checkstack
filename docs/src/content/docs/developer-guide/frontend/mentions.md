@@ -34,27 +34,75 @@ link. The renderer then shows the label as plain text.
 > [!CAUTION]
 > This is a confidentiality requirement, not a nicety. An internal-only incident
 > referenced from a public status update must not become a link - a dead link
-> still confirms the incident exists. A renderer given no resolver links
-> nothing, which is the safe default, and that is why public surfaces currently
-> render mentions as plain text.
+> still confirms the incident exists.
 
-### What the admin resolver does NOT check
+Every resolver fails CLOSED: while a check is in flight, when a provider cannot
+answer, and when the answer is no, the label renders as plain text. The prose
+stays readable either way; only the link is withheld.
 
-Be precise about the guarantee. The built-in admin resolver maps a well-formed
-reference to a route WITHOUT asking whether the target still exists or whether
-this viewer may read it. So in the admin UI a mention to a deleted or
-unreadable record renders as a link that leads to a not-found or an access
-gate.
+### The admin resolver checks VIEWABILITY
 
-That is deliberate. The alternative - linking only records present in the
-provider's fetched list - would silently downgrade valid references to plain
-text whenever the list does not contain them, and it often would not: the
-incident search excludes RESOLVED incidents by default, and any future
-pagination would exclude more. Silently dropping a valid link is worse than a
-link that lands on an access gate the backend already enforces.
+`useMentionResolution({ documents })` takes the authored documents a page is
+about to render, collects their references, and asks each owning plugin - in one
+batched request - which of them this viewer may actually read. Only confirmed
+references become links.
 
-The confidentiality property is carried by the PUBLIC renderers, which resolve
-nothing.
+```tsx
+const mentionDocuments = useMemo(
+  () => [incident?.description ?? "", ...(incident?.updates ?? []).map((u) => u.message)],
+  [incident],
+);
+const { resolveMention } = useMentionResolution({ documents: mentionDocuments });
+```
+
+The documents are an input because a markdown renderer resolves each link
+DURING render and cannot await anything, so the answer has to exist before
+rendering starts.
+
+The backing procedure (`resolveIncidentRefs` / `resolveMaintenanceRefs`) takes
+ids and returns only those the caller may read. It is deliberately NOT a filter
+over the plugin's own search list: that list is shaped for authoring - the
+incident search hides resolved incidents, and pagination would hide more - so a
+reference missing from it is not evidence the reader cannot open it. It returns
+ids and nothing else, so an unreadable record is indistinguishable from a
+deleted one.
+
+### Public pages resolve against the PAGE
+
+A public status page links a reference only when the same page also publishes
+the target, which is exactly the gate its detail pages already apply
+(`resolveDetail`). So a mention to a maintenance window shown on the page
+becomes a link to that window's public detail page, while a mention to an
+internal-only incident stays plain text.
+
+A widget opts in by declaring which mention type it surfaces, so the
+status-page packages never learn what `"incident"` means:
+
+```ts
+{
+  id: "incidents",
+  mentionType: INCIDENT_MENTION_TYPE, // from incident-common
+  resolveDetail: async ({ id, config, ctx }) => { /* ... */ },
+}
+```
+
+> [!IMPORTANT]
+> Keep the widget's `mentionType` equal to the `*_MENTION_TYPE` constant its
+> frontend provider registers under. Both live in the plugin's `*-common` for
+> exactly this reason - if they drift, public mentions silently stop resolving.
+
+### Notification bodies flatten mentions
+
+`checkstack:` is an internal scheme, and notification channels do not
+understand it: the email sanitiser drops the href and leaves a dead anchor,
+while Slack's mrkdwn emits `<checkstack:incident/123|Label>` and shows the
+internal URI to the recipient. So `sanitizeUpdateMessage` removes the link and
+keeps only the label, at the one point every channel's body flows through.
+
+Linking instead would need a per-recipient URL and, to be correct, a
+per-recipient permission check inside a fan-out that has neither. The
+notification already deep-links to the item it is about; the mention is a live,
+viewability-checked link once the reader opens it.
 
 ## Registering a type
 
@@ -131,7 +179,11 @@ a reference needs no lookup.
 
 ## Current coverage
 
-Resolution is wired for the **admin UI** (incident and maintenance detail pages,
-their update timelines, and their editors). Public status pages and notification
-bodies do not resolve mentions yet, so a mention renders there as plain text -
-the safe default described above, not a broken link.
+| Surface | Resolves to | Gate |
+|---------|-------------|------|
+| Admin UI | in-app route | the owning plugin confirms this viewer may READ the target |
+| Public status page | that page's public detail route | the page itself publishes the target |
+| Notification bodies | nothing - flattened to the label | no per-recipient context exists |
+
+A reference whose plugin is not installed, whose type has no public page, or
+whose check has not returned yet renders as plain text everywhere.
