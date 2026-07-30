@@ -84,7 +84,9 @@
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.0",
     "fast-uri": "^3.1.4",
-    "sharp": "^0.35.0"
+    "sharp": "^0.35.0",
+    "brace-expansion": "^5.0.8",
+    "tar": "^7.5.21"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -100,6 +102,8 @@
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.0",
     "fast-uri": "^3.1.4",
-    "sharp": "^0.35.0"
+    "sharp": "^0.35.0",
+    "brace-expansion": "^5.0.8",
+    "tar": "^7.5.21"
   }
 }
