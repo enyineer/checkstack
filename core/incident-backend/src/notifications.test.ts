@@ -467,3 +467,64 @@ describe("notifyAffectedSystems", () => {
     });
   });
 });
+
+/**
+ * The REAL notification body build, not just the converter.
+ *
+ * `update-message.test.ts` proves the sanitizer strips the mention scheme and
+ * `mention-leak.test.ts` proves each channel converter is faithful. Neither
+ * proves that THIS function actually routes the update message through the
+ * sanitizer - a caller that interpolated `updateMessage` directly would pass
+ * both of those suites and still ship the internal URI to every subscriber.
+ */
+describe("notifyAffectedSystems does not leak the mention scheme", () => {
+  const bodyOf = (client: ReturnType<typeof createMockNotificationClient>) => {
+    const payload = (
+      client.notifyForSubscription.mock.calls[0] as unknown[] | undefined
+    )?.[0] as { body?: string } | undefined;
+    return payload?.body ?? "";
+  };
+
+  it("flattens a mention in the update message to its label", async () => {
+    const mockCatalog = createMockCatalogClient();
+    const mockNotify = createMockNotificationClient();
+    const logger = createMockLogger();
+
+    await notifyAffectedSystems({
+      catalogClient: mockCatalog as never,
+      notificationClient: mockNotify as never,
+      logger: logger as never,
+      incidentId: "inc-1",
+      incidentTitle: "Checkout errors",
+      systemIds: ["sys-1"],
+      action: "updated",
+      severity: "major",
+      updateMessage:
+        "Rolled back. See [Database upgrade](checkstack:maintenance/9f1c-abc).",
+    });
+
+    const body = bodyOf(mockNotify);
+    expect(body).not.toContain("checkstack:");
+    expect(body).toContain("Database upgrade");
+  });
+
+  it("keeps an ordinary link in the update message intact", async () => {
+    const mockCatalog = createMockCatalogClient();
+    const mockNotify = createMockNotificationClient();
+    const logger = createMockLogger();
+
+    await notifyAffectedSystems({
+      catalogClient: mockCatalog as never,
+      notificationClient: mockNotify as never,
+      logger: logger as never,
+      incidentId: "inc-1",
+      incidentTitle: "Checkout errors",
+      systemIds: ["sys-1"],
+      action: "updated",
+      severity: "major",
+      updateMessage: "See [the runbook](https://example.com/rb).",
+    });
+
+    expect(bodyOf(mockNotify)).toContain("https://example.com/rb");
+  });
+});
