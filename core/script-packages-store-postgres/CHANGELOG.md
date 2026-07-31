@@ -1,5 +1,12 @@
 # @checkstack/script-packages-store-postgres
 
+## 0.2.35
+
+### Patch Changes
+
+- @checkstack/backend-api@0.35.1
+- @checkstack/script-packages-backend@0.4.8
+
 ## 0.2.34
 
 ### Patch Changes

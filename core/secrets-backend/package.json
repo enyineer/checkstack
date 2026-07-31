@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/secrets-backend",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Secrets platform backend: resolver service, masking, backend extension point, RPC router",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

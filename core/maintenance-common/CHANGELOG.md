@@ -1,5 +1,13 @@
 # @checkstack/maintenance-common
 
+## 1.11.1
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/frontend-api@0.19.0
+  - @checkstack/catalog-common@2.8.3
+
 ## 1.11.0
 
 ### Minor Changes

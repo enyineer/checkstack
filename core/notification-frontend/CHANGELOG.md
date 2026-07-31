@@ -1,5 +1,16 @@
 # @checkstack/notification-frontend
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/ui@1.32.0
+  - @checkstack/frontend-api@0.19.0
+  - @checkstack/auth-frontend@0.16.1
+  - @checkstack/tips-frontend@0.5.7
+  - @checkstack/catalog-common@2.8.3
+
 ## 0.10.0
 
 ### Minor Changes

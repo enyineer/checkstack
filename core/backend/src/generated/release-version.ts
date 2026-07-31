@@ -9,4 +9,4 @@
 // This is NOT the same as `@checkstack/backend`'s own package version, which
 // only moves when that package changes. The About page shows both.
 
-export const RELEASE_VERSION = "0.137.0";
+export const RELEASE_VERSION = "0.138.0";

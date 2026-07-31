@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-common
 
+## 1.19.2
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/frontend-api@0.19.0
+  - @checkstack/catalog-common@2.8.3
+
 ## 1.19.1
 
 ### Patch Changes

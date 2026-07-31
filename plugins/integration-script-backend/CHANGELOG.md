@@ -1,5 +1,14 @@
 # @checkstack/integration-script-backend
 
+## 0.6.38
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.11.10
+- @checkstack/backend-api@0.35.1
+- @checkstack/script-packages-backend@0.4.8
+- @checkstack/secrets-backend@0.3.11
+
 ## 0.6.37
 
 ### Patch Changes

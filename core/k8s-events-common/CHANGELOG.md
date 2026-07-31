@@ -1,5 +1,11 @@
 # @checkstack/k8s-events-common
 
+## 0.1.3
+
+### Patch Changes
+
+- @checkstack/telemetry-common@0.2.1
+
 ## 0.1.2
 
 ### Patch Changes

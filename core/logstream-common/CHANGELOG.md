@@ -1,5 +1,13 @@
 # @checkstack/logstream-common
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/frontend-api@0.19.0
+  - @checkstack/telemetry-common@0.2.1
+
 ## 0.4.2
 
 ### Patch Changes
