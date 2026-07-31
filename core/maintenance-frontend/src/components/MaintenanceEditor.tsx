@@ -1,6 +1,11 @@
 import React, { useId, useState, useEffect } from "react";
 import { Link } from "react-router";
-import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  accessApiRef,
+  useMentions,
+} from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
 import type { MaintenanceWithSystems } from "@checkstack/maintenance-common";
@@ -70,6 +75,12 @@ export const MaintenanceEditor: React.FC<Props> = ({
   const maintenanceClient = usePluginClient(MaintenanceApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+  // The description is authored markdown exactly like an update message, so it
+  // gets the same `#` picker. Its mentions were already RESOLVED on the detail
+  // page (the description is one of the documents fed to `useMentionResolution`)
+  // - only the authoring half was missing, so a reference could be read there
+  // but never written here.
+  const { onMentionSearch } = useMentions();
 
   // Stable ids for label/field association (datetime + systems group).
   const startLabelId = useId();
@@ -360,9 +371,14 @@ export const MaintenanceEditor: React.FC<Props> = ({
                     id="description"
                     value={description}
                     onChange={setDescription}
+                    onMentionSearch={onMentionSearch}
                     placeholder="Details about the maintenance..."
                     rows={3}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Markdown supported, and <code>#</code> links another incident
+                    or maintenance.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

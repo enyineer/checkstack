@@ -163,6 +163,66 @@ test.describe("markdown editor", () => {
     ).toBeHidden();
   });
 
+  test("the DESCRIPTION field offers mentions too, not just update messages", async ({
+    page,
+  }) => {
+    // REGRESSION GUARD. Mentions were wired into the update-message editor
+    // only, so an incident's or maintenance's DESCRIPTION - the same
+    // `MarkdownEditor`, on the create AND edit dialogs - silently swallowed
+    // `#`: no picker, and the text stayed a literal `#Foo`.
+    //
+    // The asymmetry was invisible from either side. The renderer had always
+    // handled it (the description is one of the documents fed to
+    // `useMentionResolution`), so a reference WOULD have resolved on the detail
+    // page - there was simply no way to author one.
+    await page.goto("/incident/config", { timeout: NAV });
+    await page
+      .getByRole("button", { name: "Report Incident", exact: true })
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Create Incident" }),
+    ).toBeVisible({ timeout: NAV });
+
+    const description = dialog.getByLabel("Description");
+    await description.fill("Follow-up to ");
+    await description.press("#");
+    // Human-paced: the trigger state is synced from key events, so
+    // machine-speed input can leave it behind and insert over a stale range.
+    await description.pressSequentially("Database", { delay: 25 });
+
+    // The picker is a portal, so it is NOT inside the dialog's subtree in the
+    // accessibility tree sense - query it from the page, not from `dialog`.
+    const suggestions = page.getByRole("listbox", {
+      name: "Mention suggestions",
+    });
+    await expect(suggestions).toBeVisible({ timeout: NAV });
+    await suggestions
+      .getByRole("option", { name: new RegExp(escapeRegex(MAINTENANCE_TITLE)) })
+      .click();
+
+    // Stored as the same context-free reference an update message produces.
+    await expect(description).toHaveValue(
+      new RegExp(
+        String.raw`Follow-up to \[` +
+          escapeRegex(MAINTENANCE_TITLE) +
+          String.raw`\]\(checkstack:maintenance/[\w-]+\) $`,
+      ),
+    );
+
+    // Leave the DB as we found it - this spec's chain creates its incident in
+    // the next test, and a stray extra one would confuse its row lookup.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    const discard = page.getByRole("dialog", { name: "Discard changes?" });
+    if (await discard.isVisible().catch(() => false)) {
+      await discard.getByRole("button", { name: "Discard" }).click();
+    }
+    await expect(
+      page.getByRole("dialog", { name: "Create Incident" }),
+    ).toBeHidden();
+  });
+
   test("creates an incident to author updates against", async ({ page }) => {
     await page.goto("/incident/config", { timeout: NAV });
     await page
@@ -231,6 +291,79 @@ test.describe("markdown editor", () => {
           String.raw`\]\(checkstack:maintenance/[\w-]+\) $`,
       ),
     );
+  });
+
+  test("the mention picker is not clipped by the editor, and does not cover it", async ({
+    page,
+  }) => {
+    // REGRESSION GUARD. The picker used to be a `position: absolute` list
+    // anchored to the bottom of the write pane, which put it INSIDE the
+    // editor's `overflow-hidden` shell (that shell exists to keep the
+    // textarea's corners rounded). Two consequences, both reported:
+    //
+    //   1. A picker taller than the field was CLIPPED - the top rows were
+    //      painted away and the list was unreadable.
+    //   2. It was drawn straight over the text being typed.
+    //
+    // Neither is catchable by `toBeVisible()`, which the other mention tests
+    // already assert: Playwright's visibility check is a non-empty bounding
+    // box, and an ancestor's `overflow: hidden` clips PAINTING without changing
+    // the element's layout box. So a fully clipped list still reports visible,
+    // with a plausible size, at a plausible position. That is exactly how this
+    // shipped. The assertions below are on containment and geometry instead.
+    await openIncidentDetail(page);
+
+    const message = await openUpdateForm(page);
+    await message.fill("Caused by ");
+    await message.press("#");
+
+    const suggestions = page.getByRole("listbox", {
+      name: "Mention suggestions",
+    });
+    await expect(suggestions).toBeVisible({ timeout: NAV });
+
+    // (1) Walk up from the textarea to its nearest CLIPPING ancestor and prove
+    // the picker escaped it. This is the defect itself, stated directly.
+    const escapedTheClipper = await page.evaluate(
+      ([field, list]) => {
+        let node = (field as Element).parentElement;
+        while (node) {
+          const style = globalThis.getComputedStyle(node);
+          if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+            return !node.contains(list as Element);
+          }
+          node = node.parentElement;
+        }
+        // No clipping ancestor at all - nothing could have clipped it.
+        return true;
+      },
+      [
+        await message.elementHandle(),
+        await suggestions.elementHandle(),
+      ] as const,
+    );
+    expect(escapedTheClipper).toBe(true);
+
+    // (2) It must sit clear of the field rather than on top of it - entirely
+    // above or entirely below, never overlapping the text being written.
+    const field = await message.boundingBox();
+    const list = await suggestions.boundingBox();
+    expect(field).not.toBeNull();
+    expect(list).not.toBeNull();
+    if (!field || !list) return;
+
+    const below = list.y >= field.y + field.height - 1;
+    const above = list.y + list.height <= field.y + 1;
+    expect(below || above).toBe(true);
+
+    // (3) And it must be fully on screen. Radix's collision handling flips the
+    // list above the field when there is no room below; the old absolute box
+    // had no such notion and simply ran off the edge.
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+    if (!viewport) return;
+    expect(list.y).toBeGreaterThanOrEqual(-1);
+    expect(list.y + list.height).toBeLessThanOrEqual(viewport.height + 1);
   });
 
   test("the mention picker can be navigated and chosen with the KEYBOARD", async ({
@@ -340,15 +473,7 @@ test.describe("markdown editor", () => {
   test("a mention posted on the MAINTENANCE detail page also resolves", async ({
     page,
   }) => {
-    await page.goto(`/maintenance/system/${systemId}/history`, {
-      waitUntil: "commit",
-    });
-    await page
-      .getByRole("row", { name: new RegExp(escapeRegex(MAINTENANCE_TITLE)) })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: MAINTENANCE_TITLE }),
-    ).toBeVisible({ timeout: NAV });
+    await openMaintenanceDetail(page);
 
     const message = await openUpdateForm(page);
     await message.fill("Caused by ");
@@ -378,6 +503,48 @@ test.describe("markdown editor", () => {
       await expect(link).toHaveAttribute("href", /\/incident\/[\w-]+/);
     }
   });
+
+  /**
+   * LAST in the chain: it RESOLVES the incident, so anything after it would see
+   * a closed record where the earlier tests expect an open one.
+   */
+  test("a RESOLVED incident is still mentionable", async ({ page }) => {
+    // The picker asked for open records only, so the moment an incident was
+    // resolved every reference to it became unauthorable - exactly when you
+    // most want one ("recurrence of #Checkout degraded" in the follow-up).
+    // Closed records are now offered, ranked behind everything still live
+    // (ordering is pinned in `mention-search.logic.test.ts`).
+    await openIncidentDetail(page);
+
+    const resolve = page.getByRole("button", { name: "Resolve", exact: true });
+    await expect(resolve).toBeVisible({ timeout: NAV });
+    await resolve.click();
+    // The control is gated on `status !== "resolved"`, so it disappearing IS
+    // the confirmation that the mutation landed - no toast to race.
+    await expect(resolve).toBeHidden({ timeout: NAV });
+
+    await openMaintenanceDetail(page);
+    const message = await openUpdateForm(page);
+    await message.fill("Recurrence of ");
+    await message.press("#");
+    await message.pressSequentially("Checkout", { delay: 25 });
+
+    const suggestions = page.getByRole("listbox", {
+      name: "Mention suggestions",
+    });
+    await expect(suggestions).toBeVisible({ timeout: NAV });
+
+    const option = suggestions.getByRole("option", {
+      name: new RegExp(escapeRegex(INCIDENT_TITLE)),
+    });
+    await expect(option).toBeVisible({ timeout: NAV });
+    // The description carries the lifecycle, so the author can tell at a glance
+    // that they are about to reference something already closed.
+    await expect(option).toContainText("resolved");
+
+    await option.click();
+    await expect(message).toHaveValue(/\(checkstack:incident\/[\w-]+\)/);
+  });
 });
 
 /** Escapes a string for safe embedding in a RegExp. */
@@ -405,6 +572,23 @@ async function openIncidentDetail(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/incident\/[^/]+(\?|$)/, { timeout: NAV });
   await expect(
     page.getByRole("heading", { name: INCIDENT_TITLE }),
+  ).toBeVisible({ timeout: NAV });
+}
+
+/**
+ * Opens the namespaced maintenance's detail page via its system's history -
+ * the same indirection the incident detail page needs.
+ */
+async function openMaintenanceDetail(page: Page): Promise<void> {
+  expect(systemId).not.toBe("");
+  await page.goto(`/maintenance/system/${systemId}/history`, {
+    waitUntil: "commit",
+  });
+  await page
+    .getByRole("row", { name: new RegExp(escapeRegex(MAINTENANCE_TITLE)) })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: MAINTENANCE_TITLE }),
   ).toBeVisible({ timeout: NAV });
 }
 

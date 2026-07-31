@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import {
+  filterMentionCandidates,
   setMentionResolve,
   setMentionSearch,
   usePluginClient,
 } from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
 import { MAINTENANCE_MENTION_TYPE } from "../utils/mentions";
-import { filterMentionCandidates } from "../utils/mention-search.logic";
 
 /**
  * Headless component that installs maintenance search for the `#` mention
@@ -20,13 +20,25 @@ export const MaintenanceMentionRegistrar = () => {
 
   // `listMaintenances` post-filters by the caller's grants, so the picker can
   // only ever offer windows this user may read.
-  const { data } = maintenanceClient.listMaintenances.useQuery({});
+  //
+  // COMPLETED and CANCELLED windows are included, for the same reason resolved
+  // incidents are (see `IncidentMentionRegistrar`): a finished window is a
+  // perfectly normal thing to reference afterwards.
+  // `filterMentionCandidates` sorts them behind everything still live.
+  const { data } = maintenanceClient.listMaintenances.useQuery({
+    includeCompleted: true,
+  });
 
   useEffect(() => {
     const candidates = (data?.maintenances ?? []).map((maintenance) => ({
       id: maintenance.id,
       label: maintenance.title,
       description: `Maintenance - ${maintenance.status}`,
+      // `scheduled` and `in_progress` are live; a completed or cancelled
+      // window is done with.
+      isActive:
+        maintenance.status === "scheduled" ||
+        maintenance.status === "in_progress",
     }));
 
     setMentionSearch({

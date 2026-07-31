@@ -11,6 +11,8 @@ import {
 import { cn } from "../utils";
 import { Textarea } from "./Textarea";
 import { MarkdownBlock } from "./Markdown";
+import { Popover, PopoverAnchor, PopoverContent } from "./Popover";
+import { comboboxAnchorProps, isAnchorInteraction } from "./comboboxInteraction";
 import {
   applyMarkdownAction,
   applyMentionSelection,
@@ -88,6 +90,27 @@ export interface MarkdownEditorProps {
  * The container carries its own opaque background: it is mounted on detail
  * pages that render a decorative grid backdrop, which would otherwise bleed
  * through the content.
+ *
+ * ## Why the `#` picker is a Popover and not an absolute box
+ *
+ * The picker used to be a `position: absolute` list inside the write pane. That
+ * put it INSIDE the editor's `overflow-hidden` container (which exists so the
+ * textarea's corners stay rounded), so the list was clipped to the textarea and
+ * a picker taller than the field was cut off at the top - unreadable, and worse
+ * than showing nothing. Anchoring it to the pane's bottom edge also drew it
+ * straight over the text being typed.
+ *
+ * It is now the same floating layer every other combobox in the kit uses: a
+ * Radix `Popover` anchored to the textarea. That buys three things this
+ * component would otherwise have to hand-roll - it escapes every clipping
+ * ancestor via a portal, it flips above the field when there is no room below,
+ * and inside a modal Dialog it portals into the dialog content (see
+ * `portalContainer`) so the scroll-lock does not freeze its internal scrolling.
+ *
+ * Focus stays in the textarea throughout (`onOpenAutoFocus` /
+ * `onCloseAutoFocus` are prevented) because the author is still typing; the
+ * anchor-origin guards from `comboboxInteraction` stop the keystroke that opens
+ * the list from immediately dismissing it.
  */
 export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
   value,
@@ -328,31 +351,62 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
       </div>
 
       {tab === "write" ? (
-        <div className="relative">
-          <Textarea
-            ref={textareaRef}
-            id={textareaId}
-            value={value}
-            onChange={(event) => {
-              onChange(event.target.value);
-              syncMentionTrigger(event.target.value);
-            }}
-            onKeyUp={() => syncMentionTrigger(value)}
-            onClick={() => syncMentionTrigger(value)}
-            onKeyDown={handleKeyDown}
-            onBlur={() => setMentionTrigger(null)}
-            placeholder={placeholder}
-            rows={rows}
-            disabled={disabled}
-            className="rounded-none border-0 focus:ring-0"
-            style={{ minHeight }}
-          />
+        <Popover
+          open={pickerOpen}
+          onOpenChange={(next) => {
+            // Radix only ever REQUESTS a close here (a click elsewhere, Escape);
+            // the picker's real open state is derived from the trigger, so
+            // honour the dismissal by clearing the trigger rather than tracking
+            // a second, drift-prone flag.
+            if (!next) setMentionTrigger(null);
+          }}
+        >
+          <PopoverAnchor asChild>
+            <div>
+              <Textarea
+                ref={textareaRef}
+                id={textareaId}
+                value={value}
+                onChange={(event) => {
+                  onChange(event.target.value);
+                  syncMentionTrigger(event.target.value);
+                }}
+                onKeyUp={() => syncMentionTrigger(value)}
+                onClick={() => syncMentionTrigger(value)}
+                onKeyDown={handleKeyDown}
+                onBlur={() => setMentionTrigger(null)}
+                placeholder={placeholder}
+                rows={rows}
+                disabled={disabled}
+                className="rounded-none border-0 focus:ring-0"
+                style={{ minHeight }}
+                {...comboboxAnchorProps}
+              />
+            </div>
+          </PopoverAnchor>
 
-          {pickerOpen && (
+          <PopoverContent
+            align="start"
+            sideOffset={4}
+            className="w-[--radix-popover-trigger-width] p-0"
+            // The author keeps typing into the textarea while the picker is
+            // open, so the floating layer must never take focus - on open or on
+            // close. Without this the caret jumps out of the document mid-word.
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+            // Radix treats the anchor as "outside", so the very keystroke that
+            // opens the list also asks to dismiss it. See `comboboxInteraction`.
+            onPointerDownOutside={(event) => {
+              if (isAnchorInteraction(event.target)) event.preventDefault();
+            }}
+            onFocusOutside={(event) => {
+              if (isAnchorInteraction(event.target)) event.preventDefault();
+            }}
+          >
             <ul
               role="listbox"
               aria-label="Mention suggestions"
-              className="absolute inset-x-2 bottom-2 z-20 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg"
+              className="max-h-48 overflow-y-auto py-1"
             >
               {mentionOptions.map((option, index) => (
                 <li key={option.key}>
@@ -383,8 +437,8 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 </li>
               ))}
             </ul>
-          )}
-        </div>
+          </PopoverContent>
+        </Popover>
       ) : (
         <div
           role="tabpanel"
