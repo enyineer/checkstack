@@ -22,7 +22,14 @@ minimumReleaseAgeExcludes = []
 # Preload mocks before any test file runs - this ensures mock.module()
 # is called before the module is first imported anywhere
 # Path is relative to workspace root
-preload = ["./core/backend/src/test-preload.ts"]
+preload = [
+  "./core/backend/src/test-preload.ts",
+  # Root-scoped RTL cleanup. A frontend test file's `import` of the DOM setup
+  # only registers its cleanup hook for the FIRST file to import it, so every
+  # later frontend file in a root-cwd run leaked its renders into document.body.
+  # No-op without a DOM, so backend tests are unaffected. See the file header.
+  "./core/test-utils-frontend/src/root-preload.ts",
+]
 # NOTE: do NOT add `timeout` here - this bun version silently ignores a
 # bunfig [test] timeout (verified: a 6s sleep still died at the built-in 5s).
 # The repo-wide default lives in scripts/run-tests.ts as `--timeout`, which
