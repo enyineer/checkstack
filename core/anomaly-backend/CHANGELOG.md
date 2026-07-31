@@ -1,5 +1,19 @@
 # @checkstack/anomaly-backend
 
+## 1.5.8
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/ai-backend@0.11.6
+  - @checkstack/catalog-backend@1.10.3
+  - @checkstack/healthcheck-backend@1.23.1
+  - @checkstack/catalog-common@2.8.3
+  - @checkstack/healthcheck-common@1.19.2
+  - @checkstack/anomaly-common@1.8.5
+  - @checkstack/backend-api@0.35.1
+  - @checkstack/gitops-backend@0.5.29
+
 ## 1.5.7
 
 ### Patch Changes

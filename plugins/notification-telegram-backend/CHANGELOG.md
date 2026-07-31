@@ -1,5 +1,12 @@
 # @checkstack/notification-telegram-backend
 
+## 0.0.81
+
+### Patch Changes
+
+- @checkstack/notification-backend@1.8.8
+- @checkstack/backend-api@0.35.1
+
 ## 0.0.80
 
 ### Patch Changes

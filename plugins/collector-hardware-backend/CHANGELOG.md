@@ -1,5 +1,12 @@
 # @checkstack/collector-hardware-backend
 
+## 0.1.68
+
+### Patch Changes
+
+- @checkstack/healthcheck-common@1.19.2
+- @checkstack/backend-api@0.35.1
+
 ## 0.1.67
 
 ### Patch Changes

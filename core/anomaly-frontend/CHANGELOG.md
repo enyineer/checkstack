@@ -1,5 +1,18 @@
 # @checkstack/anomaly-frontend
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/ui@1.32.0
+  - @checkstack/frontend-api@0.19.0
+  - @checkstack/healthcheck-frontend@0.39.1
+  - @checkstack/notification-frontend@0.10.1
+  - @checkstack/catalog-common@2.8.3
+  - @checkstack/healthcheck-common@1.19.2
+  - @checkstack/anomaly-common@1.8.5
+
 ## 0.7.0
 
 ### Minor Changes

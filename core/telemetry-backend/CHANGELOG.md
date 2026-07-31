@@ -1,5 +1,15 @@
 # @checkstack/telemetry-backend
 
+## 0.2.1
+
+### Patch Changes
+
+- @checkstack/telemetry-common@0.2.1
+- @checkstack/satellite-backend@0.10.1
+- @checkstack/backend-api@0.35.1
+- @checkstack/satellite-common@0.12.1
+- @checkstack/secrets-backend@0.3.11
+
 ## 0.2.0
 
 ### Minor Changes

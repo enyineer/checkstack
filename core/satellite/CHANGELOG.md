@@ -1,5 +1,20 @@
 # @checkstack/satellite
 
+## 0.9.2
+
+### Patch Changes
+
+- @checkstack/healthcheck-common@1.19.2
+- @checkstack/logstream-common@0.4.3
+- @checkstack/telemetry-common@0.2.1
+- @checkstack/tracestream-common@0.1.3
+- @checkstack/backend-api@0.35.1
+- @checkstack/satellite-common@0.12.1
+- @checkstack/k8s-events-common@0.1.3
+- @checkstack/metricstream-common@0.2.3
+- @checkstack/script-packages-backend@0.4.8
+- @checkstack/healthcheck-execution@0.35.2
+
 ## 0.9.1
 
 ### Patch Changes

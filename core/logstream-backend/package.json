@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/logstream-backend",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Log stream ingestion, storage, drain and health integration",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

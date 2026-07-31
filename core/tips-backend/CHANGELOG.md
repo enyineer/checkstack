@@ -1,5 +1,12 @@
 # @checkstack/tips-backend
 
+## 0.3.29
+
+### Patch Changes
+
+- @checkstack/backend-api@0.35.1
+- @checkstack/auth-backend@0.14.1
+
 ## 0.3.28
 
 ### Patch Changes

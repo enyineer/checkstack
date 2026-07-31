@@ -1,5 +1,11 @@
 # @checkstack/command-backend
 
+## 0.3.1
+
+### Patch Changes
+
+- @checkstack/backend-api@0.35.1
+
 ## 0.3.0
 
 ### Minor Changes

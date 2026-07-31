@@ -1,5 +1,20 @@
 # @checkstack/ai-backend
 
+## 0.11.6
+
+### Patch Changes
+
+- c38551f: Regenerate the docs index for the updated mentions page
+
+  The frontend mentions guide now documents the shared `filterMentionCandidates`
+  ranking (active-first, and why closed records are offered at all), the
+  `isActive` field on `MentionSuggestion`, and the picker's portal behaviour.
+
+  - @checkstack/catalog-common@2.8.3
+  - @checkstack/sdk@0.137.1
+  - @checkstack/backend-api@0.35.1
+  - @checkstack/integration-backend@0.7.11
+
 ## 0.11.5
 
 ### Patch Changes

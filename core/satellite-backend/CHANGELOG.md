@@ -1,5 +1,19 @@
 # @checkstack/satellite-backend
 
+## 0.10.1
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.11.10
+- @checkstack/healthcheck-backend@1.23.1
+- @checkstack/healthcheck-common@1.19.2
+- @checkstack/backend-api@0.35.1
+- @checkstack/satellite-common@0.12.1
+- @checkstack/script-packages-backend@0.4.8
+- @checkstack/command-backend@0.3.1
+- @checkstack/gitops-backend@0.5.29
+- @checkstack/secrets-backend@0.3.11
+
 ## 0.10.0
 
 ### Minor Changes

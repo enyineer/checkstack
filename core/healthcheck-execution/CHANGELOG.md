@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-execution
 
+## 0.35.2
+
+### Patch Changes
+
+- @checkstack/backend-api@0.35.1
+
 ## 0.35.1
 
 ### Patch Changes

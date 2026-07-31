@@ -1,5 +1,18 @@
 # @checkstack/automation-backend
 
+## 0.11.10
+
+### Patch Changes
+
+- Updated dependencies [c38551f]
+  - @checkstack/ai-backend@0.11.6
+  - @checkstack/healthcheck-common@1.19.2
+  - @checkstack/sdk@0.137.1
+  - @checkstack/backend-api@0.35.1
+  - @checkstack/script-packages-backend@0.4.8
+  - @checkstack/command-backend@0.3.1
+  - @checkstack/gitops-backend@0.5.29
+
 ## 0.11.9
 
 ### Patch Changes

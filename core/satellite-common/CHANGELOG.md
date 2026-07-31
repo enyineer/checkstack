@@ -1,5 +1,11 @@
 # @checkstack/satellite-common
 
+## 0.12.1
+
+### Patch Changes
+
+- @checkstack/healthcheck-common@1.19.2
+
 ## 0.12.0
 
 ### Minor Changes
