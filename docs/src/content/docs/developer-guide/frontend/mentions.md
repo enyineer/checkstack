@@ -61,8 +61,8 @@ rendering starts.
 
 The backing procedure (`resolveIncidentRefs` / `resolveMaintenanceRefs`) takes
 ids and returns only those the caller may read. It is deliberately NOT a filter
-over the plugin's own search list: that list is shaped for authoring - the
-incident search hides resolved incidents, and pagination would hide more - so a
+over the plugin's own search list: that list is shaped for authoring - it is
+capped at `MAX_MENTION_RESULTS`, and pagination would hide more - so a
 reference missing from it is not evidence the reader cannot open it. It returns
 ids and nothing else, so an unreadable record is indistinguishable from a
 deleted one.
@@ -129,10 +129,20 @@ headless component mounted on an **app-level** slot:
 ```tsx
 export const IncidentMentionRegistrar = () => {
   const client = usePluginClient(IncidentApi);
-  const { data } = client.listIncidents.useQuery({});
+  // Closed records are INCLUDED - see "Ranking" below.
+  const { data } = client.listIncidents.useQuery({ includeResolved: true });
 
   useEffect(() => {
-    setMentionSearch({ type: "incident", search: async ({ query }) => /* ... */ });
+    const candidates = (data?.incidents ?? []).map((incident) => ({
+      id: incident.id,
+      label: incident.title,
+      description: `Incident - ${incident.status}`,
+      isActive: incident.status !== "resolved",
+    }));
+    setMentionSearch({
+      type: "incident",
+      search: async ({ query }) => filterMentionCandidates({ candidates, query }),
+    });
   }, [data]);
 
   return <></>;
@@ -149,6 +159,30 @@ an information channel of its own: offering a title the viewer is not allowed to
 see leaks it whether or not they pick it. Both built-in providers rely on their
 list procedure's `listKey` post-filter for this.
 
+### Ranking
+
+Use `filterMentionCandidates` from `@checkstack/frontend-api` rather than
+ranking in your own plugin, so every type is ordered the same way inside one
+dropdown. It matches case-insensitively on the label and ranks:
+
+1. **Active before closed**, keyed on `MentionSuggestion.isActive`.
+2. **Prefix before mid-word** (only when something has been typed).
+3. **Alphabetically**; with an empty query your own order is preserved, so the
+   "just pressed `#`" list keeps the API's recency order.
+
+Closed records are offered, not hidden - referencing a resolved incident from a
+follow-up is a normal thing to write, and a picker that refuses makes it
+unauthorable at exactly the moment you want it. Ranking them last is what keeps
+that safe: finished records accumulate without bound while active ones do not.
+
+> [!NOTE]
+> Active-first outranks relevance, so an author hunting a CLOSED record by name
+> will not see it while `MAX_MENTION_RESULTS` active records also match - they
+> have to type enough to narrow the active set.
+
+`isActive` is optional and treated as **active** when omitted, so a provider
+with no lifecycle is not demoted below every other type's live records.
+
 ## Consuming it
 
 ```tsx
@@ -157,6 +191,20 @@ const { onMentionSearch, resolveMention } = useMentions();
 <MarkdownEditor value={message} onChange={setMessage} onMentionSearch={onMentionSearch} />
 <MarkdownBlock resolveMention={resolveMention}>{description}</MarkdownBlock>
 ```
+
+Pass `onMentionSearch` to every markdown field whose content is rendered with a
+`resolveMention` - descriptions as well as update messages. Omitting it does not
+degrade gracefully: `#` becomes an ordinary character and the author gets no
+picker, while the renderer still resolves references perfectly well, so the
+field ends up readable but not writable.
+
+The picker itself is a Radix `Popover` anchored to the textarea, so it renders
+in a **portal** - inside a modal Dialog, into that dialog's content (see
+`portalContainer`). Two consequences worth knowing: it is not a DOM descendant
+of the editor, so tests must query the document rather than the editor's
+container; and it escapes the editor shell's `overflow-hidden`, which is the
+whole point - an absolutely-positioned list there is clipped to the height of
+the field.
 
 `ReferencedItems` derives a "referenced items" list by scanning the authored
 markdown - the description plus every update - on each render:

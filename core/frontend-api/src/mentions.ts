@@ -21,6 +21,20 @@ export interface MentionSuggestion {
   label: string;
   /** Optional second line - a status, a date - to disambiguate similar titles. */
   description?: string;
+  /**
+   * Whether the record is still LIVE (an open incident, a window that has not
+   * finished) as opposed to closed, resolved, completed or cancelled.
+   *
+   * Drives ordering only, never inclusion: closed records stay mentionable -
+   * a post-mortem referencing last week's outage is a normal thing to write -
+   * but they sort behind everything still active, because the record an author
+   * means while typing is overwhelmingly a current one.
+   *
+   * Optional, and treated as ACTIVE when omitted, so a provider that has no
+   * lifecycle to speak of (or has not been updated) keeps its existing order
+   * rather than being silently demoted below every other type's live records.
+   */
+  isActive?: boolean;
 }
 
 export interface MentionProvider {
