@@ -11,7 +11,7 @@ import {
   type DataTableColumn,
   PageLayout,
   StatusPill,
-  Markdown,
+  MarkdownBlock,
   cn,
   usePerformance,
 } from "@checkstack/ui";
@@ -468,7 +468,10 @@ function EndpointCard({
           <CardContent className="space-y-4 border-t border-border/60 bg-surface/40 pl-5 pt-4">
           {operation.description && (
             <div className="text-sm leading-relaxed text-muted-foreground">
-              <Markdown>{operation.description}</Markdown>
+              {/* Block: an operation description is authored prose that may
+                  carry lists and paragraphs, which the inline renderer runs
+                  together into a single line. */}
+              <MarkdownBlock size="sm">{operation.description}</MarkdownBlock>
             </div>
           )}
 

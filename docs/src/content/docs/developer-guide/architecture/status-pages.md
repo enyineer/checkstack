@@ -238,6 +238,71 @@ Built-in widgets omit `rendererRemote` (they are bundled into the public bundle)
 
 See [Custom domains](#a-separate-public-bundle) for how the bundle loads remotes securely.
 
+### Rendering operator-authored markdown
+
+Anything an operator typed - an incident or maintenance description, an update
+message in the history timeline, a Text widget - is markdown, and it MUST render
+through `MarkdownBlock` from `@checkstack/ui`, never the inline `Markdown`:
+
+```tsx
+<MarkdownBlock
+  size="sm"
+  className="text-foreground"
+  resolveMention={resolveMention}
+>
+  {update.message}
+</MarkdownBlock>
+```
+
+The inline `Markdown` maps every paragraph to a `<span>` and registers no
+heading, list, blockquote, or table renderers. On a public page that reads as
+"markdown is not rendered at all", and because its output is inline it also
+drags whatever label sits above it onto the same line. `MarkdownBlock` emits
+real block elements and runs the same remark/rehype chain and sanitizer as the
+editor preview, so what the author previewed is what a visitor sees. Reserve
+the inline `Markdown` for genuinely inline spots - a one-line summary inside a
+table cell or a pill - where a block element would break the layout.
+
+Pass `resolveMention` so `#` references resolve to the items THIS page
+publishes; omitting it renders the label as plain text, which is the safe
+default. See [Mentions](/checkstack/developer-guide/frontend/mentions/).
+
+The incident/maintenance history timeline itself is one shared component
+(`UpdatesTimeline` in `status-page-frontend`), used by both the event widgets
+and the public detail pages, so the two surfaces cannot drift apart again.
+
+Its rail dot shows the status the event was IN at each entry, not just at the
+entries that changed something. Updates arrive newest-first, so an update that
+changes no status inherits the nearest change at or before it - never a NEWER
+one, which would claim an incident was already resolved while it was still
+being investigated. Only an entry older than every change in the published
+window (the widget caps how many updates it emits) falls back to
+`fallbackTone`, which callers set to the event's own tone: an incident's
+severity, a maintenance's status, per the "at most one coloured dimension per
+row" rule in `status-tone.ts`.
+
+The carry-forward itself is `resolveEffectiveStatuses` in `@checkstack/ui`,
+shared with the in-app `StatusUpdateTimeline`:
+
+```ts
+resolveEffectiveStatuses(["monitoring", undefined, "identified"]);
+// -> ["monitoring", "identified", "identified"]
+```
+
+The in-app timeline hands each dot the same answer as `renderDot`'s third
+argument, because a caller holding a single update cannot derive it:
+
+```tsx
+<StatusUpdateTimeline
+  updates={updates}
+  renderDot={(_update, _index, statusInEffect) => (
+    <TimelineDot
+      className={pillToneStyles[toneFor(statusInEffect ?? currentStatus)].dot}
+    />
+  )}
+/>
+```
+
 ## Anonymous email subscriptions
 
 A page can opt in to anonymous EMAIL subscriptions (off by default). A visitor enters an address on the public page; the flow is double opt-in (a verification link), rate-limited per page, and every email carries a one-click unsubscribe token. `subscribeToStatusPage` ALWAYS resolves to a uniform `{ ok: true }` regardless of whether the page or address exists, so it can never enumerate pages or subscribers.

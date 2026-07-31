@@ -3,7 +3,8 @@ import { Calendar, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { Badge } from "./Badge";
 import { EmptyState } from "./EmptyState";
-import { Markdown, type MentionResolver } from "./Markdown";
+import { MarkdownBlock, type MentionResolver } from "./Markdown";
+import { resolveEffectiveStatuses } from "./StatusUpdateTimeline.logic";
 
 export interface TimelineItem {
   /** Unique identifier for the item */
@@ -218,15 +219,27 @@ export interface StatusUpdateTimelineProps<
    */
   renderActions?: (item: T) => React.ReactNode;
   /**
-   * Optional per-item rail dot. Forwarded straight to {@link Timeline}.
+   * Optional per-item rail dot.
    *
    * The owning plugin decides WHICH dimension gets the hue - see the "at most
    * one coloured dimension per row" rule in `status-tone.ts`. A domain with
    * both an urgency and a lifecycle (incidents) colours the URGENCY here;
    * a domain with only a lifecycle (maintenance) colours that. Build the dot
    * with {@link TimelineDot} so it stays centred on the rail.
+   *
+   * `statusInEffect` is the status the record was IN when this update was
+   * posted, which is what a lifecycle-coloured dot wants: an update that
+   * changed nothing inherits the last status set before it rather than
+   * dropping to a barely-visible neutral. The timeline computes it over its
+   * own sort order (see {@link resolveEffectiveStatuses}) because a caller
+   * holding only one item cannot. It is `undefined` only when NO update at or
+   * before this one changed status - fall back to the record's own tone then.
    */
-  renderDot?: (item: T, index: number) => React.ReactNode;
+  renderDot?: (
+    item: T,
+    index: number,
+    statusInEffect: TStatus | undefined
+  ) => React.ReactNode;
   /**
    * Resolves cross-entity mentions in update messages for THIS context. Omit on
    * a surface where references should not be linkable - they then render as
@@ -278,6 +291,21 @@ export function StatusUpdateTimeline<
     date: update.createdAt,
   }));
 
+  // The status each update was posted UNDER, keyed by id.
+  //
+  // Keyed by id, not index: `Timeline` sorts its own copy, so the index a
+  // `renderDot` receives indexes the SORTED list while `updates` arrives in
+  // whatever order the caller held. An id lookup is order-proof.
+  const effectiveByUpdateId = React.useMemo(() => {
+    const newestFirst = [...updates].toSorted(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const effective = resolveEffectiveStatuses(
+      newestFirst.map((u) => u.statusChange as TStatus | undefined)
+    );
+    return new Map(newestFirst.map((u, i) => [u.id, effective[i]]));
+  }, [updates]);
+
   return (
     <Timeline
       items={timelineItems}
@@ -286,7 +314,12 @@ export function StatusUpdateTimeline<
       maxHeight={maxHeight}
       showTimeline={showTimeline}
       className={className}
-      {...(renderDot ? { renderDot } : {})}
+      {...(renderDot
+        ? {
+            renderDot: (item: (typeof timelineItems)[number], index: number) =>
+              renderDot(item, index, effectiveByUpdateId.get(item.id)),
+          }
+        : {})}
       renderItem={(update) => (
         <StatusUpdateTimelineItem
           update={update}
@@ -342,16 +375,21 @@ function StatusUpdateTimelineItem<
       }
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        {/* Markdown so **bold**, links, and lists in an operator's update
-            render as intended. Sanitized inside <Markdown> (rehype-sanitize),
-            which matters because this timeline is also reached from the
-            public status page. */}
-        <Markdown
-          className="text-foreground"
+        {/* BLOCK markdown, so headings, lists, and separate paragraphs in an
+            operator's update render as authored. The inline <Markdown> was used
+            here and maps every paragraph to a <span> with no heading/list
+            renderers at all, which read as "markdown is ignored" - while the
+            editor's own preview (MarkdownBlock) showed the author otherwise.
+            Sanitized inside the component (rehype-sanitize), which matters
+            because this timeline is also reached from the public status page.
+            `min-w-0 flex-1` keeps a long line from squeezing the actions beside
+            it now that the body is a block element. */}
+        <MarkdownBlock
+          className="min-w-0 flex-1 text-foreground"
           {...(resolveMention ? { resolveMention } : {})}
         >
           {update.message}
-        </Markdown>
+        </MarkdownBlock>
         <div className="flex shrink-0 items-center gap-1.5">
           {renderMeta?.(update)}
           {update.statusChange && renderBadge(update.statusChange as TStatus)}
@@ -434,12 +472,12 @@ function StatusUpdateTimelineItem<
                   </>
                 )}
               </div>
-              <Markdown
+              <MarkdownBlock
                 className="text-foreground/80"
                 {...(resolveMention ? { resolveMention } : {})}
               >
                 {snapshot.message}
-              </Markdown>
+              </MarkdownBlock>
             </div>
           ))}
         </div>

@@ -7,7 +7,9 @@ import {
   HelpCircle,
   CalendarCheck,
 } from "lucide-react";
-import { Markdown, MarkdownBlock, formatPercent,
+import {
+  MarkdownBlock,
+  formatPercent,
   StatusPill,
   pillToneStyles,
   type MentionResolver,
@@ -41,10 +43,14 @@ import {
   maintenanceStatusLabel,
   maintenanceStatusTone,
 } from "./utils/maintenanceStatusTone";
+import { formatAt } from "./utils/formatAt";
 import {
-  incidentStatusLabel,
-  incidentStatusTone,
-} from "./utils/incidentStatusTone";
+  UpdatesTimeline,
+  INCIDENT_STATUS_PRESENTER,
+  MAINTENANCE_STATUS_PRESENTER,
+  type PublicUpdate,
+  type StatusChangePresenter,
+} from "./components/UpdatesTimeline";
 
 export {
   mergeWidgetRenderers,
@@ -396,12 +402,6 @@ const UptimeRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
-const formatAt = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-
 /**
  * Depth card for an ACTIVE incident / maintenance item: layered surface,
  * soft shadow, and a severity-driven left accent stripe so a live event
@@ -420,77 +420,25 @@ const ActiveEventCard: React.FC<{
   </article>
 );
 
-type Update = { message: string; statusChange?: string; at: string };
-
 /**
- * Maps an update's `statusChange` (a raw incident/maintenance status) to its
- * tone + label, so the timeline colours the status line by domain. Incidents
- * pass the incident mapping, maintenance the maintenance one.
+ * The event history, shared with the public detail pages. The widget takes the
+ * resolver from {@link StatusMentionContext}; the detail pages pass their own.
  */
-interface StatusChangePresenter {
-  tone: (status: string) => StatusPillTone;
-  label: (status: string) => string;
-}
-
-const UpdatesTimeline: React.FC<{
-  updates: Update[];
+const WidgetUpdatesTimeline: React.FC<{
+  updates: PublicUpdate[];
   status: StatusChangePresenter;
-}> = ({ updates, status }) => {
+  fallbackTone: StatusPillTone;
+}> = ({ updates, status, fallbackTone }) => {
   const resolveMention = React.useContext(StatusMentionContext);
-  if (updates.length === 0) return null;
   return (
-    <ol className="mt-3 space-y-3 border-l border-border pl-4">
-      {updates.map((u, i) => (
-        <li key={i} className="relative">
-          {/* The dot takes the SAME tone as the status label below it, so the
-              rail reads as a coloured history at a glance. An update that
-              changes nothing keeps the neutral rail colour - the hue always
-              means "the status moved here". */}
-          <span
-            className={`absolute -left-[21px] top-1 size-2 rounded-full ${
-              u.statusChange
-                ? pillToneStyles[status.tone(u.statusChange)].dot
-                : "bg-border"
-            }`}
-          />
-          {u.statusChange && (
-            // The status change on its OWN line, COLOURED by its status (the
-            // reported bug rendered it in the muted grey `text-muted-foreground`,
-            // making it hard to tell the status apart from the message).
-            <span
-              className={`mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide ${pillToneStyles[status.tone(u.statusChange)].text}`}
-            >
-              {status.label(u.statusChange)}
-            </span>
-          )}
-          {/* Sanitized markdown (rehype-sanitize inside <Markdown>): this is the
-              public, anonymous status page, so the update body must render its
-              formatting without opening an XSS surface. A `#` mention becomes a
-              link only when THIS page also publishes the referenced item; see
-              StatusMentionContext. */}
-          <Markdown
-            className="text-sm text-foreground"
-            {...(resolveMention ? { resolveMention } : {})}
-          >
-            {u.message}
-          </Markdown>
-          <p className="text-[11px] tabular-nums text-muted-foreground">
-            {formatAt(u.at)}
-          </p>
-        </li>
-      ))}
-    </ol>
+    <UpdatesTimeline
+      updates={updates}
+      status={status}
+      fallbackTone={fallbackTone}
+      className="mt-3"
+      {...(resolveMention ? { resolveMention } : {})}
+    />
   );
-};
-
-/** Status-change presenters, one per event domain. */
-const INCIDENT_STATUS_PRESENTER: StatusChangePresenter = {
-  tone: incidentStatusTone,
-  label: incidentStatusLabel,
-};
-const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
-  tone: maintenanceStatusTone,
-  label: maintenanceStatusLabel,
 };
 
 /** Section divider label for the "recently resolved / past" subsection. */
@@ -571,7 +519,11 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affected: {inc.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={inc.updates} status={INCIDENT_STATUS_PRESENTER} />
+              <WidgetUpdatesTimeline
+                updates={inc.updates}
+                status={INCIDENT_STATUS_PRESENTER}
+                fallbackTone={severityTone(inc.severity)}
+              />
             </ActiveEventCard>
           ))
         )}
@@ -650,7 +602,11 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affecting: {m.systems.join(", ")}
                 </p>
               )}
-              <UpdatesTimeline updates={m.updates} status={MAINTENANCE_STATUS_PRESENTER} />
+              <WidgetUpdatesTimeline
+                updates={m.updates}
+                status={MAINTENANCE_STATUS_PRESENTER}
+                fallbackTone={maintenanceStatusTone(m.status)}
+              />
             </MaintenanceEventCard>
           ))
         )}

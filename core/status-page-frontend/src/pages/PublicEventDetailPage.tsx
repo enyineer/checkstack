@@ -3,11 +3,10 @@ import { useParams } from "react-router";
 import {
   EmptyState,
   LoadingSpinner,
-  Markdown,
+  MarkdownBlock,
   StatusPill,
   pillToneStyles,
   type MentionResolver,
-  type StatusPillTone,
 } from "@checkstack/ui";
 import { ArrowLeft, FileQuestion, Wrench } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -20,6 +19,7 @@ import type { BuildDetailHref } from "../renderers";
 import { usePublicMentions } from "../use-public-mentions";
 import { buildInAppDetailHref } from "../public-detail-href";
 import { severityTone } from "../utils/severityTone";
+import { formatAt } from "../utils/formatAt";
 import {
   maintenanceStatusLabel,
   maintenanceStatusTone,
@@ -28,6 +28,11 @@ import {
   incidentStatusLabel,
   incidentStatusTone,
 } from "../utils/incidentStatusTone";
+import {
+  UpdatesTimeline,
+  INCIDENT_STATUS_PRESENTER,
+  MAINTENANCE_STATUS_PRESENTER,
+} from "../components/UpdatesTimeline";
 
 /**
  * Public incident / maintenance DETAIL pages. Each renders ENTIRELY from a
@@ -37,12 +42,6 @@ import {
  * enumeration, no `createdBy` leak). Driven by `slug` (the page) + `id` (the
  * item), plus a `backHref` for the "back to status page" link.
  */
-
-const formatAt = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 
 const BackLink: React.FC<{ href: string }> = ({ href }) => (
   <a
@@ -62,81 +61,26 @@ const DetailShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-type PublicUpdate = { message: string; statusChange?: string; at: string };
-
-interface StatusChangePresenter {
-  tone: (status: string) => StatusPillTone;
-  label: (status: string) => string;
-}
-
-const UpdatesTimeline: React.FC<{
-  updates: PublicUpdate[];
-  status: StatusChangePresenter;
-  resolveMention: MentionResolver;
-}> = ({ updates, status, resolveMention }) => {
-  if (updates.length === 0) return null;
-  return (
-    <ol className="mt-5 space-y-4 border-l border-border pl-4">
-      {updates.map((u, i) => (
-        <li key={i} className="relative">
-          {/* The dot takes the SAME tone as the status label below it, so the
-              rail reads as a coloured history at a glance. An update that
-              changes nothing keeps the neutral rail colour - the hue always
-              means "the status moved here". */}
-          <span
-            className={`absolute -left-[21px] top-1 size-2 rounded-full ${
-              u.statusChange
-                ? pillToneStyles[status.tone(u.statusChange)].dot
-                : "bg-border"
-            }`}
-          />
-          {u.statusChange && (
-            // The status change on its own line, COLOURED by its status (was the
-            // muted grey `text-muted-foreground`), with the message underneath.
-            <span
-              className={`mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide ${pillToneStyles[status.tone(u.statusChange)].text}`}
-            >
-              {status.label(u.statusChange)}
-            </span>
-          )}
-          {/* Sanitized markdown - render the authored formatting rather than the
-              raw source (the reported bug showed the raw string). */}
-          <Markdown
-            className="text-sm text-foreground"
-            resolveMention={resolveMention}
-          >
-            {u.message}
-          </Markdown>
-          <p className="text-[11px] tabular-nums text-muted-foreground">
-            {formatAt(u.at)}
-          </p>
-        </li>
-      ))}
-    </ol>
-  );
-};
-
-const INCIDENT_STATUS_PRESENTER: StatusChangePresenter = {
-  tone: incidentStatusTone,
-  label: incidentStatusLabel,
-};
-const MAINTENANCE_STATUS_PRESENTER: StatusChangePresenter = {
-  tone: maintenanceStatusTone,
-  label: maintenanceStatusLabel,
-};
-
-/** The event's long-form description, rendered as markdown when present. */
+/**
+ * The event's long-form description, rendered as BLOCK markdown when present.
+ *
+ * Block, not the inline `<Markdown>`: a description is authored prose that can
+ * carry headings, lists, and multiple paragraphs, and the inline renderer
+ * collapses every one of those into a `<span>` - which read as "markdown is not
+ * rendered at all" on this page.
+ */
 const Description: React.FC<{
   description?: string;
   resolveMention: MentionResolver;
 }> = ({ description, resolveMention }) =>
   description && description.trim().length > 0 ? (
-    <Markdown
-      className="mt-4 text-sm text-foreground"
+    <MarkdownBlock
+      size="sm"
+      className="mt-4 text-foreground"
       resolveMention={resolveMention}
     >
       {description}
-    </Markdown>
+    </MarkdownBlock>
   ) : null;
 
 const LoadingShell: React.FC = () => (
@@ -227,7 +171,9 @@ export const PublicIncidentDetailView: React.FC<{
       <UpdatesTimeline
         updates={data.updates}
         status={INCIDENT_STATUS_PRESENTER}
+        fallbackTone={severityTone(data.severity)}
         resolveMention={resolveMention}
+        className="mt-5"
       />
     </DetailShell>
   );
@@ -295,7 +241,9 @@ export const PublicMaintenanceDetailView: React.FC<{
       <UpdatesTimeline
         updates={data.updates}
         status={MAINTENANCE_STATUS_PRESENTER}
+        fallbackTone={maintenanceStatusTone(data.status)}
         resolveMention={resolveMention}
+        className="mt-5"
       />
     </DetailShell>
   );

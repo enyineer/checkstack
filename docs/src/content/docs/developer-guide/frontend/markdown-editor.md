@@ -72,6 +72,31 @@ unit-tested without mounting a textarea. Behaviour worth knowing:
 - With nothing selected, a mark inserts a placeholder and selects it, so the
   author types straight over it.
 
+## Rendering the saved value: `MarkdownBlock`, not `Markdown`
+
+Whatever an editor saved is authored prose, so render it with `MarkdownBlock`.
+The inline `Markdown` is a different component for a different job: it maps
+every paragraph to a `<span>` and registers no heading, list, blockquote,
+table, or code-block renderers at all.
+
+```tsx
+// Authored content - headings, lists, several paragraphs.
+<MarkdownBlock size="sm" resolveMention={resolveMention}>
+  {update.message}
+</MarkdownBlock>
+```
+
+> [!WARNING]
+> Reaching for the inline `Markdown` here fails in a way that is easy to miss in
+> review: nothing errors, the text is all present, and a single short line looks
+> identical. It only breaks once someone authors real structure - and because
+> the preview above renders through `MarkdownBlock`, the author is told their
+> formatting is fine while the saved page silently flattens it.
+
+Reserve the inline `Markdown` for genuinely inline spots - a summary inside a
+table cell, a label, a compact list row - where a block element would break the
+layout.
+
 ## Where it is used
 
 Incident and maintenance update forms, incident and maintenance descriptions,
