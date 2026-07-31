@@ -1,5 +1,11 @@
 # @checkstack/notification-gotify-backend
 
+## 0.2.10
+
+### Patch Changes
+
+- @checkstack/notification-backend@1.8.9
+
 ## 0.2.9
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @checkstack/announcement-backend
 
+## 0.6.10
+
+### Patch Changes
+
+- @checkstack/status-page-backend@0.7.2
+
 ## 0.6.9
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @checkstack/pluginmanager-frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ui@1.33.0
+  - @checkstack/tips-frontend@0.5.8
+
 ## 0.7.1
 
 ### Patch Changes
