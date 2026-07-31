@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/metricstream-backend",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Metric stream ingestion, storage, scraping and health integration",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

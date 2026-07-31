@@ -1,5 +1,12 @@
 # @checkstack/ai-frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ui@1.33.0
+
 ## 0.7.1
 
 ### Patch Changes

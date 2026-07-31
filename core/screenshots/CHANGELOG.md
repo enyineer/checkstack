@@ -1,5 +1,16 @@
 # @checkstack/screenshots
 
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ai-backend@0.11.7
+  - @checkstack/anomaly-backend@1.5.9
+  - @checkstack/healthcheck-backend@1.23.2
+  - @checkstack/slo-backend@0.12.9
+  - @checkstack/notification-backend@1.8.9
+
 ## 0.0.12
 
 ### Patch Changes

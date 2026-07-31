@@ -1,5 +1,12 @@
 # @checkstack/cache-frontend
 
+## 0.6.12
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ui@1.33.0
+
 ## 0.6.11
 
 ### Patch Changes

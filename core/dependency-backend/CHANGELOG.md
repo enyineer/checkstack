@@ -1,5 +1,15 @@
 # @checkstack/dependency-backend
 
+## 1.7.9
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ai-backend@0.11.7
+  - @checkstack/automation-backend@0.11.11
+  - @checkstack/catalog-backend@1.10.4
+  - @checkstack/healthcheck-backend@1.23.2
+
 ## 1.7.8
 
 ### Patch Changes

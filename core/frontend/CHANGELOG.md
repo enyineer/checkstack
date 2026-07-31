@@ -1,5 +1,19 @@
 # @checkstack/frontend
 
+## 0.17.2
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/status-page-frontend@0.10.0
+  - @checkstack/ui@1.33.0
+  - @checkstack/about-frontend@0.6.2
+  - @checkstack/announcement-frontend@0.11.2
+  - @checkstack/auth-frontend@0.16.2
+  - @checkstack/catalog-frontend@0.22.2
+  - @checkstack/command-frontend@0.6.2
+  - @checkstack/dependency-frontend@0.9.2
+
 ## 0.17.1
 
 ### Patch Changes

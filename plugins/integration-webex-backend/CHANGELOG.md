@@ -1,5 +1,11 @@
 # @checkstack/integration-webex-backend
 
+## 0.2.29
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.11.11
+
 ## 0.2.28
 
 ### Patch Changes

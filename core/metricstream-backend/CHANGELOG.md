@@ -1,5 +1,14 @@
 # @checkstack/metricstream-backend
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ai-backend@0.11.7
+  - @checkstack/satellite-backend@0.10.2
+  - @checkstack/telemetry-backend@0.2.2
+
 ## 0.2.3
 
 ### Patch Changes

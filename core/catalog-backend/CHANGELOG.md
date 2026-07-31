@@ -1,5 +1,13 @@
 # @checkstack/catalog-backend
 
+## 1.10.4
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ai-backend@0.11.7
+  - @checkstack/automation-backend@0.11.11
+
 ## 1.10.3
 
 ### Patch Changes

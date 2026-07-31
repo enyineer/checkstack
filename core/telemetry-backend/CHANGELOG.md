@@ -1,5 +1,11 @@
 # @checkstack/telemetry-backend
 
+## 0.2.2
+
+### Patch Changes
+
+- @checkstack/satellite-backend@0.10.2
+
 ## 0.2.1
 
 ### Patch Changes

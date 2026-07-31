@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/screenshots",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "license": "Elastic-2.0",
   "private": true,
   "checkstack": {

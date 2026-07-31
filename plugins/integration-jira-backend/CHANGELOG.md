@@ -1,5 +1,11 @@
 # @checkstack/integration-jira-backend
 
+## 0.7.22
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.11.11
+
 ## 0.7.21
 
 ### Patch Changes

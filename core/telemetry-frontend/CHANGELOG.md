@@ -1,5 +1,13 @@
 # @checkstack/telemetry-frontend
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [c83d0d1]
+  - @checkstack/ui@1.33.0
+  - @checkstack/auth-frontend@0.16.2
+
 ## 0.2.1
 
 ### Patch Changes
