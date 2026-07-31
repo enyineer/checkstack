@@ -19,7 +19,6 @@ import {
   StatusUpdateTimeline,
   TimelineDot,
   pillToneStyles,
-  neutralToneStyle,
   ConfirmationModal,
   useToast,
   toastError,
@@ -165,18 +164,21 @@ export const MaintenanceUpdatesSection: React.FC<Props> = ({
         // therefore adds no competing scale - it just makes the timeline
         // readable at a glance. Updates that change nothing stay neutral, so
         // the colour always means "the status moved here".
-        renderDot={(update) =>
-          update.statusChange ? (
-            <TimelineDot
-              className={
-                pillToneStyles[getMaintenanceStatusTone(update.statusChange)]
-                  .dot
-              }
-            />
-          ) : (
-            <TimelineDot className={neutralToneStyle.dot} />
-          )
-        }
+        // Maintenance has no severity, so its LIFECYCLE carries the hue
+        // (`status-tone.ts`). The dot shows the status the window was IN when
+        // the update was posted - an update that changed nothing inherits the
+        // last status set before it, rather than dropping to a grey that reads
+        // as "no information". Only an update older than every status change
+        // present falls back to the window's current status.
+        renderDot={(_update, _index, statusInEffect) => (
+          <TimelineDot
+            className={
+              pillToneStyles[
+                getMaintenanceStatusTone(statusInEffect ?? currentStatus)
+              ].dot
+            }
+          />
+        )}
         renderMeta={(u) => <VisibilityBadge visibility={u.visibility} />}
         renderActions={
           canManage

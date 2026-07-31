@@ -4,7 +4,7 @@ import {
   Input,
   Label,
   DynamicForm,
-  Markdown,
+  MarkdownBlock,
   listSecretFieldKeys,
   type TemplateCompletionProvider,
   type OptionsResolver,
@@ -160,7 +160,10 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
             </span>
           </summary>
           <div className="border-t border-border/60 px-3 py-2 text-sm">
-            <Markdown>{strategy.setupInstructions}</Markdown>
+            {/* Block, not inline: a setup guide is long-form prose with
+                headings, numbered steps, and code blocks, all of which the
+                inline renderer flattens into one run of text. */}
+            <MarkdownBlock size="sm">{strategy.setupInstructions}</MarkdownBlock>
           </div>
         </details>
       )}
