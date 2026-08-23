@@ -18,6 +18,7 @@ import {
 } from "@checkstack/auth-common";
 import { qualifyAccessRuleId, isAccessRuleSatisfied } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
+import { createLocalAccountIssuer } from "better-auth/db";
 import * as schema from "./schema";
 import { RelationTupleStore } from "./relation-tuple-store";
 
@@ -889,7 +890,7 @@ export const createAuthRouter = (
 
       // Hash outside the transaction (it is slow; nothing depends on the lock).
       const userId = crypto.randomUUID();
-      const accountId = crypto.randomUUID();
+      const accountEntryId = crypto.randomUUID();
       const hashedPassword = await hashPassword(password);
       const now = new Date();
 
@@ -927,8 +928,9 @@ export const createAuthRouter = (
 
         // Create credential account
         await tx.insert(schema.account).values({
-          id: accountId,
-          accountId: email,
+          id: accountEntryId,
+          issuer: createLocalAccountIssuer("credential"),
+          accountId: userId,
           providerId: "credential",
           userId,
           password: hashedPassword,
@@ -1052,18 +1054,8 @@ export const createAuthRouter = (
         .set(updates)
         .where(eq(schema.user.id, user.id));
 
-      // If email was updated, also update the credential account's accountId
-      if (email !== undefined) {
-        await internalDb
-          .update(schema.account)
-          .set({ accountId: email, updatedAt: new Date() })
-          .where(
-            and(
-              eq(schema.account.userId, user.id),
-              eq(schema.account.providerId, "credential"),
-            ),
-          );
-      }
+      // Better Auth 1.7 keeps credential account identity stable on user.id;
+      // changing the mutable email must not change the account key.
     },
   );
 
@@ -1188,6 +1180,7 @@ export const createAuthRouter = (
           // Create account
           await tx.insert(schema.account).values({
             id: accountEntryId,
+            issuer: createLocalAccountIssuer(providerId),
             accountId,
             providerId,
             userId,
@@ -1384,7 +1377,7 @@ export const createAuthRouter = (
 
       // Create user directly in database (bypasses registration check)
       const userId = crypto.randomUUID();
-      const accountId = crypto.randomUUID();
+      const accountEntryId = crypto.randomUUID();
       const hashedPassword = await hashPassword(password);
       const now = new Date();
 
@@ -1401,8 +1394,9 @@ export const createAuthRouter = (
 
         // Create credential account
         await tx.insert(schema.account).values({
-          id: accountId,
-          accountId: email,
+          id: accountEntryId,
+          issuer: createLocalAccountIssuer("credential"),
+          accountId: userId,
           providerId: "credential",
           userId,
           password: hashedPassword,

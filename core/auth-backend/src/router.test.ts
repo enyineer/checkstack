@@ -294,6 +294,14 @@ describe("Auth Router", () => {
 
   it("upsertExternalUser creates new user and account", async () => {
     const context = createMockRpcContext({ user: mockServiceUser });
+    const insertedValues: Array<Record<string, unknown>> = [];
+
+    mockDb.insert = mock(() => ({
+      values: mock((values: Record<string, unknown>) => {
+        insertedValues.push(values);
+        return createChain();
+      }),
+    }));
 
     // Mock user not found (empty result)
     mockDb.select.mockImplementationOnce(() => ({
@@ -318,6 +326,15 @@ describe("Auth Router", () => {
     expect(result.created).toBe(true);
     expect(result.userId).toBeDefined();
     expect(mockDb.transaction).toHaveBeenCalled();
+
+    const accountValues = insertedValues.find(
+      (values) => values.providerId === "ldap",
+    );
+    expect(accountValues).toMatchObject({
+      issuer: "local:ldap",
+      accountId: "ldapuser",
+      userId: result.userId,
+    });
   });
 
   it("upsertExternalUser updates existing user when autoUpdateUser is true", async () => {
@@ -676,6 +693,14 @@ describe("Auth Router", () => {
 
   it("createCredentialUser creates user with valid data", async () => {
     const context = createMockRpcContext({ user: mockUser });
+    const insertedValues: Array<Record<string, unknown>> = [];
+
+    mockDb.insert = mock(() => ({
+      values: mock((values: Record<string, unknown>) => {
+        insertedValues.push(values);
+        return createChain();
+      }),
+    }));
 
     // Mock credential strategy enabled
     mockConfigService.get.mockResolvedValueOnce({ enabled: true });
@@ -697,6 +722,15 @@ describe("Auth Router", () => {
 
     expect(result.userId).toBeDefined();
     expect(mockDb.transaction).toHaveBeenCalled();
+
+    const accountValues = insertedValues.find(
+      (values) => values.providerId === "credential",
+    );
+    expect(accountValues).toMatchObject({
+      issuer: "local:credential",
+      accountId: result.userId,
+      userId: result.userId,
+    });
   });
 
   it("createCredentialUser rejects weak password", async () => {
@@ -791,6 +825,14 @@ describe("Auth Router", () => {
 
   it("completeOnboarding creates first admin user", async () => {
     const context = createMockRpcContext({ user: undefined });
+    const insertedValues: Array<Record<string, unknown>> = [];
+
+    mockDb.insert = mock(() => ({
+      values: mock((values: Record<string, unknown>) => {
+        insertedValues.push(values);
+        return createChain();
+      }),
+    }));
 
     // No existing users
     mockDb.select.mockImplementationOnce(() => ({
@@ -809,6 +851,16 @@ describe("Auth Router", () => {
 
     expect(result.success).toBe(true);
     expect(mockDb.transaction).toHaveBeenCalled();
+
+    const accountValues = insertedValues.find(
+      (values) => values.providerId === "credential",
+    );
+    const userValues = insertedValues.find((values) => "email" in values);
+    expect(accountValues).toMatchObject({
+      issuer: "local:credential",
+      accountId: userValues?.id,
+      userId: userValues?.id,
+    });
   });
 
   it("completeOnboarding rejects when users already exist", async () => {
@@ -990,7 +1042,8 @@ describe("Auth Router", () => {
       { context },
     );
 
-    expect(mockDb.update).toHaveBeenCalled();
+    // Updating the email must not rewrite Better Auth's stable account key.
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
   it("updateCurrentUser rejects email update for OAuth users", async () => {
