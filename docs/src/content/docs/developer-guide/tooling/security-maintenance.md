@@ -203,9 +203,35 @@ maps them to a package.
 Renovate handles this. [`renovate.json`](https://github.com/enyineer/checkstack/blob/main/renovate.json)
 enables `lockFileMaintenance` on a daily schedule and disables every ordinary
 version-bump update type - `package.json` ranges stay hand-curated, and
-transitive pins stay in `security/managed-overrides.json`. Renovate deletes
-`bun.lock`, runs `bun install`, and force-pushes a single long-lived branch
+transitive pins stay in `security/managed-overrides.json`. Renovate delegates
+the lockfile operation to its Bun manager, which currently deletes `bun.lock`
+and runs `bun install`, then force-pushes a single long-lived branch
 (`renovate/lock-file-maintenance`), so there is at most one open PR.
+
+Do not switch this maintenance job to `bun update` yet. Bun 1.4's updater now
+refreshes transitive resolutions, but it also intentionally rewrites direct
+dependency ranges in `package.json` as part of saving the update. The
+`--lockfile-only` flag suppresses installation into `node_modules`; it does not
+mean "write only the lockfile". Bun's own lockfile-sync tests for the 1.4
+updater assert that `bun update --lockfile-only` changes both `package.json` and
+`bun.lock`.
+
+There is still no supported lockfile-only update mode that preserves the
+manifests. `bun update --no-save` leaves both files unchanged, while a targeted
+transitive update (`bun update <package>`) is not a complete refresh for this
+repository. Bun's request for a dedicated flag remains open
+([oven-sh/bun#30407](https://github.com/oven-sh/bun/issues/30407)); the proposed
+`--no-save-package-json` implementation was closed as stale when Bun moved to
+the Rust implementation ([oven-sh/bun#30438](https://github.com/oven-sh/bun/pull/30438)).
+
+On Bun 1.4.0, the conflicting combination `bun update --no-save
+--lockfile-only` happens to update `bun.lock` without changing `package.json`.
+Do not rely on it: the documented meaning of `--no-save` is that it does not
+save a lockfile, and upstream is actively correcting this flag interaction
+([oven-sh/bun#38804](https://github.com/oven-sh/bun/pull/38804)). It is also not
+a Renovate configuration option; Renovate's Bun manager currently hardcodes
+`bun install` for artifact updates. The current delete-and-install fallback is
+therefore intentional until Bun or Renovate ships a supported mode.
 
 > [!IMPORTANT]
 > Merging that PR does not release anything. It lands a changeset; the release
