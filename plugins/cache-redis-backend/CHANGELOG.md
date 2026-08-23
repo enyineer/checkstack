@@ -1,5 +1,12 @@
 # @checkstack/cache-redis-backend
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [68ef4b2]
+  - @checkstack/backend-api@0.35.2
+
 ## 0.1.6
 
 ### Patch Changes

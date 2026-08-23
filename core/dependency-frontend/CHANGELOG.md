@@ -1,5 +1,17 @@
 # @checkstack/dependency-frontend
 
+## 0.9.3
+
+### Patch Changes
+
+- Updated dependencies [68ef4b2]
+  - @checkstack/ui@1.33.1
+  - @checkstack/dashboard-frontend@0.12.3
+  - @checkstack/gitops-frontend@0.8.3
+  - @checkstack/catalog-common@2.8.4
+  - @checkstack/dependency-common@1.7.10
+  - @checkstack/healthcheck-common@1.19.3
+
 ## 0.9.2
 
 ### Patch Changes

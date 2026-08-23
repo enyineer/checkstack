@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.140.0
+
+### Minor Changes
+
+- c6dfbfb: Document the Bun 1.4 and Renovate lockfile-maintenance compatibility constraint.
+
 ## 0.139.0
 
 ### Minor Changes

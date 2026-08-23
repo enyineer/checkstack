@@ -1,5 +1,13 @@
 # @checkstack/integration-frontend
 
+## 0.9.3
+
+### Patch Changes
+
+- Updated dependencies [68ef4b2]
+  - @checkstack/ui@1.33.1
+  - @checkstack/tips-frontend@0.5.9
+
 ## 0.9.2
 
 ### Patch Changes

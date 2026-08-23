@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/ai-frontend",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

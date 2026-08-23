@@ -1,5 +1,11 @@
 # @checkstack/slo-common
 
+## 0.9.8
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.8.4
+
 ## 0.9.7
 
 ### Patch Changes

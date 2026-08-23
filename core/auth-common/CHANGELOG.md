@@ -1,5 +1,13 @@
 # @checkstack/auth-common
 
+## 0.17.1
+
+### Patch Changes
+
+- c972254: Upgrade Better Auth to 1.7.1, adopt the OAuth Provider MCP plugin, and enforce
+  shared PostgreSQL rate limits atomically. Preserve legacy OAuth tables during
+  the schema migration so existing clients can be re-registered safely.
+
 ## 0.17.0
 
 ### Minor Changes
