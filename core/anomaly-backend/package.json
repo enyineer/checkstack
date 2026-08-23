@@ -30,7 +30,7 @@
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.25",
+    "hono": "^4.12.34",
     "zod": "^4.2.1",
     "@orpc/contract": "^1.14.4",
     "@orpc/server": "^1.14.4"

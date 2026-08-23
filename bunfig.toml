@@ -16,7 +16,7 @@
 # older bun ignores it SILENTLY and you get no cooldown at all.
 minimumReleaseAge = 259200 # 3 days, in seconds
 # Escape hatch: packages exempted from the cooldown when a fix must land now.
-minimumReleaseAgeExcludes = []
+minimumReleaseAgeExcludes = ["bun-types", "@types/bun"]
 
 [test]
 # Preload mocks before any test file runs - this ensures mock.module()

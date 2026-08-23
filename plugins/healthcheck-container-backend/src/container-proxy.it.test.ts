@@ -11,7 +11,7 @@ import {
 //
 // This stands up the ACTUAL deployment the feature documents:
 //
-//   [ real docker daemon ] --(:ro socket)--> [ lscr.io/linuxserver/socket-proxy
+//   [ real docker daemon ] --(:ro socket)--> [ quay.io/linuxserver.io/socket-proxy
 //                                              CONTAINERS=1 INFO=1 POST=0 ]
 //                                                    ^ published on localhost
 //                            our REAL strategy/collectors  ---> the proxy
@@ -29,7 +29,7 @@ import {
 const PID = process.pid;
 const TARGET = `cs-proxy-it-target-${PID}`;
 const PROXY = `cs-proxy-it-proxy-${PID}`;
-const PROXY_IMAGE = "lscr.io/linuxserver/socket-proxy:latest";
+const PROXY_IMAGE = "quay.io/linuxserver.io/socket-proxy:latest";
 const TARGET_IMAGE = "alpine:3.20";
 
 interface DockerResult {
