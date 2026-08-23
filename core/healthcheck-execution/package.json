@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-execution",
-  "version": "0.35.2",
+  "version": "0.35.3",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {

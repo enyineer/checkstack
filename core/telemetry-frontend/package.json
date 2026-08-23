@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/telemetry-frontend",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Platform-level telemetry source/sink abstraction (pluggable sources for logs, metrics and traces)",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

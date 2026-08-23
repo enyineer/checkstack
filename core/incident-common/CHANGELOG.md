@@ -1,5 +1,11 @@
 # @checkstack/incident-common
 
+## 1.11.2
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.8.4
+
 ## 1.11.1
 
 ### Patch Changes

@@ -1,5 +1,22 @@
 # @checkstack/maintenance-frontend
 
+## 0.20.1
+
+### Patch Changes
+
+- c972254: Upgrade Better Auth to 1.7.1, adopt the OAuth Provider MCP plugin, and enforce
+  shared PostgreSQL rate limits atomically. Preserve legacy OAuth tables during
+  the schema migration so existing clients can be re-registered safely.
+- Updated dependencies [68ef4b2]
+- Updated dependencies [c972254]
+  - @checkstack/ui@1.33.1
+  - @checkstack/auth-frontend@0.16.3
+  - @checkstack/dashboard-frontend@0.12.3
+  - @checkstack/notification-frontend@0.10.3
+  - @checkstack/tips-frontend@0.5.9
+  - @checkstack/catalog-common@2.8.4
+  - @checkstack/maintenance-common@1.11.2
+
 ## 0.20.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/catalog-common",
-  "version": "2.8.3",
+  "version": "2.8.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

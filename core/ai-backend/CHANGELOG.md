@@ -1,5 +1,20 @@
 # @checkstack/ai-backend
 
+## 0.11.8
+
+### Patch Changes
+
+- c972254: Upgrade Better Auth to 1.7.1, adopt the OAuth Provider MCP plugin, and enforce
+  shared PostgreSQL rate limits atomically. Preserve legacy OAuth tables during
+  the schema migration so existing clients can be re-registered safely.
+- Updated dependencies [68ef4b2]
+- Updated dependencies [c972254]
+  - @checkstack/backend-api@0.35.2
+  - @checkstack/auth-common@0.17.1
+  - @checkstack/integration-backend@0.7.12
+  - @checkstack/catalog-common@2.8.4
+  - @checkstack/sdk@0.139.1
+
 ## 0.11.7
 
 ### Patch Changes

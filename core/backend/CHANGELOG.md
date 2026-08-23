@@ -1,5 +1,37 @@
 # @checkstack/backend
 
+## 0.27.0
+
+### Minor Changes
+
+- abec67b: Upgrade Checkstack to Bun 1.4.0, the first release of Bun's Rust-based runtime.
+
+  Bun 1.4.0 reduces idle CPU and memory usage, starts faster, improves Node.js compatibility, and fixes the `Bun.serve` WebSocket shutdown issue tracked in [oven-sh/bun#36223](https://github.com/oven-sh/bun/issues/36223). This gives the core and satellite runtimes a faster, lighter, and more compatible foundation.
+
+### Patch Changes
+
+- 68ef4b2: Security: auto-remediated fixable vulnerabilities flagged by the daily scan.
+
+  - `hono` 4.12.31 → 4.12.34 (CVE-2026-69207, CVE-2026-71848, CVE-2026-71850)
+  - `js-yaml` 4.3.0 → 4.3.1 (GHSA-5p4m-2wfm-xmqj)
+  - `postcss` 8.5.19 → 8.5.23 (CVE-2026-69153)
+  - `brace-expansion` 5.0.8 → 5.0.9 (CVE-2026-69152)
+  - `dompurify` 3.4.12 → 3.4.13 (GHSA-55q2-fjhq-7xh7)
+  - `fast-uri` 3.1.4 → 3.1.5 (CVE-2026-18446)
+  - `mermaid` 11.16.0 → 11.16.1 (CVE-2026-50159, CVE-2026-71436, CVE-2026-71437, CVE-2026-71439)
+  - `nanoid` 3.3.16 → 3.3.18 (CVE-2026-67213)
+  - `undici` 7.28.0 → 7.29.0 (CVE-2026-13697, CVE-2026-14643, CVE-2026-15157, CVE-2026-16728, CVE-2026-16729)
+
+- c972254: Upgrade Better Auth to 1.7.1, adopt the OAuth Provider MCP plugin, and enforce
+  shared PostgreSQL rate limits atomically. Preserve legacy OAuth tables during
+  the schema migration so existing clients can be re-registered safely.
+- c6dfbfb: Document the Bun 1.4 and Renovate lockfile-maintenance compatibility constraint.
+- Updated dependencies [68ef4b2]
+- Updated dependencies [c972254]
+  - @checkstack/backend-api@0.35.2
+  - @checkstack/auth-common@0.17.1
+  - @checkstack/signal-backend@0.3.30
+
 ## 0.26.1
 
 ### Patch Changes

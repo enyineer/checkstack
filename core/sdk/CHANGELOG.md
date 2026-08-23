@@ -1,5 +1,20 @@
 # @checkstack/sdk
 
+## 0.139.1
+
+### Patch Changes
+
+- Updated dependencies [c972254]
+  - @checkstack/auth-common@0.17.1
+  - @checkstack/catalog-common@2.8.4
+  - @checkstack/anomaly-common@1.8.6
+  - @checkstack/dependency-common@1.7.10
+  - @checkstack/healthcheck-common@1.19.3
+  - @checkstack/incident-common@1.11.2
+  - @checkstack/maintenance-common@1.11.2
+  - @checkstack/slo-common@0.9.8
+  - @checkstack/satellite-common@0.12.2
+
 ## 0.137.1
 
 ### Patch Changes

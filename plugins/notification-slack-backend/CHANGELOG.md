@@ -1,5 +1,13 @@
 # @checkstack/notification-slack-backend
 
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [68ef4b2]
+  - @checkstack/backend-api@0.35.2
+  - @checkstack/notification-backend@1.8.10
+
 ## 0.2.10
 
 ### Patch Changes

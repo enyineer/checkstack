@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-common
 
+## 1.19.3
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.8.4
+
 ## 1.19.2
 
 ### Patch Changes

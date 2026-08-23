@@ -1,5 +1,18 @@
 # @checkstack/auth-ldap-backend
 
+## 0.2.30
+
+### Patch Changes
+
+- c972254: Upgrade Better Auth to 1.7.1, adopt the OAuth Provider MCP plugin, and enforce
+  shared PostgreSQL rate limits atomically. Preserve legacy OAuth tables during
+  the schema migration so existing clients can be re-registered safely.
+- Updated dependencies [68ef4b2]
+- Updated dependencies [c972254]
+  - @checkstack/auth-backend@0.14.2
+  - @checkstack/backend-api@0.35.2
+  - @checkstack/auth-common@0.17.1
+
 ## 0.2.29
 
 ### Patch Changes
