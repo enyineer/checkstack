@@ -4,7 +4,7 @@
   "timezone": "UTC",
 
   "constraints": {
-    "bun": "1.3.14"
+    "bun": "1.4.0"
   },
 
   "description": "gitIgnoredAuthors lists the security-bot identity that renovate-changeset.yml uses to push the generated changeset onto the lock-file-maintenance branch. Without it, Renovate sees a commit it did not author, assumes a human edited the PR, and STOPS auto-rebasing (every lock-file PR goes stale the moment main moves ahead). Listing the bot makes Renovate ignore that commit for edit-detection and keep managing the PR; it recreates the branch on rebase and the workflow re-adds the changeset, so it is never lost.",
