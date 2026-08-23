@@ -16,7 +16,7 @@ export const authRoutes = createRoutes("auth", {
   onboarding: "/onboarding",
   /**
    * OAuth 2.1 consent screen for the AI platform's Authorization Server.
-   * better-auth's `oidcProvider` redirects the interactive authorization-code
+   * Better Auth's OAuth Provider redirects the interactive authorization-code
    * flow here (`consentPage: "/auth/oauth-consent"`) with `consent_code`,
    * `client_id`, and `scope` query params; the page POSTs the decision to
    * `/api/auth/oauth2/consent` and follows the returned `redirectURI`.

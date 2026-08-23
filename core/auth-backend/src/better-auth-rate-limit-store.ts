@@ -1,4 +1,4 @@
-import { eq, lt, sql } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 
@@ -27,7 +27,7 @@ export const RATE_LIMIT_ROW_TTL_MS = 24 * 60 * 60 * 1000;
  * rate-limit counters in the shared `better_auth_rate_limit` table, so the
  * counter is GLOBAL across every pod.
  *
- * The shape mirrors better-auth's internal `RateLimit` record exactly:
+ * The table shape mirrors better-auth's internal `RateLimit` record exactly:
  * `{ key, count, lastRequest }` where `lastRequest` is epoch milliseconds.
  */
 
@@ -38,22 +38,21 @@ export interface BetterAuthRateLimitRecord {
   lastRequest: number;
 }
 
-/** The minimal storage interface better-auth's limiter calls. */
+/** The atomic storage interface better-auth 1.7's limiter calls. */
 export interface BetterAuthRateLimitStorage {
-  get(key: string): Promise<BetterAuthRateLimitRecord | undefined>;
-  set(
+  consume(
     key: string,
-    value: BetterAuthRateLimitRecord,
-    isUpdate?: boolean,
-  ): Promise<void>;
+    rule: { window: number; max: number },
+  ): Promise<{ allowed: boolean; retryAfter: number | null }>;
 }
 
 /**
  * Build a shared-Postgres `customStorage` for better-auth's rate limiter.
  *
- * Reads/writes are single-statement and idempotent (`get` is a primary-key
- * lookup; `set` is an upsert), so concurrent pods converge on the same counter
- * without a read-modify-write race that could undercount.
+ * Each consume runs inside a transaction. The insert-if-absent path handles a
+ * new key, while the existing-row path locks the row before deciding whether
+ * to reset, increment, or reject it. That keeps the request check and counter
+ * update atomic across all pods.
  */
 export function createBetterAuthRateLimitStore({
   db,
@@ -61,40 +60,62 @@ export function createBetterAuthRateLimitStore({
   db: SafeDatabase<typeof schema>;
 }): BetterAuthRateLimitStorage {
   return {
-    async get(key) {
-      const rows = await db
-        .select({
-          key: schema.betterAuthRateLimit.key,
-          count: schema.betterAuthRateLimit.count,
-          lastRequest: schema.betterAuthRateLimit.lastRequest,
-        })
-        .from(schema.betterAuthRateLimit)
-        .where(eq(schema.betterAuthRateLimit.key, key))
-        .limit(1);
+    async consume(key, rule) {
+      return db.transaction(async (tx) => {
+        const inserted = await tx
+          .insert(schema.betterAuthRateLimit)
+          .values({ key, count: 1, lastRequest: Date.now() })
+          .onConflictDoNothing()
+          .returning({ key: schema.betterAuthRateLimit.key });
 
-      const row = rows[0];
-      if (!row) return;
-      return { key: row.key, count: row.count, lastRequest: row.lastRequest };
-    },
+        if (inserted.length > 0) {
+          return { allowed: true, retryAfter: null };
+        }
 
-    async set(key, value) {
-      // Upsert: better-auth calls set() both for the first hit (create) and for
-      // every subsequent hit (update). A single ON CONFLICT statement covers
-      // both and is safe under concurrent pods.
-      await db
-        .insert(schema.betterAuthRateLimit)
-        .values({
-          key,
-          count: value.count,
-          lastRequest: value.lastRequest,
-        })
-        .onConflictDoUpdate({
-          target: schema.betterAuthRateLimit.key,
-          set: {
-            count: sql`${value.count}`,
-            lastRequest: sql`${value.lastRequest}`,
-          },
-        });
+        const rows = await tx
+          .select({
+            key: schema.betterAuthRateLimit.key,
+            count: schema.betterAuthRateLimit.count,
+            lastRequest: schema.betterAuthRateLimit.lastRequest,
+          })
+          .from(schema.betterAuthRateLimit)
+          .where(eq(schema.betterAuthRateLimit.key, key))
+          .for("update")
+          .limit(1);
+
+        const row = rows[0];
+        if (!row) {
+          throw new Error(
+            "Better Auth rate-limit row disappeared during an atomic consume",
+          );
+        }
+
+        const now = Date.now();
+        const windowMs = rule.window * 1000;
+        if (now - row.lastRequest >= windowMs) {
+          await tx
+            .update(schema.betterAuthRateLimit)
+            .set({ count: 1, lastRequest: now })
+            .where(eq(schema.betterAuthRateLimit.key, key));
+          return { allowed: true, retryAfter: null };
+        }
+
+        if (row.count >= rule.max) {
+          return {
+            allowed: false,
+            retryAfter: Math.max(
+              0,
+              Math.ceil((row.lastRequest + windowMs - now) / 1000),
+            ),
+          };
+        }
+
+        await tx
+          .update(schema.betterAuthRateLimit)
+          .set({ count: row.count + 1, lastRequest: now })
+          .where(eq(schema.betterAuthRateLimit.key, key));
+        return { allowed: true, retryAfter: null };
+      });
     },
   };
 }
@@ -102,8 +123,8 @@ export function createBetterAuthRateLimitStore({
 /**
  * Delete rate-limit rows whose window has long elapsed.
  *
- * The `set()` upsert above never removes anything, so the table only grows: one
- * row per distinct `(ip, path)` brute-force key, forever. This sweeps rows whose
+ * The `consume()` operation above never removes anything, so the table only
+ * grows: one row per distinct `(ip, path)` brute-force key, forever. This sweeps rows whose
  * `lastRequest` is older than {@link RATE_LIMIT_ROW_TTL_MS} (epoch-ms compared
  * to epoch-ms), which is far past any active window — so a live counter is never
  * deleted. A single `DELETE ... WHERE last_request < cutoff` is idempotent and

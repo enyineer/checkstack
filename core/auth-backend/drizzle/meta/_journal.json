@@ -71,6 +71,13 @@
       "when": 1781862252196,
       "tag": "0009_gifted_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787488107839,
+      "tag": "0010_oauth_provider_17",
+      "breakpoints": true
     }
   ]
 }

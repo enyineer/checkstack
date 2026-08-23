@@ -19,7 +19,7 @@
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "better-auth": "^1.6.13",
+    "better-auth": "^1.7.1",
     "samlify": "^2.13.1",
     "zod": "^4.0.0"
   },

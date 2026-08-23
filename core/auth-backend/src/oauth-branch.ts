@@ -1,11 +1,17 @@
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { RealUser, ScopedQueryRunner } from "@checkstack/backend-api";
 import { narrowScopes } from "./scope-narrowing";
 import * as schema from "./schema";
 
-// Re-export the shared opaque-bearer extractor so existing import sites in this
+// Re-export the shared bearer extractor so existing import sites in this
 // plugin (index.ts) keep working without changing their import path.
 export { opaqueBearerToken } from "@checkstack/backend-api";
+
+/** Match Better Auth OAuth Provider's default SHA-256/base64url token storage. */
+export function hashOAuthToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url");
+}
 
 /**
  * The introspected OAuth session — the subset of better-auth's
@@ -20,11 +26,10 @@ export interface IntrospectedOAuthSession {
 }
 
 /**
- * Introspect an OPAQUE OAuth access token against the oidcProvider-owned
- * `oauthAccessToken` table (decision §11 — tokens are not JWTs, so this is a DB
- * lookup, the same `findOne` the mcp plugin's `getMcpSession` performs, plus an
- * explicit expiry check which `getMcpSession` does NOT do). Returns the session
- * subset, or `undefined` when the token is unknown or expired.
+ * Introspect an OPAQUE OAuth access token against the OAuth Provider-owned
+ * `oauthAccessToken` table. Better Auth hashes opaque tokens by default, so the
+ * lookup hashes the presented value before querying. Returns the session subset,
+ * or `undefined` when the token is unknown, revoked, or expired.
  */
 export async function introspectOpaqueToken({
   db,
@@ -35,22 +40,24 @@ export async function introspectOpaqueToken({
   token: string;
   now?: Date;
 }): Promise<IntrospectedOAuthSession | undefined> {
+  const storedToken = hashOAuthToken(token);
   const rows = await db
     .select({
       userId: schema.oauthAccessToken.userId,
       scopes: schema.oauthAccessToken.scopes,
-      expiresAt: schema.oauthAccessToken.accessTokenExpiresAt,
+      expiresAt: schema.oauthAccessToken.expiresAt,
+      revoked: schema.oauthAccessToken.revoked,
     })
     .from(schema.oauthAccessToken)
-    .where(eq(schema.oauthAccessToken.accessToken, token))
+    .where(eq(schema.oauthAccessToken.token, storedToken))
     .limit(1);
 
   const row = rows[0];
   if (!row || !row.userId || !row.scopes) return undefined;
-  if (row.expiresAt && new Date(row.expiresAt).getTime() <= now.getTime()) {
+  if (row.revoked || row.expiresAt.getTime() <= now.getTime()) {
     return undefined; // expired
   }
-  return { userId: row.userId, scopes: row.scopes };
+  return { userId: row.userId, scopes: row.scopes.join(" ") };
 }
 
 /**

@@ -5,8 +5,8 @@
  * storage, which would let N pods each allow the cap = N x the intended limit
  * (state-and-scale §14.5). We back it with the shared `better_auth_rate_limit`
  * table; this test simulates TWO pods (two independent pools to the SAME schema)
- * and asserts a counter written on pod A is visible on pod B — i.e. the limiter
- * state is GLOBAL, not pod-local.
+ * and asserts a counter consumed on pod A is enforced on pod B — i.e. the
+ * limiter state is GLOBAL, not pod-local.
  *
  * Gated behind `CHECKSTACK_IT=1`; connection from `CHECKSTACK_IT_PG_URL`. Runs
  * in a freshly created, self-cleaning schema.
@@ -70,37 +70,46 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       await admin.end();
     });
 
-    it("a counter written on pod A is visible on pod B (global, not pod-local)", async () => {
+    it("enforces one global counter across pods", async () => {
       const storeA = createBetterAuthRateLimitStore({ db: podA.db });
       const storeB = createBetterAuthRateLimitStore({ db: podB.db });
 
       const key = "ip-203.0.113.5:/sign-in/email";
-      await storeA.set(key, { key, count: 3, lastRequest: 1000 });
+      const rule = { window: 60, max: 2 };
 
-      // Pod B reads the SAME row written by pod A.
-      const fromB = await storeB.get(key);
-      expect(fromB).toEqual({ key, count: 3, lastRequest: 1000 });
+      expect(await storeA.consume(key, rule)).toEqual({
+        allowed: true,
+        retryAfter: null,
+      });
+      expect(await storeB.consume(key, rule)).toEqual({
+        allowed: true,
+        retryAfter: null,
+      });
+
+      // A third request is rejected by the SAME row, regardless of which pod
+      // performs the check.
+      const rejected = await storeA.consume(key, rule);
+      expect(rejected.allowed).toBe(false);
+      expect(rejected.retryAfter).toBeGreaterThan(0);
     });
 
-    it("set() upserts on subsequent updates (no duplicate-key error)", async () => {
+    it("allows exactly the configured number of concurrent requests", async () => {
       const storeA = createBetterAuthRateLimitStore({ db: podA.db });
-      const key = "ip-198.51.100.9:/sign-in/email";
-
-      await storeA.set(key, { key, count: 1, lastRequest: 1000 });
-      // better-auth calls set() again with isUpdate=true on the next hit.
-      await storeA.set(key, { key, count: 2, lastRequest: 2000 }, true);
-
-      const after = await storeA.get(key);
-      expect(after).toEqual({ key, count: 2, lastRequest: 2000 });
-    });
-
-    it("returns undefined for an unknown key", async () => {
       const storeB = createBetterAuthRateLimitStore({ db: podB.db });
-      expect(await storeB.get("never-seen")).toBeUndefined();
+      const key = "ip-198.51.100.9:/sign-in/email";
+      const rule = { window: 60, max: 3 };
+
+      const results = await Promise.all(
+        Array.from({ length: 12 }, (_, index) =>
+          (index % 2 === 0 ? storeA : storeB).consume(key, rule),
+        ),
+      );
+
+      expect(results.filter((result) => result.allowed)).toHaveLength(3);
+      expect(results.filter((result) => !result.allowed)).toHaveLength(9);
     });
 
     it("pruneExpired deletes only rows past the TTL and leaves live ones", async () => {
-      const store = createBetterAuthRateLimitStore({ db: podA.db });
       const now = 10_000_000_000; // arbitrary fixed "now" in epoch ms
       const ttlMs = 24 * 60 * 60 * 1000;
 
@@ -113,24 +122,25 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       const liveKey = "prune-live:/sign-in/email";
       const boundaryKey = "prune-boundary:/sign-in/email";
 
-      // Older than the TTL — must be deleted.
-      await store.set(expiredKey, {
-        key: expiredKey,
-        count: 5,
-        lastRequest: now - ttlMs - 1,
-      });
-      // Well inside the TTL — must survive.
-      await store.set(liveKey, {
-        key: liveKey,
-        count: 2,
-        lastRequest: now - 1000,
-      });
-      // Exactly at the cutoff (not strictly less-than) — must survive.
-      await store.set(boundaryKey, {
-        key: boundaryKey,
-        count: 1,
-        lastRequest: now - ttlMs,
-      });
+      // Seed historical rows directly because consume() timestamps requests
+      // with the process clock; the prune operation itself is what this test
+      // exercises.
+      await admin.query(
+        `INSERT INTO "${SCHEMA}".better_auth_rate_limit
+          (key, count, last_request) VALUES
+          ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)`,
+        [
+          expiredKey,
+          5,
+          now - ttlMs - 1,
+          liveKey,
+          2,
+          now - 1000,
+          boundaryKey,
+          1,
+          now - ttlMs,
+        ],
+      );
 
       const { deletedCount } = await pruneExpiredBetterAuthRateLimits({
         db: podA.db,
@@ -139,17 +149,15 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       });
 
       expect(deletedCount).toBe(1);
-      expect(await store.get(expiredKey)).toBeUndefined();
-      expect(await store.get(liveKey)).toEqual({
-        key: liveKey,
-        count: 2,
-        lastRequest: now - 1000,
-      });
-      expect(await store.get(boundaryKey)).toEqual({
-        key: boundaryKey,
-        count: 1,
-        lastRequest: now - ttlMs,
-      });
+      const remaining = await admin.query<{ key: string }>(
+        `SELECT key FROM "${SCHEMA}".better_auth_rate_limit
+         WHERE key = ANY($1::text[]) ORDER BY key`,
+        [[expiredKey, liveKey, boundaryKey]],
+      );
+      expect(remaining.rows.map((row) => row.key)).toEqual([
+        boundaryKey,
+        liveKey,
+      ].sort());
 
       // Idempotent: a second sweep over the same cutoff deletes nothing.
       const second = await pruneExpiredBetterAuthRateLimits({

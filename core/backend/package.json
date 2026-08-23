@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env --watch src/index.ts",
-    "dev:auth": "CHECKSTACK_DEV_AUTH=true bun --env-file=../../.env src/index.ts",
+    "dev:auth": "CHECKSTACK_DISABLE_AUTO_MIGRATIONS=true bun --env-file=../../.env src/index.ts",
     "typecheck": "tsgo -b",
     "generate": "bun --env-file=../../.env run drizzle-kit generate",
     "reencrypt-secrets": "bun --env-file=../../.env run scripts/reencrypt-secrets.ts",
@@ -37,7 +37,7 @@
     "@orpc/openapi": "^1.14.4",
     "@orpc/server": "^1.14.4",
     "@orpc/zod": "^1.14.4",
-    "better-auth": "^1.6.13",
+    "better-auth": "^1.7.1",
     "drizzle-orm": "^0.45.0",
     "hono": "^4.12.34",
     "jose": "^6.2.3",

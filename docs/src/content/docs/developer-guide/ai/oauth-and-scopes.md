@@ -7,14 +7,18 @@ Checkstack acts as its own OAuth 2.1 Authorization Server so external tooling (s
 
 ## Checkstack as an OAuth Authorization Server
 
-The AS is the better-auth `oidcProvider` plus `mcp` first-party plugins, enabled in `core/auth-backend`. They are off by default and turned on via an admin setting (`ai.mcp-oauth.enabled`). When enabled, the AS provides:
+The AS is Better Auth's `mcp` plugin, built on the OAuth Provider and composed with `jwt`, enabled in `core/auth-backend`. It is off by default and turned on via an admin setting (`ai.mcp-oauth.enabled`). When enabled, the AS provides:
 
 - Authorization code flow with PKCE, a consent screen, and Dynamic Client Registration (DCR).
 - The OAuth discovery documents under the better-auth mount (`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`).
 - Its own signing keys and JWKS for the ID token. The platform keystore is untouched.
 
+OAuth mode disables Better Auth's standalone `/api/auth/token` endpoint and JWT
+response header. Clients use the OAuth 2.1 `/api/auth/oauth2/token` endpoint;
+the JWT plugin remains enabled only for signing keys and ID tokens.
+
 > [!IMPORTANT]
-> Access tokens are opaque, not JWTs. The AS issues a random token string and persists it (with its granted scopes) in the `oauth_access_token` table. There is no client-side signature to verify; a resource server validates a token by introspecting it. The `oidcProvider` plugin is functional but marked deprecated at better-auth 1.6.x; migrating to `@better-auth/oauth-provider` is a tracked follow-up.
+> Access tokens are opaque, not JWTs. The AS issues a random token string and stores its SHA-256/base64url digest, together with its granted scopes, in the `oauth_access_token` table. There is no client-side signature to verify; the resource server hashes the presented token and introspects the database row on every request.
 
 ## Scope grammar
 
@@ -42,7 +46,7 @@ narrowScopes({
 The single locked invariant is that a token can only narrow a principal, never widen it. The narrowing runs at the resource server, not at token-mint time, because opaque tokens carry no embeddable claims:
 
 1. A request arrives with `Authorization: Bearer <opaque>`.
-2. The token is introspected against the `oauth_access_token` table (a lookup plus an explicit expiry check), yielding the bound user id and the granted scopes.
+2. The token is hashed and introspected against the `oauth_access_token` table (a lookup plus explicit expiry and revocation checks), yielding the bound user id and the granted scopes.
 3. The bound user is enriched to their current, live access rules and team memberships, exactly as a UI session would be.
 4. The granted scopes (bundles expanded) are intersected with those live rules. The result is the principal's `accessRules` for this request.
 
@@ -59,7 +63,7 @@ The authorization middleware remains the single enforcement point. The OAuth bra
 
 ## Dynamic Client Registration and rate-limiting
 
-DCR (`POST /api/auth/mcp/register`) is gated by `ai.mcp-oauth.allowDynamicClientRegistration`. When open, it is throttled per client IP by a shared-Postgres fixed-window counter (the `ai_rate_limit` table), so the cap holds across all pods. An in-memory per-pod limiter would let N pods each allow the cap, defeating the limit; the Postgres counter is therefore locked as the implementation.
+DCR (`POST /api/auth/oauth2/register`) is gated by `ai.mcp-oauth.allowDynamicClientRegistration`. When open, it is throttled per client IP by a shared-Postgres fixed-window counter (the `ai_rate_limit` table), so the cap holds across all pods. An in-memory per-pod limiter would let N pods each allow the cap, defeating the limit; the Postgres counter is therefore locked as the implementation.
 
 ```ts
 import { checkRateLimit } from "@checkstack/auth-backend";
@@ -74,6 +78,10 @@ if (!result.allowed) {
   // respond 429
 }
 ```
+
+## Migration behavior
+
+The Better Auth 1.7 migration creates the OAuth Provider schema and preserves the pre-1.7 `oidcProvider` tables under `*_legacy` names. The old tables use a different token and scope format, so their clients, consents, and tokens are not imported into the new tables. Existing OAuth clients must be registered again and users must authorize them again after the upgrade.
 
 Admins manage the toggle and limits through the `getMcpOAuthSettings` / `setMcpOAuthSettings` RPCs (gated by the auth strategies access rule). Changing the settings reloads the auth configuration so the plugins enable or disable accordingly.
 

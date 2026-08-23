@@ -9,8 +9,8 @@ import { describe, expect, test } from "bun:test";
  * authenticated session. Configure:
  * - `CHECKSTACK_IT_MCP_URL`   (defaults to http://localhost:3000/api/ai/mcp)
  * - `CHECKSTACK_IT_MCP_TOKEN` (a minted opaque OAuth access token, NARROWED to a
- *   read scope that does NOT include `ai.tools.manage` — so `ai.secrets` is out
- *   of scope and a mutating tool like `incident.close` is not invocable)
+ *   read scope that does NOT include the admin incident rules — so `anomaly_list`
+ *   is out of scope and mutating tools are not directly invocable)
  *
  * This is the only assertion that exercises the full opaque-token introspection
  * + live-router re-entry path end-to-end, so it lives as an integration test.
@@ -23,10 +23,9 @@ const MCP_URL =
 const MCP_TOKEN = process.env.CHECKSTACK_IT_MCP_TOKEN ?? "";
 /** A tool the IT token's scope does NOT grant (admin-only). */
 const OUT_OF_SCOPE_TOOL =
-  process.env.CHECKSTACK_IT_MCP_OUT_OF_SCOPE_TOOL ?? "ai.secrets";
-/** A mutating tool that must be refused via the effect-gate (never run). */
-const MUTATING_TOOL =
-  process.env.CHECKSTACK_IT_MCP_MUTATING_TOOL ?? "incident.close";
+  process.env.CHECKSTACK_IT_MCP_OUT_OF_SCOPE_TOOL ?? "anomaly_list";
+/** Optional projected mutating tool, when an integration environment exposes one. */
+const MUTATING_TOOL = process.env.CHECKSTACK_IT_MCP_MUTATING_TOOL;
 
 /**
  * Open an MCP session and return the minted `mcp-session-id`. Post-initialize
@@ -135,8 +134,8 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
       const tools = json.result?.tools ?? [];
       const names = tools.map((t) => t.name);
       // The principal must at least be able to list incidents in the IT env.
-      expect(names).toContain("incident.list");
-      // At least one read tool advertises an outputSchema (system.issues etc.).
+      expect(names).toContain("incident_list");
+      // Projected read tools carry their source procedure's output schema.
       expect(tools.some((t) => t.outputSchema !== undefined)).toBe(true);
     });
 
@@ -147,7 +146,7 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
           jsonrpc: "2.0",
           id: 3,
           method: "tools/call",
-          params: { name: "incident.list", arguments: {} },
+          params: { name: "incident_list", arguments: {} },
         },
         sessionId,
       )) as { json: { result?: { isError?: boolean } } };
@@ -164,7 +163,7 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
       // The narrowed token does not grant the admin rule, so the tool is hidden.
       expect(names).not.toContain(OUT_OF_SCOPE_TOOL);
       // A mutating tool is never on the read-only list either.
-      expect(names).not.toContain(MUTATING_TOOL);
+      if (MUTATING_TOOL) expect(names).not.toContain(MUTATING_TOOL);
     });
 
     test("tools/call for an out-of-scope tool is REFUSED 403 (not merely hidden)", async () => {
@@ -184,21 +183,25 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
       expect(json.error?.message).toBeTruthy();
     });
 
-    test("tools/call for a mutating tool is refused by the structural effect-gate", async () => {
-      const sessionId = await openSession();
-      const { status, json } = (await rpc(
-        {
-          jsonrpc: "2.0",
-          id: 6,
-          method: "tools/call",
-          params: { name: MUTATING_TOOL, arguments: {} },
-        },
-        sessionId,
-      )) as { status: number; json: { error?: { message?: string } } };
-      // A bare tools/call may only run a read tool; mutating tools MUST go
-      // through propose/apply. The handler refuses with 403 and never executes.
-      expect(status).toBe(403);
-      expect(json.error?.message).toContain("propose/apply");
-    });
+    test.skipIf(!MUTATING_TOOL)(
+      "tools/call for a mutating tool is refused by the structural effect-gate",
+      async () => {
+        if (!MUTATING_TOOL) return;
+        const sessionId = await openSession();
+        const { status, json } = (await rpc(
+          {
+            jsonrpc: "2.0",
+            id: 6,
+            method: "tools/call",
+            params: { name: MUTATING_TOOL, arguments: {} },
+          },
+          sessionId,
+        )) as { status: number; json: { error?: { message?: string } } };
+        // A bare tools/call may only run a read tool; mutating tools MUST go
+        // through propose/apply. The handler refuses with 403 and never executes.
+        expect(status).toBe(403);
+        expect(json.error?.message).toContain("propose/apply");
+      },
+    );
   },
 );
