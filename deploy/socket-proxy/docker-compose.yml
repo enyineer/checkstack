@@ -20,7 +20,7 @@
 
 services:
   socket-proxy:
-    image: lscr.io/linuxserver/socket-proxy:latest
+    image: quay.io/linuxserver.io/socket-proxy:latest
     environment:
       CONTAINERS: 1 # GET /containers/* (status, stats)
       INFO: 1 # GET /info, /version

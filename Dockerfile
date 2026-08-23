@@ -2,7 +2,7 @@
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
-COPY package.json bun.lock ./
+COPY package.json bun.lock bunfig.toml ./
 COPY core ./core
 COPY plugins ./plugins
 # Top-level build scripts (e.g. `build:public-remotes`, which builds the core
@@ -68,7 +68,7 @@ RUN bun run --filter '@checkstack/docs' build
 FROM oven/bun:1-alpine AS production-deps
 WORKDIR /app
 
-COPY package.json bun.lock ./
+COPY package.json bun.lock bunfig.toml ./
 COPY core ./core
 COPY plugins ./plugins
 # `docs` is a workspace member (Astro Starlight site). The runtime image
