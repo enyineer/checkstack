@@ -14,7 +14,9 @@ const listIncidents = proc({
   operationType: "query",
   userType: "authenticated",
   access: [incidentRead],
-}).input(z.object({ status: z.string().optional() })) as AnyContractProcedure;
+})
+  .input(z.object({ status: z.string().optional() }))
+  .output(z.object({ incidents: z.array(z.unknown()) })) as AnyContractProcedure;
 
 describe("buildProjectedTool", () => {
   test("requiredAccessRules equals the source procedure's qualified access rules", () => {
@@ -68,6 +70,23 @@ describe("buildProjectedTool", () => {
     // The projected input parses the same shape the procedure declared.
     expect(t.input.safeParse({ status: "open" }).success).toBe(true);
     expect(t.input.safeParse({ status: 123 }).success).toBe(false);
+  });
+
+  test("uses the source procedure's output schema", () => {
+    const t = buildProjectedTool({
+      procedure: listIncidents,
+      sourcePluginMetadata,
+      procedureKey: "listIncidents",
+      description: "List incidents.",
+      effect: "read",
+      execute: () => Promise.resolve({}),
+    });
+
+    expect(t.output).toBeDefined();
+    expect(t.output?.safeParse({ incidents: [] }).success).toBe(true);
+    expect(t.output?.safeParse({ incidents: "not-an-array" }).success).toBe(
+      false,
+    );
   });
 
   test("throws when effect is omitted (never inferred from operationType)", () => {

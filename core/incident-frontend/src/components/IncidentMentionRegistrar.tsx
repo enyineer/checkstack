@@ -59,6 +59,7 @@ export const IncidentMentionRegistrar = () => {
 
   // Installed once: it closes over the CLIENT, not over query data, so it must
   // not be re-installed whenever the incident list refetches.
+  // eslint-disable-next-line checkstack/no-state-seed-in-effect -- this registers a global mention resolver, not editable component state; keep the client dependency so a changed client gets a current resolver.
   useEffect(() => {
     setMentionResolve({
       type: INCIDENT_MENTION_TYPE,

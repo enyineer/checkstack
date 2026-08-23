@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RealUser } from "@checkstack/backend-api";
-import { narrowedPrincipalFromSession } from "./oauth-branch";
+import { hashOAuthToken, narrowedPrincipalFromSession } from "./oauth-branch";
 
 const CATALOG = [
   "incident.incident.read",
@@ -75,5 +75,13 @@ describe("narrowedPrincipalFromSession (§6.3)", () => {
     });
     expect(principal?.accessRules?.sort()).toEqual([...CATALOG].sort());
     expect(principal?.accessRules).not.toContain("*");
+  });
+});
+
+describe("hashOAuthToken", () => {
+  test("matches Better Auth OAuth Provider's SHA-256/base64url storage", () => {
+    expect(hashOAuthToken("fixture-oauth-token")).toBe(
+      "4gVykVCYZuw8jfSpAK4AGtWTSqlRvrmk5HUGLus2Mjo",
+    );
   });
 });

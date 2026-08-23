@@ -1,9 +1,10 @@
+import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import * as socialProviderFactories from "better-auth/social-providers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
-import { mcp } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins";
 import { z } from "zod";
 import {
   createBackendPlugin,
@@ -56,6 +57,7 @@ import {
   narrowedPrincipalFromSession,
   introspectOpaqueToken,
   opaqueBearerToken,
+  hashOAuthToken,
 } from "./oauth-branch";
 import { checkRateLimit } from "./rate-limit";
 import {
@@ -66,7 +68,7 @@ import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 
 // Periodic prune of expired `better_auth_rate_limit` rows. The limiter's
-// `set()` upsert never deletes, so the table grows one row per distinct
+// `consume()` operation never deletes, so the table grows one row per distinct
 // brute-force key forever. We schedule a recurring queue job (work-queue
 // consumer group) that runs the idempotent DELETE; a single consumer per fire
 // runs it, and the DELETE is shared-DB so even a duplicate fire is harmless.
@@ -246,7 +248,7 @@ export default createBackendPlugin({
         // Bearer OAuth-access-token branch (AI platform MCP / OAuth AS).
         //
         // Tokens are OPAQUE (decision §11): introspect the token against the
-        // oidcProvider-owned token table, then build a principal whose access
+        // OAuth Provider-owned token table, then build a principal whose access
         // rules are the token's GRANTED scopes intersected with the bound
         // user's LIVE access rules. Narrow-only, re-evaluated live every call.
         // autoAuthMiddleware remains the single enforcement point; this branch
@@ -528,26 +530,38 @@ export default createBackendPlugin({
           const mcpEnabled = mcpOAuthConfig?.enabled ?? false;
 
           // The OAuth AS + MCP plugin. Enabled only when an operator opts in.
-          //
-          // The `mcp` plugin internally instantiates `oidcProvider` from its
-          // `oidcConfig`, so we add ONLY `mcp` here (adding `oidcProvider`
-          // separately would double-register its endpoints). oidcProvider
-          // issues OPAQUE access tokens and owns the token / client / consent
-          // tables (added to the Drizzle schema). The DCR endpoint
-          // (`/mcp/register`) is gated by `allowDynamicClientRegistration`; the
-          // per-IP DCR rate-limit is a separate shared-Postgres counter
-          // enforced in the API route handler below.
+          // Better Auth 1.7 moved MCP into `@better-auth/mcp`; it is built on
+          // the OAuth provider and requires the JWT plugin. We keep opaque
+          // access tokens so the resource server can re-apply live scope
+          // narrowing on every request. The DCR endpoint (`/oauth2/register`)
+          // is gated by both registration flags; the per-IP DCR rate-limit is a
+          // separate shared-Postgres counter enforced below.
           const aiOAuthPlugins = mcpEnabled
             ? [
+                jwt({ disableSettingJwtHeader: true }),
                 mcp({
                   loginPage: "/auth/login",
+                  consentPage: "/auth/oauth-consent",
                   resource: `${baseUrl}/api/ai/mcp`,
-                  oidcConfig: {
-                    loginPage: "/auth/login",
-                    consentPage: "/auth/oauth-consent",
-                    allowDynamicClientRegistration:
-                      mcpOAuthConfig?.allowDynamicClientRegistration ?? false,
+                  disableJwtPlugin: true,
+                  allowDynamicClientRegistration:
+                    mcpOAuthConfig?.allowDynamicClientRegistration ?? false,
+                  allowUnauthenticatedClientRegistration:
+                    mcpOAuthConfig?.allowDynamicClientRegistration ?? false,
+                  storeTokens: {
+                    hash: (token: string) => hashOAuthToken(token),
                   },
+                  scopes: [
+                    "openid",
+                    "profile",
+                    "email",
+                    "offline_access",
+                    "checkstack:read",
+                    "checkstack:write",
+                    ...env.pluginManager
+                      .getAllAccessRules()
+                      .map((rule) => rule.id),
+                  ],
                 }),
               ]
             : [];
@@ -559,6 +573,10 @@ export default createBackendPlugin({
           );
 
           const authOptions: BetterAuthOptions = {
+            // OAuth/MCP clients must use the OAuth 2.1 `/oauth2/token` endpoint;
+            // the standalone JWT endpoint and response header are not part of
+            // that flow and would expose a second token surface.
+            disabledPaths: mcpEnabled ? ["/token"] : [],
             database: drizzleAdapter(database, {
               provider: "pg",
               schema: { ...schema },
@@ -695,7 +713,7 @@ export default createBackendPlugin({
 
         // 5. Register Better Auth native handler.
         //
-        // The Dynamic Client Registration endpoint (`/api/auth/mcp/register`)
+        // The Dynamic Client Registration endpoint (`/api/auth/oauth2/register`)
         // is throttled per client IP by a SHARED-POSTGRES fixed-window counter
         // (state-and-scale §14.5 — never in-memory, so the cap holds across all
         // pods) BEFORE delegating to better-auth. Every other auth route passes
@@ -704,7 +722,7 @@ export default createBackendPlugin({
           const url = new URL(req.url);
           if (
             req.method === "POST" &&
-            url.pathname.endsWith("/mcp/register")
+            url.pathname.endsWith("/oauth2/register")
           ) {
             const cfg = await config.get(
               MCP_OAUTH_CONFIG_ID,

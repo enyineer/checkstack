@@ -21,7 +21,7 @@ OAuth discovery and registration live under the better-auth mount (see [OAuth an
 
 - `/.well-known/oauth-authorization-server`
 - `/.well-known/oauth-protected-resource`
-- `/api/auth/mcp/register` (Dynamic Client Registration)
+- `/api/auth/oauth2/register` (Dynamic Client Registration)
 
 ## Auth flow
 

@@ -19,6 +19,7 @@ import type { RegisteredAiTool } from "./tool-registry";
 interface ProjectableProcedureDef {
   meta?: Partial<ProcedureMetadata>;
   inputSchema?: z.ZodType<unknown>;
+  outputSchema?: z.ZodType<unknown>;
 }
 
 /**
@@ -135,6 +136,7 @@ export function buildProjectedTool<TInput = unknown, TOutput = unknown>(
     description,
     effect,
     input: inputSchema,
+    output: def.outputSchema as z.ZodType<TOutput> | undefined,
     requiredAccessRules,
     dryRun,
     execute,

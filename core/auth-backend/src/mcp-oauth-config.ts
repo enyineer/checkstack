@@ -3,8 +3,8 @@ import { z } from "zod";
 /**
  * Platform-level configuration for the AI platform OAuth Authorization Server
  * and MCP server (Phase 2). Controls Dynamic Client Registration (DCR) and the
- * per-IP DCR rate-limit. Token/consent/client state itself is owned by the
- * better-auth `oidcProvider` tables; this is only the operator-facing toggle.
+ * per-IP DCR rate-limit. Token, consent, and client state are owned by Better
+ * Auth's OAuth Provider tables; this is only the operator-facing toggle.
  */
 export const mcpOAuthConfigV1 = z.object({
   /**
@@ -18,7 +18,7 @@ export const mcpOAuthConfigV1 = z.object({
       "When enabled, Checkstack acts as an OAuth Authorization Server and serves the MCP endpoint.",
     ),
   /**
-   * Whether Dynamic Client Registration (`POST /mcp/register`) is open. When
+   * Whether Dynamic Client Registration (`POST /oauth2/register`) is open. When
    * false, MCP clients must be registered out-of-band by an admin.
    */
   allowDynamicClientRegistration: z
