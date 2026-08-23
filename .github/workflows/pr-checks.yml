@@ -287,6 +287,30 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.test.outputs.exit_code }}" != "0" ]; then
+            echo "::group::Test failures and errors"
+            awk '
+              {
+                if ($0 ~ /\(pass\)/) {
+                  next
+                }
+                lower = tolower($0)
+                if ($0 ~ /\(fail\)/ ||
+                    $0 ~ /(^|[[:space:]])[1-9][0-9]* fail([[:space:]]|$)/ ||
+                    lower ~ /(^|[[:space:]])(error|assertionerror):/ ||
+                    lower ~ /: error([[:space:]]|$)/ ||
+                    lower ~ /##\[error\]/ ||
+                    $0 ~ /(^|[[:space:]])FAIL([[:space:]]|$)/) {
+                  print
+                  found = 1
+                }
+              }
+              END {
+                if (!found) {
+                  print "No failure details matched; download the test-output artifact."
+                }
+              }
+            ' /tmp/test-output.txt
+            echo "::endgroup::"
             exit 1
           fi
 
@@ -1252,4 +1276,3 @@ jobs:
             if (!allPassed) {
               core.setFailed('One or more PR checks failed. See the comment above for details.');
             }
-
