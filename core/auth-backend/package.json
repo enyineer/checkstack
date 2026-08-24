@@ -35,7 +35,7 @@
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@types/node": "^20.0.0",
+    "@types/node": "^26.2.0",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "pg": "^8.21.0",
