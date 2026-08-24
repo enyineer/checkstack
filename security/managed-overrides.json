@@ -57,46 +57,6 @@
       "addedAt": "2026-07-23",
       "removeWhen": "No dependency resolves below 0.6.0 without this override."
     },
-    "fast-uri": {
-      "safeFloor": "3.1.5",
-      "severity": "HIGH",
-      "advisory": "CVE-2026-16221",
-      "reason": "Auto-remediated by Security Maintenance: fast-uri 3.1.3 had fixable advisories; pinned to the fixed 3.x line.",
-      "addedAt": "2026-07-23",
-      "removeWhen": "No dependency resolves below 3.1.4 without this override."
-    },
-    "sharp": {
-      "safeFloor": "0.35.0",
-      "severity": "HIGH",
-      "advisory": "GHSA-f88m-g3jw-g9cj",
-      "reason": "Auto-remediated by Security Maintenance: sharp 0.34.5 had fixable advisories; pinned to the fixed 0.x line.",
-      "addedAt": "2026-07-23",
-      "removeWhen": "No dependency resolves below 0.35.0 without this override."
-    },
-    "brace-expansion": {
-      "safeFloor": "5.0.9",
-      "severity": "HIGH",
-      "advisory": "CVE-2026-14257",
-      "reason": "Auto-remediated by Security Maintenance: brace-expansion 5.0.7 had fixable advisories; pinned to the fixed 5.x line.",
-      "addedAt": "2026-07-30",
-      "removeWhen": "No dependency resolves below 5.0.8 without this override."
-    },
-    "mermaid": {
-      "safeFloor": "11.16.1",
-      "severity": "MEDIUM",
-      "advisory": "CVE-2026-50159, CVE-2026-71436, CVE-2026-71437, CVE-2026-71439",
-      "reason": "Auto-remediated by Security Maintenance: mermaid 11.16.0 had fixable advisories; pinned to the fixed 11.x line.",
-      "addedAt": "2026-08-23",
-      "removeWhen": "No dependency resolves below 11.16.1 without this override."
-    },
-    "nanoid": {
-      "safeFloor": "3.3.18",
-      "severity": "HIGH",
-      "advisory": "CVE-2026-67213",
-      "reason": "Auto-remediated by Security Maintenance: nanoid 3.3.16 had fixable advisories; pinned to the fixed 3.x line.",
-      "addedAt": "2026-08-23",
-      "removeWhen": "No dependency resolves below 3.3.18 without this override."
-    },
     "undici": {
       "safeFloor": "7.29.0",
       "severity": "HIGH",
