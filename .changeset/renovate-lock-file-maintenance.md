@@ -188,6 +188,7 @@ Updated dependencies:
 - `@testing-library/jest-dom` 6.9.1 -> 6.10.0
 - `@testing-library/user-event` 14.6.1 -> 14.6.5
 - `@types/d3-geo` 3.1.0 -> 3.1.1
+- `@types/node` 20.19.43 -> 26.2.0
 - `@types/pg` 8.20.0 -> 8.23.1
 - `@types/react` 19.2.17 -> 19.2.18
 - `@types/react-dom` 19.2.3 -> 19.2.4

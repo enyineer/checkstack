@@ -126,6 +126,10 @@
     "@astrojs/markdown-remark": {
       "reason": "Deduped to a single version so astro-mermaid resolves the copy that exports isUnifiedProcessor; a stale transitive 7.1.x (from @astrojs/mdx) otherwise broke the docs build with 'isUnifiedProcessor is not a function'.",
       "addedAt": "2026-07-08"
+    },
+    "@types/node": {
+      "reason": "Bun 1.4's bun-types depends on @types/node with a wildcard range. The lock refresh otherwise combines Node 12, 18, 20, 24, and 26 ambient declarations; that mixed graph breaks tsgo's event-emitter types. Keep all consumers on the current Node 26 type line so the declarations merge consistently.",
+      "addedAt": "2026-08-24"
     }
   }
 }
