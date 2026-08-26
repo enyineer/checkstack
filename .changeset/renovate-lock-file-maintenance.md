@@ -9,8 +9,8 @@ this only affects the resolutions baked into the production image.
 
 Updated dependencies:
 
-- `@ai-sdk/gateway` 3.0.153 -> 3.0.174
-- `@ai-sdk/openai-compatible` 2.0.62 -> 2.0.69
+- `@ai-sdk/gateway` 3.0.153 -> 3.0.179
+- `@ai-sdk/openai-compatible` 2.0.62 -> 2.0.70
 - `@ai-sdk/provider` 3.0.14 -> 3.0.15
 - `@ai-sdk/provider-utils` 4.0.40 -> 4.0.46
 - `@astrojs/check` 0.9.9 -> 0.9.10
@@ -178,16 +178,17 @@ Updated dependencies:
 - `@storybook/react` 10.5.9 -> 10.5.10
 - `@storybook/react-dom-shim` 10.5.9 -> 10.5.10
 - `@storybook/react-vite` 10.5.9 -> 10.5.10
-- `@tanstack/query-core` 5.101.2 -> 5.101.4
-- `@tanstack/query-devtools` 5.101.2 -> 5.101.4
-- `@tanstack/react-query` 5.101.2 -> 5.101.4
-- `@tanstack/react-query-devtools` 5.101.2 -> 5.101.4
+- `@tanstack/query-core` 5.101.2 -> 5.102.0
+- `@tanstack/query-devtools` 5.101.2 -> 5.102.0
+- `@tanstack/react-query` 5.101.2 -> 5.102.0
+- `@tanstack/react-query-devtools` 5.101.2 -> 5.102.0
 - `@tanstack/react-virtual` 3.14.6 -> 3.14.10
 - `@tanstack/virtual-core` 3.17.4 -> 3.17.8
 - `@testcontainers/postgresql` 12.0.4 -> 12.1.0
 - `@testing-library/jest-dom` 6.9.1 -> 6.10.0
-- `@testing-library/user-event` 14.6.1 -> 14.6.5
+- `@testing-library/user-event` 14.6.1 -> 14.6.6
 - `@types/d3-geo` 3.1.0 -> 3.1.1
+- `@types/d3-shape` 3.1.8 -> 3.2.0
 - `@types/node` 20.19.43 -> 26.2.0
 - `@types/pg` 8.20.0 -> 8.23.1
 - `@types/react` 19.2.17 -> 19.2.18
@@ -204,11 +205,11 @@ Updated dependencies:
 - `@typescript-eslint/utils` 8.64.0 -> 8.67.0
 - `@typescript-eslint/visitor-keys` 8.64.0 -> 8.67.0
 - `@vitejs/plugin-react` 6.0.3 -> 6.1.0
-- `@xmldom/xmldom` 0.8.13 -> 0.8.14
+- `@xmldom/xmldom` 0.8.13 -> 0.8.15
 - `@xyflow/react` 12.11.2 -> 12.11.3
 - `@xyflow/system` 0.0.79 -> 0.0.80
 - `acorn` 8.17.0 -> 8.18.0
-- `ai` 6.0.230 -> 6.0.256
+- `ai` 6.0.230 -> 6.0.264
 - `ansi-regex` 6.2.2 -> 6.3.0
 - `astro` 7.1.3 -> 7.2.4
 - `axe-core` 4.12.1 -> 4.13.0
@@ -225,11 +226,12 @@ Updated dependencies:
 - `dayjs` 1.11.21 -> 1.11.23
 - `default-browser` 5.5.0 -> 5.5.1
 - `devalue` 5.8.1 -> 5.9.1
-- `electron-to-chromium` 1.5.393 -> 1.5.411
+- `electron-to-chromium` 1.5.393 -> 1.5.412
 - `es-module-lexer` 2.3.1 -> 2.3.2
 - `es-toolkit` 1.49.0 -> 1.51.0
 - `esbuild` 0.28.1 -> 0.28.2
 - `eventsource-parser` 3.1.0 -> 3.1.1
+- `fast-uri` 3.1.5 -> 3.1.6
 - `fast-xml-builder` 1.3.0 -> 1.3.1
 - `fast-xml-parser` 5.10.1 -> 5.11.0
 - `flatted` 3.4.2 -> 3.4.4
@@ -237,8 +239,9 @@ Updated dependencies:
 - `human-id` 4.2.0 -> 4.2.1
 - `i18next` 26.3.6 -> 26.4.0
 - `immer` 11.1.15 -> 11.1.18
+- `is-plain-object` 5.0.0 -> 5.1.0
 - `is-unsafe` 2.0.0 -> 2.0.2
-- `jose` 6.2.3 -> 6.2.9
+- `jose` 6.2.3 -> 6.2.10
 - `lightningcss` 1.32.0 -> 1.33.0
 - `lightningcss-android-arm64` 1.32.0 -> 1.33.0
 - `lightningcss-darwin-arm64` 1.32.0 -> 1.33.0
