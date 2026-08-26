@@ -472,7 +472,7 @@
     },
     "core/backend": {
       "name": "@checkstack/backend",
-      "version": "0.27.0",
+      "version": "0.27.1",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -962,7 +962,7 @@
     },
     "core/frontend": {
       "name": "@checkstack/frontend",
-      "version": "0.17.3",
+      "version": "0.17.4",
       "dependencies": {
         "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
@@ -1848,7 +1848,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.140.0",
+      "version": "0.141.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
