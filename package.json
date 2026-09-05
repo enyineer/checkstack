@@ -84,7 +84,12 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.0",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "@xmldom/xmldom": "^0.8.15",
+    "browserslist": "^4.28.7",
+    "fast-uri": "^3.1.6",
+    "libcrypto3": "^3.5.8-r0",
+    "libssl3": "^3.5.8-r0"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -100,6 +105,11 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.0",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "@xmldom/xmldom": "^0.8.15",
+    "browserslist": "^4.28.7",
+    "fast-uri": "^3.1.6",
+    "libcrypto3": "^3.5.8-r0",
+    "libssl3": "^3.5.8-r0"
   }
 }

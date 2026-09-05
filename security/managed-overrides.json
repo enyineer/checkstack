@@ -64,6 +64,46 @@
       "reason": "Auto-remediated by Security Maintenance: undici 7.28.0 had fixable advisories; pinned to the fixed 7.x line.",
       "addedAt": "2026-08-23",
       "removeWhen": "No dependency resolves below 7.29.0 without this override."
+    },
+    "@xmldom/xmldom": {
+      "safeFloor": "0.8.15",
+      "severity": "MEDIUM",
+      "advisory": "CVE-2026-83610",
+      "reason": "Auto-remediated by Security Maintenance: @xmldom/xmldom 0.8.13 had fixable advisories; pinned to the fixed 0.x line.",
+      "addedAt": "2026-09-05",
+      "removeWhen": "No dependency resolves below 0.8.15 without this override."
+    },
+    "browserslist": {
+      "safeFloor": "4.28.7",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-73088, CVE-2026-73089",
+      "reason": "Auto-remediated by Security Maintenance: browserslist 4.28.6 had fixable advisories; pinned to the fixed 4.x line.",
+      "addedAt": "2026-09-05",
+      "removeWhen": "No dependency resolves below 4.28.7 without this override."
+    },
+    "fast-uri": {
+      "safeFloor": "3.1.6",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-75899, CVE-2026-75931, CVE-2026-75975, CVE-2026-76172",
+      "reason": "Auto-remediated by Security Maintenance: fast-uri 3.1.5 had fixable advisories; pinned to the fixed 3.x line.",
+      "addedAt": "2026-09-05",
+      "removeWhen": "No dependency resolves below 3.1.6 without this override."
+    },
+    "libcrypto3": {
+      "safeFloor": "3.5.8-r0",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-14456, CVE-2026-18798, CVE-2026-63072, CVE-2026-63076",
+      "reason": "Auto-remediated by Security Maintenance: libcrypto3 3.5.7-r0 had fixable advisories; pinned to the fixed 3.x line.",
+      "addedAt": "2026-09-05",
+      "removeWhen": "No dependency resolves below 3.5.8-r0 without this override."
+    },
+    "libssl3": {
+      "safeFloor": "3.5.8-r0",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-14456, CVE-2026-18798, CVE-2026-63072, CVE-2026-63076",
+      "reason": "Auto-remediated by Security Maintenance: libssl3 3.5.7-r0 had fixable advisories; pinned to the fixed 3.x line.",
+      "addedAt": "2026-09-05",
+      "removeWhen": "No dependency resolves below 3.5.8-r0 without this override."
     }
   },
   "intentional": {
