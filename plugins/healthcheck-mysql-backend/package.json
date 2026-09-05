@@ -17,7 +17,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
-    "mysql2": "^3.9.0"
+    "mysql2": "^3.23.1"
   },
   "devDependencies": {
     "@types/bun": "^1.0.0",
