@@ -1,5 +1,14 @@
 # @checkstack/secrets-backend
 
+## 0.3.13
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/command-backend@0.3.3
+
 ## 0.3.12
 
 ### Patch Changes

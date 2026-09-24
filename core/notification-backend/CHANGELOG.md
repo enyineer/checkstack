@@ -1,5 +1,17 @@
 # @checkstack/notification-backend
 
+## 1.8.11
+
+### Patch Changes
+
+- b8a00da: Fix the notification strategy access rule id mismatch. The registry checked `{ownerPluginId}.strategy.{id}.use` while the emitted rule carried the unqualified id `strategy.{id}.manage`, so the two never matched. Both now derive from the same `AccessRule` object and use the qualified id `{ownerPluginId}.strategy.{id}.manage`, which also makes the rule rows participicate in the plugin-deregistered cleanup sweep. `getStrategiesForUser` additionally honours the `"*"` admin wildcard.
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/auth-backend@0.14.3
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/automation-backend@0.11.13
+  - @checkstack/command-backend@0.3.3
+
 ## 1.8.10
 
 ### Patch Changes

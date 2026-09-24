@@ -1,5 +1,16 @@
 # @checkstack/satellite
 
+## 0.9.4
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/script-packages-backend@0.4.10
+  - @checkstack/healthcheck-execution@0.35.4
+
 ## 0.9.3
 
 ### Patch Changes

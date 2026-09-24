@@ -1,5 +1,14 @@
 # @checkstack/k8s-events-backend
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/telemetry-backend@0.2.4
+
 ## 0.1.5
 
 ### Patch Changes

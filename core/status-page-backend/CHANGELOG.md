@@ -1,5 +1,15 @@
 # @checkstack/status-page-backend
 
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/notification-backend@1.8.11
+  - @checkstack/command-backend@0.3.3
+
 ## 0.7.3
 
 ### Patch Changes

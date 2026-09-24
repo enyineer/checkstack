@@ -1,5 +1,11 @@
 # @checkstack/logstream-frontend
 
+## 0.4.4
+
+### Patch Changes
+
+- @checkstack/healthcheck-frontend@0.40.2
+
 ## 0.4.3
 
 ### Patch Changes

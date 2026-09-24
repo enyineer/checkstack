@@ -1,5 +1,11 @@
 # @checkstack/metricstream-frontend
 
+## 0.3.4
+
+### Patch Changes
+
+- @checkstack/healthcheck-frontend@0.40.2
+
 ## 0.3.3
 
 ### Patch Changes
