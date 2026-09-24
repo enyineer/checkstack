@@ -50,7 +50,7 @@
       "removeWhen": "No dependency resolves yaml below 2.9.0 without this override."
     },
     "adm-zip": {
-      "safeFloor": "0.6.0",
+      "safeFloor": "0.6.1",
       "severity": "HIGH",
       "advisory": "CVE-2026-39244",
       "reason": "Auto-remediated by Security Maintenance: adm-zip 0.5.10 had fixable advisories; pinned to the fixed 0.x line.",
@@ -64,6 +64,38 @@
       "reason": "Auto-remediated by Security Maintenance: undici 7.28.0 had fixable advisories; pinned to the fixed 7.x line.",
       "addedAt": "2026-08-23",
       "removeWhen": "No dependency resolves below 7.29.0 without this override."
+    },
+    "astro": {
+      "safeFloor": "7.2.8",
+      "severity": "CRITICAL",
+      "advisory": "GHSA-26w7-cxv4-gfx2",
+      "reason": "Auto-remediated by Security Maintenance: astro 7.2.4 had fixable advisories; pinned to the fixed 7.x line.",
+      "addedAt": "2026-09-24",
+      "removeWhen": "No dependency resolves below 7.2.8 without this override."
+    },
+    "devalue": {
+      "safeFloor": "5.9.2",
+      "severity": "MEDIUM",
+      "advisory": "CVE-2026-81176",
+      "reason": "Auto-remediated by Security Maintenance: devalue 5.9.1 had fixable advisories; pinned to the fixed 5.x line.",
+      "addedAt": "2026-09-24",
+      "removeWhen": "No dependency resolves below 5.9.2 without this override."
+    },
+    "sharp": {
+      "safeFloor": "0.35.4",
+      "severity": "HIGH",
+      "advisory": "GHSA-rgj7-g3m4-5g8c",
+      "reason": "Auto-remediated by Security Maintenance: sharp 0.35.3 had fixable advisories; pinned to the fixed 0.x line.",
+      "addedAt": "2026-09-24",
+      "removeWhen": "No dependency resolves below 0.35.4 without this override."
+    },
+    "svgo": {
+      "safeFloor": "4.1.0",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-84369, CVE-2026-84370",
+      "reason": "Auto-remediated by Security Maintenance: svgo 4.0.2 had fixable advisories; pinned to the fixed 4.x line.",
+      "addedAt": "2026-09-24",
+      "removeWhen": "No dependency resolves below 4.1.0 without this override."
     }
   },
   "intentional": {

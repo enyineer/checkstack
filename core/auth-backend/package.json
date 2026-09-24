@@ -24,7 +24,7 @@
     "@better-auth/mcp": "^1.7.1",
     "better-auth": "^1.7.1",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.34",
+    "hono": "^4.13.5",
     "kysely": "^0.28.17",
     "jose": "^6.2.3",
     "zod": "^4.2.1",
