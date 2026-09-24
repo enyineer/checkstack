@@ -52,8 +52,8 @@ Strategies are namespaced by their owning plugin's ID to prevent conflicts:
 Each registered strategy automatically generates an access rule:
 
 ```text
-Format: {ownerPluginId}.strategy.{strategyId}.use
-Example: notification-smtp.strategy.smtp.use
+Format: {ownerPluginId}.strategy.{strategyId}.manage
+Example: notification-smtp.strategy.smtp.manage
 ```
 
 These access rules can be assigned to roles to control which users can receive notifications via specific channels.
