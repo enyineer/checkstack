@@ -43,7 +43,7 @@ export const pluginManagerContract = {
   previewInstall: proc({
     operationType: "mutation",
     userType: "user",
-    access: [pluginManagerAccess.install],
+    access: [pluginManagerAccess.manage],
   })
     .input(z.object({ source: pluginSourceSchema }))
     .output(installPreviewSchema),
@@ -56,7 +56,7 @@ export const pluginManagerContract = {
   install: proc({
     operationType: "mutation",
     userType: "user",
-    access: [pluginManagerAccess.install],
+    access: [pluginManagerAccess.manage],
   })
     .input(
       z.object({
@@ -79,7 +79,7 @@ export const pluginManagerContract = {
   previewUninstall: proc({
     operationType: "query",
     userType: "user",
-    access: [pluginManagerAccess.uninstall],
+    access: [pluginManagerAccess.manage],
   })
     .input(z.object({ pluginName: z.string().min(1) }))
     .output(uninstallPreviewSchema),
@@ -91,7 +91,7 @@ export const pluginManagerContract = {
   uninstall: proc({
     operationType: "mutation",
     userType: "user",
-    access: [pluginManagerAccess.uninstall],
+    access: [pluginManagerAccess.manage],
   })
     .input(
       z.object({

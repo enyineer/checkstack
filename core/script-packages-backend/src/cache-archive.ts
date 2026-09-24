@@ -35,6 +35,31 @@ async function runTar(args: string[], cwd?: string): Promise<Uint8Array> {
 }
 
 /**
+ * Pack multiple sibling entries (dirs and/or files) located under `parentDir`
+ * into a gzip-compressed tar streamed to stdout. Entries are stored by their
+ * relative names so they extract back to the same layout.
+ *
+ * Besides the package's cache entry dir, a blob also carries Bun's registry
+ * manifest-cache sidecar(s) (`<hash>.npm` at the cache root): since Bun 1.4,
+ * `bun install --offline` resolves versions from that packument cache and
+ * fails with "no cached manifest" when only the extracted entry dir is
+ * present. On unpack the sidecar lands back at the cache root where Bun
+ * looks it up by its deterministic name.
+ */
+export async function packEntries({
+  parentDir,
+  entryNames,
+}: {
+  parentDir: string;
+  entryNames: string[];
+}): Promise<Uint8Array> {
+  if (entryNames.length === 0) {
+    throw new Error("packEntries requires at least one entry name");
+  }
+  return runTar(["-czf", "-", ...entryNames], parentDir);
+}
+
+/**
  * Pack a single directory entry (`entryName`) located under `parentDir`
  * into a gzip-compressed tar streamed to stdout. The archive stores the
  * entry by its relative name so it extracts back to the same layout.
@@ -46,7 +71,7 @@ export async function packDir({
   parentDir: string;
   entryName: string;
 }): Promise<Uint8Array> {
-  return runTar(["-czf", "-", entryName], parentDir);
+  return packEntries({ parentDir, entryNames: [entryName] });
 }
 
 /**

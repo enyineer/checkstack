@@ -46,8 +46,7 @@ const InstalledPluginsPageContent: React.FC = () => {
   const toast = useToast();
 
   const view = accessApi.useAccess(pluginManagerAccess.view);
-  const uninstallAccess = accessApi.useAccess(pluginManagerAccess.uninstall);
-  const installAccess = accessApi.useAccess(pluginManagerAccess.install);
+  const manageAccess = accessApi.useAccess(pluginManagerAccess.manage);
 
   const { data, isLoading, refetch } = client.list.useQuery();
 
@@ -86,7 +85,7 @@ const InstalledPluginsPageContent: React.FC = () => {
           Events
         </Link>
       </Button>
-      {installAccess.allowed && (
+      {manageAccess.allowed && (
         <Tip
           plugin={pluginManagerMetadata}
           id="install"
@@ -178,7 +177,7 @@ const InstalledPluginsPageContent: React.FC = () => {
       headClassName: "text-right",
       cellClassName: "text-right",
       cell: (p) =>
-        p.isUninstallable && uninstallAccess.allowed ? (
+        p.isUninstallable && manageAccess.allowed ? (
           <RowActions>
             <RowAction
               icon={Trash2}
@@ -262,7 +261,7 @@ const InstalledPluginsPageContent: React.FC = () => {
                     &middot; {p.type} &middot;{" "}
                     {presentPluginSource({ source: p.source })}
                   </div>
-                  {p.isUninstallable && uninstallAccess.allowed && (
+                  {p.isUninstallable && manageAccess.allowed && (
                     <div className="mt-3 border-t border-border/60 pt-3 pl-2">
                       <RowActions>
                         <RowAction

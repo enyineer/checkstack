@@ -4,8 +4,6 @@ import {
   createExtensionPoint,
   coreHooks,
   type NotificationStrategy,
-  type RegisteredNotificationStrategy,
-  type NotificationStrategyRegistry,
 } from "@checkstack/backend-api";
 import {
   notificationAccessRules,
@@ -14,7 +12,6 @@ import {
   notificationContract,
 } from "@checkstack/notification-common";
 import {
-  access,
   resolveRoute,
   type PluginMetadata,
   type AccessRule,
@@ -98,85 +95,12 @@ export type {
 // Registry Implementation
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * Create a new notification strategy registry instance.
- */
-function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
-  getNewAccessRules: () => Array<{
-    accessRule: AccessRule;
-    ownerPluginId: string;
-  }>;
-} {
-  const strategies = new Map<
-    string,
-    RegisteredNotificationStrategy<unknown, unknown, unknown>
-  >();
-  const newAccessRules: Array<{
-    accessRule: AccessRule;
-    ownerPluginId: string;
-  }> = [];
+export {
+  createNotificationStrategyRegistry,
+  type NotificationStrategyRegistryWithRules,
+} from "./strategy-registry";
 
-  return {
-    register<TConfig, TUserConfig, TLayoutConfig>(
-      strategy: NotificationStrategy<TConfig, TUserConfig, TLayoutConfig>,
-      metadata: PluginMetadata
-    ): void {
-      const qualifiedId = `${metadata.pluginId}.${strategy.id}`;
-      const accessRuleId = `${metadata.pluginId}.strategy.${strategy.id}.use`;
-
-      // Cast to unknown for storage - registry stores heterogeneous strategies
-      const registered: RegisteredNotificationStrategy<
-        unknown,
-        unknown,
-        unknown
-      > = {
-        ...(strategy as NotificationStrategy<unknown, unknown, unknown>),
-        qualifiedId,
-        ownerPluginId: metadata.pluginId,
-        accessRuleId,
-      };
-
-      strategies.set(qualifiedId, registered);
-
-      // Track new access rule for later registration
-      newAccessRules.push({
-        accessRule: access(
-          `strategy.${strategy.id}`,
-          "manage",
-          `Use ${strategy.displayName} notification channel`,
-          { pluginId: metadata.pluginId }
-        ),
-        ownerPluginId: metadata.pluginId,
-      });
-    },
-
-    getStrategy(
-      qualifiedId: string
-    ): RegisteredNotificationStrategy<unknown, unknown, unknown> | undefined {
-      return strategies.get(qualifiedId);
-    },
-
-    getStrategies(): RegisteredNotificationStrategy<
-      unknown,
-      unknown,
-      unknown
-    >[] {
-      return [...strategies.values()];
-    },
-
-    getStrategiesForUser(
-      userAccessRules: Set<string>
-    ): RegisteredNotificationStrategy<unknown, unknown, unknown>[] {
-      return [...strategies.values()].filter((s) =>
-        userAccessRules.has(s.accessRuleId)
-      );
-    },
-
-    getNewAccessRules() {
-      return newAccessRules;
-    },
-  };
-}
+import { createNotificationStrategyRegistry } from "./strategy-registry";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Plugin Definition

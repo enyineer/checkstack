@@ -391,8 +391,9 @@ export interface RegisteredNotificationStrategy<
   /** Plugin that registered this strategy */
   ownerPluginId: string;
   /**
-   * Dynamically generated access rule ID for this strategy.
-   * Format: `{ownerPluginId}.strategy.{id}.use`
+   * Fully qualified access rule id for this strategy
+   * (`{ownerPluginId}.strategy.{id}.manage`). Matches the id of the rule
+   * synced to the database via `coreHooks.accessRulesRegistered`.
    */
   accessRuleId: string;
 }

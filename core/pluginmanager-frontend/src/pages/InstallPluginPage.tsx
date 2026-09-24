@@ -36,7 +36,7 @@ const InstallPluginPageContent: React.FC = () => {
   const toast = useToast();
   const navigate = useNavigate();
   const { allowed, loading: accessLoading } = accessApi.useAccess(
-    pluginManagerAccess.install,
+    pluginManagerAccess.manage,
   );
 
   const [pendingSource, setPendingSource] = useState<PluginSource | undefined>();

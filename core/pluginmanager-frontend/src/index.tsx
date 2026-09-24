@@ -29,7 +29,7 @@ export default createFrontendPlugin({
           default: m.InstallPluginPage,
         })),
       title: "Install plugin",
-      accessRule: pluginManagerAccess.install,
+      accessRule: pluginManagerAccess.manage,
     },
     {
       route: pluginManagerRoutes.routes.events,

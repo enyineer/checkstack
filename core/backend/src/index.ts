@@ -82,6 +82,7 @@ import {
 import {
   pluginMetadata as apiDocsMetadata,
   apiDocsAccess,
+  apiDocsAccessRules,
 } from "@checkstack/api-docs-common";
 
 import { cors } from "hono/cors";
@@ -783,7 +784,7 @@ const init = async () => {
     if (!user || user.type === "service") {
       return c.json({ error: "Authentication required" }, 401);
     }
-    const requiredAccess = `${pluginManagerMetadata.pluginId}.${pluginManagerAccess.install.id}`;
+    const requiredAccess = `${pluginManagerMetadata.pluginId}.${pluginManagerAccess.manage.id}`;
     const accessRules = (
       "accessRules" in user ? user.accessRules : []
     ) as string[];
@@ -1075,6 +1076,15 @@ const init = async () => {
     pluginManagerAccessRules,
   );
   pluginManager.registerCorePluginMetadata(pluginManagerMetadata);
+  // The api-docs plugin has no backend component, so nobody else registers
+  // its access rule. It must be registered here (before loadPlugins) for the
+  // same reason as the plugin-manager rules above: the auth-backend's access
+  // rule sync reads `getAllAccessRules()` inside loadPlugins, and the boot
+  // sweep deletes any `access_rule` row that is not in the registry.
+  pluginManager.registerCoreAccessRules(
+    apiDocsMetadata.pluginId,
+    apiDocsAccessRules,
+  );
 
   await pluginManager.loadPlugins(app, manualPlugins, {
     skipDiscovery: !!devPluginPath,
