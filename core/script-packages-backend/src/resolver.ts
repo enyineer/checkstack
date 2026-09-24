@@ -6,8 +6,8 @@ import type { Resolver, ResolvedPackage } from "./install-service";
 import { buildDependencies, buildStorePackageJson } from "./lockfile";
 import { renderNpmrc, type NpmrcInput } from "./npmrc";
 import { parseBunLock } from "./parse-bun-lock";
-import { packDir } from "./cache-archive";
-import { findCacheEntry } from "./cache-layout";
+import { packEntries } from "./cache-archive";
+import { findCacheEntry, findManifestSidecars } from "./cache-layout";
 
 /**
  * Concrete central-install {@link Resolver}.
@@ -118,7 +118,25 @@ export function createCentralResolver(
               `Resolved ${entry.name}@${entry.version} but its cache entry was not found; cannot publish blob.`,
             );
           }
-          const blob = await packDir(loc);
+          // Bundle the package's registry manifest-cache sidecar(s) into the
+          // blob: Bun >= 1.4 needs them to resolve versions during
+          // `bun install --offline` on hosts (absent on older Bun - the blob
+          // then simply stays entry-dir-only, as before). Sidecars live at
+          // the cache ROOT (also for scoped packages, whose entry dir sits
+          // under `<cacheDir>/@scope/`), so the tar's cwd is the cache dir
+          // and the entry is expressed relative to it.
+          const sidecars = await findManifestSidecars({
+            cacheDir,
+            name: entry.name,
+          });
+          const entryRelPath = path.relative(
+            cacheDir,
+            path.join(loc.parentDir, loc.entryName),
+          );
+          const blob = await packEntries({
+            parentDir: cacheDir,
+            entryNames: [entryRelPath, ...sidecars],
+          });
           resolved.push({ entry, blob });
         }
 

@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { packDir, unpackInto } from "./cache-archive";
+import { packDir, packEntries, unpackInto } from "./cache-archive";
 
 /** Build a gzip tar whose single entry is `entryName` (allowing `..`/abs). */
 async function makeArchiveWithEntry(
@@ -65,6 +65,42 @@ describe("cache-archive pack/unpack", () => {
     expect(await readFile(path.join(dest, entry, "sub", "x.txt"), "utf8")).toBe(
       "deep\n",
     );
+  });
+
+  test("packEntries round-trips a dir plus root-level sidecar files", async () => {
+    // Mirrors the real blob shape: a cache entry dir + Bun's `<hash>.npm`
+    // registry manifest-cache sidecars at the cache root.
+    const src = path.join(work, "cache");
+    const entry = "pkg@2.0.0@@@1";
+    await mkdir(path.join(src, entry), { recursive: true });
+    await writeFile(path.join(src, entry, "package.json"), '{"name":"pkg"}\n');
+    await writeFile(path.join(src, "ab12.npm"), "manifest-bytes-for-pkg\n");
+    await writeFile(path.join(src, "cd34.npm"), "second-registry-packument\n");
+
+    const blob = await packEntries({
+      parentDir: src,
+      entryNames: [entry, "ab12.npm", "cd34.npm"],
+    });
+
+    const dest = path.join(work, "dest");
+    await mkdir(dest, { recursive: true });
+    await unpackInto({ targetDir: dest, bytes: blob });
+
+    expect(
+      await readFile(path.join(dest, entry, "package.json"), "utf8"),
+    ).toBe('{"name":"pkg"}\n');
+    expect(await readFile(path.join(dest, "ab12.npm"), "utf8")).toBe(
+      "manifest-bytes-for-pkg\n",
+    );
+    expect(await readFile(path.join(dest, "cd34.npm"), "utf8")).toBe(
+      "second-registry-packument\n",
+    );
+  });
+
+  test("packEntries throws on an empty entry list", async () => {
+    await expect(
+      packEntries({ parentDir: work, entryNames: [] }),
+    ).rejects.toThrow(/at least one entry/i);
   });
 
   test("throws on a corrupt archive", async () => {
