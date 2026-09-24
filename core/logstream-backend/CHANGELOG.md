@@ -1,5 +1,17 @@
 # @checkstack/logstream-backend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/ai-backend@0.11.9
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/telemetry-backend@0.2.4
+  - @checkstack/satellite-backend@0.10.4
+
 ## 0.4.5
 
 ### Patch Changes

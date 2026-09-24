@@ -1,5 +1,14 @@
 # @checkstack/integration-webhook-backend
 
+## 0.1.44
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/automation-backend@0.11.13
+
 ## 0.1.43
 
 ### Patch Changes

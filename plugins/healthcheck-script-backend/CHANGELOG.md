@@ -1,5 +1,15 @@
 # @checkstack/healthcheck-script-backend
 
+## 0.10.6
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+- Updated dependencies [b8a00da]
+  - @checkstack/backend-api@0.35.3
+  - @checkstack/script-packages-backend@0.4.10
+
 ## 0.10.5
 
 ### Patch Changes

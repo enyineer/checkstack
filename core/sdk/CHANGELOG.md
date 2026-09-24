@@ -1,5 +1,12 @@
 # @checkstack/sdk
 
+## 0.140.1
+
+### Patch Changes
+
+- Updated dependencies [b8a00da]
+  - @checkstack/pluginmanager-common@0.3.0
+
 ## 0.139.1
 
 ### Patch Changes

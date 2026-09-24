@@ -1,5 +1,11 @@
 # @checkstack/tracestream-frontend
 
+## 0.2.4
+
+### Patch Changes
+
+- @checkstack/healthcheck-frontend@0.40.2
+
 ## 0.2.3
 
 ### Patch Changes
