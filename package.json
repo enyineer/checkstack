@@ -84,11 +84,7 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.1",
-    "undici": "^7.29.0",
-    "astro": "^7.2.8",
-    "devalue": "^5.9.2",
-    "sharp": "^0.35.4",
-    "svgo": "^4.1.0"
+    "undici": "^7.29.0"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -104,10 +100,6 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.1",
-    "undici": "^7.29.0",
-    "astro": "^7.2.8",
-    "devalue": "^5.9.2",
-    "sharp": "^0.35.4",
-    "svgo": "^4.1.0"
+    "undici": "^7.29.0"
   }
 }
