@@ -2100,7 +2100,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.140.1",
+      "version": "0.141.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -3601,8 +3601,6 @@
     "@astrojs/markdown-remark": "^7.2.0",
     "@types/node": "^26.2.0",
     "adm-zip": "^0.6.1",
-    "astro": "^7.2.8",
-    "devalue": "^5.9.2",
     "dompurify": "^3.4.13",
     "drizzle-kit": ">=0.31.0 <1.0.0",
     "drizzle-orm": "^0.45.0",
@@ -3611,8 +3609,6 @@
     "postcss-selector-parser": "^7.1.4",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "sharp": "^0.35.4",
-    "svgo": "^4.1.0",
     "undici": "^7.29.0",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
