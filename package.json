@@ -84,7 +84,9 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.1",
-    "undici": "^7.29.0"
+    "undici": "^7.29.1",
+    "brace-expansion": "^5.0.12",
+    "fast-uri": "^3.1.8"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -100,6 +102,8 @@
     "postcss-selector-parser": "^7.1.4",
     "@astrojs/markdown-remark": "^7.2.0",
     "adm-zip": "^0.6.1",
-    "undici": "^7.29.0"
+    "undici": "^7.29.1",
+    "brace-expansion": "^5.0.12",
+    "fast-uri": "^3.1.8"
   }
 }
