@@ -18,7 +18,7 @@
       "removeWhen": "vscode-languageclient (via monaco-languageclient) widens its minimatch range to a fixed release, or no dependency resolves minimatch below 10.2.5."
     },
     "postcss-selector-parser": {
-      "safeFloor": "7.1.4",
+      "safeFloor": "7.1.6",
       "severity": "MEDIUM",
       "advisory": "Trivy fs scan 2026-06: postcss-selector-parser 6.1.2 (MEDIUM)",
       "reason": "Transitive build-tooling dependency (postcss) pulled 6.1.2; 7.1.4 is the fixed release. Build-time only (not in the production runtime image).",
@@ -58,12 +58,60 @@
       "removeWhen": "No dependency resolves below 0.6.0 without this override."
     },
     "undici": {
-      "safeFloor": "7.29.0",
+      "safeFloor": "7.29.1",
       "severity": "HIGH",
       "advisory": "CVE-2026-13697, CVE-2026-14643, CVE-2026-15157, CVE-2026-16728, CVE-2026-16729",
       "reason": "Auto-remediated by Security Maintenance: undici 7.28.0 had fixable advisories; pinned to the fixed 7.x line.",
       "addedAt": "2026-08-23",
       "removeWhen": "No dependency resolves below 7.29.0 without this override."
+    },
+    "brace-expansion": {
+      "safeFloor": "5.0.12",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-102276, CVE-2026-102277, CVE-2026-102278",
+      "reason": "Auto-remediated by Security Maintenance: brace-expansion 5.0.9 had fixable advisories; pinned to the fixed 5.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 5.0.12 without this override."
+    },
+    "fast-uri": {
+      "safeFloor": "3.1.8",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-84292, CVE-2026-84394, CVE-2026-86472",
+      "reason": "Auto-remediated by Security Maintenance: fast-uri 3.1.6 had fixable advisories; pinned to the fixed 3.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 3.1.8 without this override."
+    },
+    "sharp": {
+      "safeFloor": "0.35.5",
+      "severity": "HIGH",
+      "advisory": "GHSA-wq5f-xc86-pv6w",
+      "reason": "Auto-remediated by Security Maintenance: sharp 0.35.4 had fixable advisories; pinned to the fixed 0.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 0.35.5 without this override."
+    },
+    "shell-quote": {
+      "safeFloor": "1.11.0",
+      "severity": "CRITICAL",
+      "advisory": "CVE-2026-102422",
+      "reason": "Auto-remediated by Security Maintenance: shell-quote 1.10.0 had fixable advisories; pinned to the fixed 1.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 1.11.0 without this override."
+    },
+    "smol-toml": {
+      "safeFloor": "1.9.0",
+      "severity": "MEDIUM",
+      "advisory": "GHSA-r4xh-jqrq-34v2",
+      "reason": "Auto-remediated by Security Maintenance: smol-toml 1.8.0 had fixable advisories; pinned to the fixed 1.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 1.9.0 without this override."
+    },
+    "source-map-js": {
+      "safeFloor": "1.2.2",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-93749",
+      "reason": "Auto-remediated by Security Maintenance: source-map-js 1.2.1 had fixable advisories; pinned to the fixed 1.x line.",
+      "addedAt": "2026-10-10",
+      "removeWhen": "No dependency resolves below 1.2.2 without this override."
     }
   },
   "intentional": {
