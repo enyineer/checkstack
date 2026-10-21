@@ -40,6 +40,6 @@
     "@checkstack/scripts": "workspace:*",
     "@module-federation/vite": "1.16.15",
     "@vitejs/plugin-react": "^6.0.2",
-    "vite": "^8.0.16"
+    "vite": "^8.2.4"
   }
 }
