@@ -71,9 +71,9 @@
         "@checkstack/drizzle-helper": "workspace:*",
         "@checkstack/integration-backend": "workspace:*",
         "@checkstack/sdk": "workspace:*",
-        "@orpc/client": "^1.14.4",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "ai": "^6.0.194",
         "drizzle-orm": "^0.45.0",
         "yaml": "^2.6.1",
@@ -94,7 +94,7 @@
       "version": "0.6.8",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -137,7 +137,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/status-page-backend": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -157,7 +157,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -214,8 +214,8 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
         "zod": "^4.2.1",
@@ -318,7 +318,7 @@
         "@checkstack/command-backend": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "better-auth": "^1.7.1",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
@@ -342,7 +342,7 @@
       "version": "0.17.1",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -399,7 +399,7 @@
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "yaml": "^2.6.1",
         "zod": "^4.2.1",
@@ -427,7 +427,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -489,18 +489,18 @@
         "@opentelemetry/exporter-prometheus": "^0.220.0",
         "@opentelemetry/resources": "^2.9.0",
         "@opentelemetry/sdk-metrics": "^2.9.0",
-        "@orpc/client": "^1.14.4",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/contract": "^1.15.7",
         "@orpc/json-schema": "^1.14.4",
         "@orpc/openapi": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "@orpc/zod": "^1.14.4",
         "better-auth": "^1.7.1",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
         "jose": "^6.2.3",
         "pg": "^8.11.0",
-        "semver": "^7.8.1",
+        "semver": "^7.8.5",
         "tar": "^7.5.21",
         "winston": "^3.19.0",
         "zod": "^4.2.1",
@@ -526,10 +526,10 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
         "@opentelemetry/api": "^1.9.1",
-        "@orpc/client": "^1.14.4",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/contract": "^1.15.7",
         "@orpc/openapi": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "@orpc/zod": "^1.14.4",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
@@ -549,7 +549,7 @@
       },
       "peerDependencies": {
         "drizzle-orm": "^0.45.0",
-        "hono": "^4.13.5",
+        "hono": "^4.13.13",
       },
     },
     "core/cache-api": {
@@ -572,7 +572,7 @@
         "@checkstack/cache-api": "workspace:*",
         "@checkstack/cache-common": "workspace:*",
         "@checkstack/common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -586,7 +586,7 @@
       "version": "0.5.13",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -646,8 +646,8 @@
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
         "uuid": "^14.0.0",
@@ -673,7 +673,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -719,7 +719,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/command-common": "workspace:*",
         "@checkstack/common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -735,7 +735,7 @@
       "version": "0.4.0",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -767,7 +767,7 @@
       "name": "@checkstack/common",
       "version": "0.24.0",
       "dependencies": {
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "lucide-react": "^1.17.0",
         "zod": "^4.0.0",
       },
@@ -845,8 +845,8 @@
         "@checkstack/maintenance-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -869,7 +869,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -979,7 +979,7 @@
         "@checkstack/ui": "workspace:*",
         "@module-federation/runtime": "2.7.0",
         "@module-federation/vite": "1.16.15",
-        "@orpc/client": "^1.14.4",
+        "@orpc/client": "1.15.0",
         "@tanstack/react-query": "^5.100.14",
         "@tanstack/react-query-devtools": "^5.100.14",
         "autoprefixer": "^10.4.18",
@@ -1012,8 +1012,8 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/client": "^1.14.4",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/contract": "^1.15.7",
         "@orpc/tanstack-query": "^1.14.4",
         "@tanstack/react-query": "^5.100.14",
       },
@@ -1038,7 +1038,7 @@
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/secrets-backend": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "minimatch": "^10.0.0",
         "uuid": "^14.0.0",
@@ -1061,7 +1061,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -1123,8 +1123,8 @@
         "@checkstack/status-page-backend": "workspace:*",
         "@checkstack/status-page-common": "workspace:*",
         "@hono/zod-validator": "^0.7.6",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.13.13",
         "jsonpath-plus": "^10.4.0",
@@ -1237,8 +1237,8 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/status-page-backend": "workspace:*",
         "@checkstack/status-page-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1263,7 +1263,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -1360,7 +1360,7 @@
         "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1380,7 +1380,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -1442,7 +1442,7 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-backend": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1523,8 +1523,8 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/status-page-backend": "workspace:*",
         "@checkstack/status-page-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1549,7 +1549,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -1606,8 +1606,8 @@
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-backend": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
-        "@orpc/client": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1681,7 +1681,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1701,7 +1701,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -1797,7 +1797,7 @@
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/queue-common": "workspace:*",
         "@hono/zod-validator": "^0.4.1",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "hono": "^4.13.13",
         "zod": "^4.0.0",
       },
@@ -1813,7 +1813,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -1899,7 +1899,7 @@
         "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -1924,7 +1924,7 @@
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -1992,7 +1992,7 @@
         "@checkstack/sdk": "workspace:*",
         "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.0.0",
       },
@@ -2009,7 +2009,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -2125,7 +2125,7 @@
         "@checkstack/slo-common": "workspace:*",
         "@checkstack/theme-common": "workspace:*",
         "@checkstack/tips-common": "workspace:*",
-        "@orpc/client": "^1.14.4",
+        "@orpc/client": "1.15.0",
         "@orpc/openapi-client": "^1.14.3",
       },
       "devDependencies": {
@@ -2142,7 +2142,7 @@
         "@checkstack/command-backend": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "uuid": "^14.0.0",
         "zod": "^4.2.1",
@@ -2214,7 +2214,7 @@
       "version": "0.3.4",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2311,8 +2311,8 @@
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/slo-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -2334,7 +2334,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2381,8 +2381,8 @@
         "@checkstack/notification-backend": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/status-page-common": "workspace:*",
-        "@orpc/client": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -2404,7 +2404,7 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2455,8 +2455,8 @@
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
-        "@orpc/client": "^1.14.4",
-        "@orpc/server": "^1.14.4",
+        "@orpc/client": "1.15.0",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.1",
         "zod": "^4.2.1",
       },
@@ -2573,7 +2573,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/theme-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -2592,7 +2592,7 @@
       "version": "0.2.13",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -2628,7 +2628,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/tips-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.2.1",
       },
@@ -2647,7 +2647,7 @@
       "version": "0.3.13",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.14.4",
+        "@orpc/contract": "^1.15.7",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -2695,7 +2695,7 @@
         "@checkstack/telemetry-backend": "workspace:*",
         "@checkstack/telemetry-common": "workspace:*",
         "@checkstack/tracestream-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "drizzle-orm": "^0.45.1",
         "zod": "^4.2.1",
       },
@@ -3281,7 +3281,7 @@
         "@checkstack/integration-backend": "workspace:*",
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/integration-jira-common": "workspace:*",
-        "@orpc/server": "^1.14.4",
+        "@orpc/server": "1.15.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -3599,6 +3599,13 @@
   },
   "overrides": {
     "@astrojs/markdown-remark": "^7.2.0",
+    "@orpc/client": "1.15.0",
+    "@orpc/contract": "^1.15.7",
+    "@orpc/server": "1.15.0",
+    "@orpc/shared": "1.15.0",
+    "@orpc/standard-server": "1.15.0",
+    "@orpc/standard-server-fetch": "1.15.0",
+    "@orpc/standard-server-peer": "1.15.0",
     "@types/node": "^26.2.0",
     "adm-zip": "^0.6.1",
     "dompurify": "^3.4.13",
@@ -4578,7 +4585,7 @@
 
     "@opentui/react": ["@opentui/react@0.4.2", "", { "dependencies": { "@opentui/core": "0.4.2", "react-reconciler": "^0.33.0" }, "peerDependencies": { "react": ">=19.2.0", "react-devtools-core": "^7.0.1", "ws": "^8.18.0" } }, "sha512-SsteuclEw72gUBzp/mZjADSNS1jJJr4htB89euicn+Atl62ZvO22wuLE9hBFDCpumtgG3sbSe+7XtV6vW1orXA=="],
 
-    "@orpc/client": ["@orpc/client@1.15.7", "", { "dependencies": { "@orpc/shared": "1.15.7", "@orpc/standard-server": "1.15.7", "@orpc/standard-server-fetch": "1.15.7", "@orpc/standard-server-peer": "1.15.7" } }, "sha512-Lkqy8CpuNO+1Xq2Fv/a0Gurekwf8UPMoI7RnG/iqW998zZkQIitAwtqYjZ/3JmIckFHJudThdh42SjDB+eMxdg=="],
+    "@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
 
     "@orpc/contract": ["@orpc/contract@1.15.7", "", { "dependencies": { "@orpc/client": "1.15.7", "@orpc/shared": "1.15.7", "@standard-schema/spec": "^1.1.0", "openapi-types": "^12.1.3" } }, "sha512-odDdWRjfQggsiO40OZbITnDC92RGJ3hG3NVK6Uzn5lL2QHFw6OQbBX96hfm/quoJL3MfaXsAjVKPYgflCQRt7w=="],
 
@@ -4592,19 +4599,19 @@
 
     "@orpc/server": ["@orpc/server@1.15.0", "", { "dependencies": { "@orpc/client": "1.15.0", "@orpc/contract": "1.15.0", "@orpc/interop": "1.15.0", "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-aws-lambda": "1.15.0", "@orpc/standard-server-fastify": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-node": "1.15.0", "@orpc/standard-server-peer": "1.15.0", "cookie": "^1.1.1" }, "peerDependencies": { "crossws": ">=0.3.4", "ws": ">=8.18.1" }, "optionalPeers": ["crossws", "ws"] }, "sha512-l9FnL1MjQ8g77mB10/8D61okuKHLJBWhuwmd6OF65POHzBF177kMCcbHvRFEqUuxSbzP2eNiZGf3kXPMHmIKiQ=="],
 
-    "@orpc/shared": ["@orpc/shared@1.15.7", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-GbrRsaMNb2vt1R/zvVyBxxNNnAP3n2wx6G2mU23yQfmt349EuqAf2R/U6IERbRhbbc1VcXsBPWnWj21LzaKsdg=="],
+    "@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
 
-    "@orpc/standard-server": ["@orpc/standard-server@1.15.7", "", { "dependencies": { "@orpc/shared": "1.15.7" } }, "sha512-iKfg90hyYhbS06C7adQxPAx+M/NLsWFjsQ7JGD6NFdmxOPhSueKrQUuQPQrDjwY482ivjxNbUFrLiOg44P97vA=="],
+    "@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
 
     "@orpc/standard-server-aws-lambda": ["@orpc/standard-server-aws-lambda@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-node": "1.15.0" } }, "sha512-laFW7C4t1gEV0NIt4EjCVCBU3kFPnj2FObJLQkTH+DkEOzxVy6zyJ1coIncDSeOPxzbf7rG8cs0B2vQQyuROag=="],
 
     "@orpc/standard-server-fastify": ["@orpc/standard-server-fastify@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-node": "1.15.0" }, "peerDependencies": { "fastify": ">=5.6.1" }, "optionalPeers": ["fastify"] }, "sha512-fcOl2004o3RnZxW7rhLuDCrCKSi/H2eWnyljeeoY+xykcygRf0ONCs2K2bSdxPm6cmvQGAXa9m8VBglG9oERVQ=="],
 
-    "@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.7", "", { "dependencies": { "@orpc/shared": "1.15.7", "@orpc/standard-server": "1.15.7" } }, "sha512-6wz3nNLUUiRFgMoG9Mrmpplwe1H7n5SuQu3QWpp8ykEjzogkFVlcXhpFkjRu6xATpXqDshyVlD/ESAc7MbLJtg=="],
+    "@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
 
     "@orpc/standard-server-node": ["@orpc/standard-server-node@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0" } }, "sha512-3ye9SIIhYfJckQwyyGQQRHAEF5vW6QDbax7oi1mOQ9UBHaRDH5kcL28mT0JnETrUvgBoDRx+rfCsQaAOB4n3zw=="],
 
-    "@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.7", "", { "dependencies": { "@orpc/shared": "1.15.7", "@orpc/standard-server": "1.15.7" } }, "sha512-5SSPCAaigRSy3Ba2Rtj/WVfHvxvRNdKScPN4a7UP3a/Hnqfca1BRy8/ZvkpCjrt2UCzm3oPm2TlHW+LZ1Zvfdw=="],
+    "@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
 
     "@orpc/tanstack-query": ["@orpc/tanstack-query@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" }, "peerDependencies": { "@orpc/client": "1.15.0", "@tanstack/query-core": ">=5.80.2" } }, "sha512-Dp2JXqdmmRjBQu21Cq6oGBhxJF0Gel5ao5qMdOSYpVb5RjdqAEaXsDO9VMj1nEj6SseKGfm9pk10ZIskuI1jjg=="],
 
@@ -7044,60 +7051,6 @@
 
     "@opentui/core/marked": ["marked@17.0.1", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-boeBdiS0ghpWcSwoNm/jJBwdpFaMnZWRzjA6SkUMYb40SVaN1x7mmfGKp0jvexGcx+7y2La5zRZsYFZI6Qpypg=="],
 
-    "@orpc/json-schema/@orpc/contract": ["@orpc/contract@1.15.0", "", { "dependencies": { "@orpc/client": "1.15.0", "@orpc/shared": "1.15.0", "@standard-schema/spec": "^1.1.0", "openapi-types": "^12.1.3" } }, "sha512-zo8+x+5iqnIMrFdcj+ibVgn6dJneWzLNcD3kZQxrJFGFNAFoxvZbwryR5wOdcHkaSCeS3N7Ib2NydU6pihSYmg=="],
-
-    "@orpc/json-schema/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/openapi/@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
-
-    "@orpc/openapi/@orpc/contract": ["@orpc/contract@1.15.0", "", { "dependencies": { "@orpc/client": "1.15.0", "@orpc/shared": "1.15.0", "@standard-schema/spec": "^1.1.0", "openapi-types": "^12.1.3" } }, "sha512-zo8+x+5iqnIMrFdcj+ibVgn6dJneWzLNcD3kZQxrJFGFNAFoxvZbwryR5wOdcHkaSCeS3N7Ib2NydU6pihSYmg=="],
-
-    "@orpc/openapi/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/openapi/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/openapi-client/@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
-
-    "@orpc/openapi-client/@orpc/contract": ["@orpc/contract@1.15.0", "", { "dependencies": { "@orpc/client": "1.15.0", "@orpc/shared": "1.15.0", "@standard-schema/spec": "^1.1.0", "openapi-types": "^12.1.3" } }, "sha512-zo8+x+5iqnIMrFdcj+ibVgn6dJneWzLNcD3kZQxrJFGFNAFoxvZbwryR5wOdcHkaSCeS3N7Ib2NydU6pihSYmg=="],
-
-    "@orpc/openapi-client/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/openapi-client/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/server/@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
-
-    "@orpc/server/@orpc/contract": ["@orpc/contract@1.15.0", "", { "dependencies": { "@orpc/client": "1.15.0", "@orpc/shared": "1.15.0", "@standard-schema/spec": "^1.1.0", "openapi-types": "^12.1.3" } }, "sha512-zo8+x+5iqnIMrFdcj+ibVgn6dJneWzLNcD3kZQxrJFGFNAFoxvZbwryR5wOdcHkaSCeS3N7Ib2NydU6pihSYmg=="],
-
-    "@orpc/server/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/server/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/server/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/server/@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
-
-    "@orpc/standard-server-aws-lambda/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/standard-server-aws-lambda/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/standard-server-aws-lambda/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/standard-server-fastify/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/standard-server-fastify/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/standard-server-node/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/standard-server-node/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/standard-server-node/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/tanstack-query/@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
-
-    "@orpc/tanstack-query/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
-    "@orpc/zod/@orpc/shared": ["@orpc/shared@1.15.0", "", { "dependencies": { "radash": "^12.1.1", "type-fest": "^5.4.4" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-A3/JE7pQYSrrRm6/WYJxV3GBhpMdJRPM3h47slQtWBUZe9Sao5En5WBc4tISGQNP2emcez6qIvDziSgD2T+img=="],
-
     "@orpc/zod/escape-string-regexp": ["escape-string-regexp@5.0.0", "", {}, "sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw=="],
 
     "@oxc-parser/binding-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.9.2", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.1", "tslib": "^2.4.0" } }, "sha512-UC+ZhH3XtczQYfOlu3lNEkdW/p4dsJ1r/bP7H8+rhao3TTTMO1ATq/4DdIi23XuGoFY+Cz0JmCbdVl0hz9jZcA=="],
@@ -7428,22 +7381,6 @@
 
     "@opentelemetry/exporter-prometheus/@opentelemetry/sdk-metrics/@opentelemetry/api": ["@opentelemetry/api@1.9.1", "", {}, "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="],
 
-    "@orpc/json-schema/@orpc/contract/@orpc/client": ["@orpc/client@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0", "@orpc/standard-server-fetch": "1.15.0", "@orpc/standard-server-peer": "1.15.0" } }, "sha512-Qt0FdPSGySdQwy83iUWOq+Iqhw2gM9qHtyxfBbcw1mwOz1s4O2BwUFA3ymVTLIRRNYRgPrQLaBZhp8CacqeePg=="],
-
-    "@orpc/openapi-client/@orpc/client/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/openapi-client/@orpc/client/@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
-
-    "@orpc/openapi/@orpc/client/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/openapi/@orpc/client/@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
-
-    "@orpc/tanstack-query/@orpc/client/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/tanstack-query/@orpc/client/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/tanstack-query/@orpc/client/@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
-
     "@oxc-parser/binding-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 
     "@oxc-resolver/binding-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
@@ -7593,12 +7530,6 @@
     "@grpc/proto-loader/yargs/string-width/strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "@manypkg/find-root/find-up/locate-path/p-locate": ["p-locate@4.1.0", "", { "dependencies": { "p-limit": "^2.2.0" } }, "sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A=="],
-
-    "@orpc/json-schema/@orpc/contract/@orpc/client/@orpc/standard-server": ["@orpc/standard-server@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0" } }, "sha512-bje/xn6thDqJY/JQ7xoOjmD1KWE4FsyZOPgnPxwqTZLx/r00stRhLuFvk1hDEGj9UlG7NLZEijDVx0wqvcyDzA=="],
-
-    "@orpc/json-schema/@orpc/contract/@orpc/client/@orpc/standard-server-fetch": ["@orpc/standard-server-fetch@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-XYVfgmIt71YrPJSI7RKRiNWjcyktPYHpevkjeohGNBP5aSMAUL95quZArAWr+XOPp4U56XRao54I6wFMZa4How=="],
-
-    "@orpc/json-schema/@orpc/contract/@orpc/client/@orpc/standard-server-peer": ["@orpc/standard-server-peer@1.15.0", "", { "dependencies": { "@orpc/shared": "1.15.0", "@orpc/standard-server": "1.15.0" } }, "sha512-fsTN+FrdPkseVx99yRenGJYSp0xOrEk9fODk8oh3zzricNYzlZ8GGgCYtDNgt9vFIR/J05dc+Nk76KhcPBQpLw=="],
 
     "archiver-utils/glob/path-scurry/lru-cache": ["lru-cache@10.4.3", "", {}, "sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ=="],
 

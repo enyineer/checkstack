@@ -23,7 +23,7 @@
     "@checkstack/integration-jira-common": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.14.4",
+    "@orpc/server": "1.15.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {

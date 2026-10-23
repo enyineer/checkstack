@@ -23,7 +23,7 @@
     "hono": "^4.13.13",
     "zod": "^4.0.0",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.14.4"
+    "@orpc/server": "1.15.0"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",

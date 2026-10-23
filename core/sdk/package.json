@@ -50,7 +50,7 @@
     "@checkstack/slo-common": "workspace:*",
     "@checkstack/theme-common": "workspace:*",
     "@checkstack/tips-common": "workspace:*",
-    "@orpc/client": "^1.14.4",
+    "@orpc/client": "1.15.0",
     "@orpc/openapi-client": "^1.14.3"
   },
   "devDependencies": {

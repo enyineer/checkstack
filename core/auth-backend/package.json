@@ -29,7 +29,7 @@
     "jose": "^6.2.3",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.14.4"
+    "@orpc/server": "1.15.0"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",

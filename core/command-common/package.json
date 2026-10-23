@@ -12,7 +12,7 @@
     }
   },
   "dependencies": {
-    "@orpc/contract": "^1.14.4",
+    "@orpc/contract": "^1.15.7",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*"
   },

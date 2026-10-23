@@ -16,7 +16,7 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
-    "@orpc/contract": "^1.14.4",
+    "@orpc/contract": "^1.15.7",
     "zod": "^4.2.1"
   },
   "devDependencies": {

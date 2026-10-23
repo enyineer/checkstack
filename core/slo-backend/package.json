@@ -36,8 +36,8 @@
     "@checkstack/queue-api": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
-    "@orpc/contract": "^1.14.4",
-    "@orpc/server": "^1.14.4"
+    "@orpc/contract": "^1.15.7",
+    "@orpc/server": "1.15.0"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
