@@ -1,5 +1,6 @@
 import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
+import type { BetterAuthPlugin } from "better-auth/types";
 import * as socialProviderFactories from "better-auth/social-providers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthEndpoint } from "better-auth/api";
@@ -672,7 +673,12 @@ export default createBackendPlugin({
                 },
               },
             },
-            plugins: [checkstackBridge, ...aiOAuthPlugins],
+            // better-auth 1.7.1's own plugin factory return types don't
+            // structurally satisfy its BetterAuthPlugin interface under
+            // tsgo (init() inference); runtime is unaffected. Cast until
+            // the better-auth family upgrade lands (see the
+            // @better-auth/oauth-provider hold in managed-overrides.json).
+            plugins: [checkstackBridge, ...aiOAuthPlugins] as BetterAuthPlugin[],
           };
 
           return betterAuth(authOptions);
