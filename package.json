@@ -91,7 +91,8 @@
     "@orpc/shared": "1.15.0",
     "@orpc/standard-server": "1.15.0",
     "@orpc/standard-server-fetch": "1.15.0",
-    "@orpc/standard-server-peer": "1.15.0"
+    "@orpc/standard-server-peer": "1.15.0",
+    "@better-auth/oauth-provider": "1.7.1"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -114,6 +115,7 @@
     "@orpc/shared": "1.15.0",
     "@orpc/standard-server": "1.15.0",
     "@orpc/standard-server-fetch": "1.15.0",
-    "@orpc/standard-server-peer": "1.15.0"
+    "@orpc/standard-server-peer": "1.15.0",
+    "@better-auth/oauth-provider": "1.7.1"
   }
 }
