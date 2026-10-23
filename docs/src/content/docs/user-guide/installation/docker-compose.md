@@ -110,13 +110,16 @@ Generate the secrets and write them in one shot:
 ```bash
 cat > .env << EOF
 POSTGRES_USER=checkstack
-POSTGRES_PASSWORD=$(openssl rand -base64 24)
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_DB=checkstack
 ENCRYPTION_MASTER_KEY=$(openssl rand -hex 32)
 BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 BASE_URL=http://localhost:3000
 EOF
 ```
+
+> [!NOTE]
+> `POSTGRES_PASSWORD` is generated with `rand -hex` rather than `rand -base64` on purpose: `docker-compose.yml` interpolates the value into a `postgresql://` connection string, and base64 output can contain `+`, `/`, and `=`, which break URI parsing and crash the first migration run. Hex output (`0-9a-f`) is URL-safe and carries the same entropy (24 bytes = 192 bits).
 
 > [!CAUTION]
 > Do not commit `.env` to version control. Add it to `.gitignore`. Losing `ENCRYPTION_MASTER_KEY` makes every encrypted secret in the database unrecoverable.
