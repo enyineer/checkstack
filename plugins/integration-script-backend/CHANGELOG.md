@@ -1,5 +1,15 @@
 # @checkstack/integration-script-backend
 
+## 0.6.42
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/backend-api@0.35.4
+  - @checkstack/automation-backend@0.11.14
+  - @checkstack/secrets-backend@0.3.14
+  - @checkstack/script-packages-backend@0.4.11
+
 ## 0.6.41
 
 ### Patch Changes

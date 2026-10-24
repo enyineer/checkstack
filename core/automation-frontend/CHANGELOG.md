@@ -1,5 +1,16 @@
 # @checkstack/automation-frontend
 
+## 0.13.5
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/ui@1.33.2
+  - @checkstack/auth-frontend@0.16.4
+  - @checkstack/gitops-frontend@0.8.4
+  - @checkstack/script-packages-frontend@0.5.5
+  - @checkstack/secrets-frontend@0.4.4
+
 ## 0.13.4
 
 ### Patch Changes

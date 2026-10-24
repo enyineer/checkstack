@@ -1,5 +1,14 @@
 # @checkstack/integration-teams-backend
 
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/backend-api@0.35.4
+  - @checkstack/automation-backend@0.11.14
+  - @checkstack/integration-backend@0.7.14
+
 ## 0.2.31
 
 ### Patch Changes

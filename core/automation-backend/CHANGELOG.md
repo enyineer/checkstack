@@ -1,5 +1,16 @@
 # @checkstack/automation-backend
 
+## 0.11.14
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/backend-api@0.35.4
+  - @checkstack/ai-backend@0.11.10
+  - @checkstack/command-backend@0.3.4
+  - @checkstack/gitops-backend@0.5.32
+  - @checkstack/script-packages-backend@0.4.11
+
 ## 0.11.13
 
 ### Patch Changes

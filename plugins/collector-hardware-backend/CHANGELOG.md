@@ -1,5 +1,12 @@
 # @checkstack/collector-hardware-backend
 
+## 0.1.71
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/backend-api@0.35.4
+
 ## 0.1.70
 
 ### Patch Changes
