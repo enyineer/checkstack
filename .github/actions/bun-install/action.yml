@@ -10,11 +10,7 @@ runs:
     - name: Setup Bun
       uses: oven-sh/setup-bun@v2
       with:
-        # Pinned, NOT `latest`: bun 1.4.4 (2026-10-22) changed offline-cache
-        # manifest handling, breaking the hermetic script-packages fixture
-        # (`no cached manifest for "leftpad"`) in the Test lane. Bump this in
-        # lockstep with regenerating that fixture blob.
-        bun-version: 1.4.2
+        bun-version: latest
 
     # Cache Bun's GLOBAL package store, not node_modules. bun install still
     # links the workspace, but the slow part — downloading + extracting every
