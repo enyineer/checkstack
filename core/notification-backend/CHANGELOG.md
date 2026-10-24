@@ -1,5 +1,15 @@
 # @checkstack/notification-backend
 
+## 1.8.12
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/auth-backend@0.14.4
+  - @checkstack/backend-api@0.35.4
+  - @checkstack/automation-backend@0.11.14
+  - @checkstack/command-backend@0.3.4
+
 ## 1.8.11
 
 ### Patch Changes

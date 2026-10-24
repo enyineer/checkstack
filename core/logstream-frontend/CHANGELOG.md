@@ -1,5 +1,16 @@
 # @checkstack/logstream-frontend
 
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/ui@1.33.2
+  - @checkstack/auth-frontend@0.16.4
+  - @checkstack/catalog-frontend@0.22.4
+  - @checkstack/healthcheck-frontend@0.40.3
+  - @checkstack/telemetry-frontend@0.2.4
+
 ## 0.4.4
 
 ### Patch Changes

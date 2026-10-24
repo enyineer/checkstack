@@ -1,5 +1,13 @@
 # @checkstack/status-page-frontend
 
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/ui@1.33.2
+  - @checkstack/auth-frontend@0.16.4
+
 ## 0.10.1
 
 ### Patch Changes

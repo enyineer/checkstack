@@ -1,5 +1,15 @@
 # @checkstack/tracestream-backend
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [34f82c1]
+  - @checkstack/backend-api@0.35.4
+  - @checkstack/telemetry-backend@0.2.5
+  - @checkstack/ai-backend@0.11.10
+  - @checkstack/satellite-backend@0.10.5
+
 ## 0.1.6
 
 ### Patch Changes

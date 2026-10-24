@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.142.0
+
+### Minor Changes
+
+- 34f82c1: Security: remediate all fixable vulnerabilities flagged by the daily scan (#519).
+
+  Lock-file refresh within existing curated ranges clears most findings (vite, undici, sharp, dompurify, fast-uri, brace-expansion, smol-toml, source-map-js, postcss-selector-parser, shell-quote, handlebars, @grpc/grpc-js, hono, storybook, sanitize-html). One curated range change: `nodemailer` 9 → 10 in `@checkstack/notification-smtp-backend` (all fixes for its 5 advisories live on the 10.x line; the plugin only uses `createTransport`/`Transporter`, verified against 10.1.7). Range floors re-pinned to the resolved minimums by `bun update -r`. Trivy fs scan now reports zero fixable findings.
+
 ## 0.141.0
 
 ### Minor Changes
