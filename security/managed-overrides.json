@@ -90,6 +90,38 @@
     "@types/node": {
       "reason": "Bun 1.4's bun-types depends on @types/node with a wildcard range. The lock refresh otherwise combines Node 12, 18, 20, 24, and 26 ambient declarations; that mixed graph breaks tsgo's event-emitter types. Keep all consumers on the current Node 26 type line so the declarations merge consistently.",
       "addedAt": "2026-08-24"
+    },
+    "@orpc/client": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/contract": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/server": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/shared": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/standard-server": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/standard-server-fetch": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@orpc/standard-server-peer": {
+      "reason": "Hold the @orpc runtime line at 1.15.0: 1.15.1+ masks downstream ORPCError messages (clients see a generic 'Internal server error'), which breaks auth-error propagation through the /api dispatcher (auth-passthrough regression). Re-evaluate against orpc releases; lift once the dispatcher can re-expose defined downstream errors.",
+      "addedAt": "2026-10-23"
+    },
+    "@better-auth/oauth-provider": {
+      "reason": "Hold at 1.7.1 to keep the better-auth family on one line: oauth-provider 1.7.12 imports appendQueryParams from @better-auth/core, which better-auth@1.7.1's core pin does not export, crashing plugin discovery (maintenance-backend fails to load, E2E webServer dies). Lift when bumping better-auth + @better-auth/* together.",
+      "addedAt": "2026-10-23"
     }
   }
 }
