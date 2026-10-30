@@ -37,7 +37,7 @@
     "@orpc/openapi": "^1.14.4",
     "@orpc/server": "1.15.0",
     "@orpc/zod": "^1.14.4",
-    "better-auth": "^1.7.1",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.0",
     "hono": "^4.13.13",
     "jose": "^6.2.3",
