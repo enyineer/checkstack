@@ -92,7 +92,9 @@
     "@orpc/standard-server": "1.15.0",
     "@orpc/standard-server-fetch": "1.15.0",
     "@orpc/standard-server-peer": "1.15.0",
-    "@better-auth/oauth-provider": "1.7.1"
+    "@better-auth/oauth-provider": "1.7.1",
+    "astro": "^7.4.7",
+    "libslirp": "^4.9.7-r0"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -116,6 +118,8 @@
     "@orpc/standard-server": "1.15.0",
     "@orpc/standard-server-fetch": "1.15.0",
     "@orpc/standard-server-peer": "1.15.0",
-    "@better-auth/oauth-provider": "1.7.1"
+    "@better-auth/oauth-provider": "1.7.1",
+    "astro": "^7.4.7",
+    "libslirp": "^4.9.7-r0"
   }
 }

@@ -64,6 +64,22 @@
       "reason": "Auto-remediated by Security Maintenance: undici 7.28.0 had fixable advisories; pinned to the fixed 7.x line.",
       "addedAt": "2026-08-23",
       "removeWhen": "No dependency resolves below 7.29.0 without this override."
+    },
+    "astro": {
+      "safeFloor": "7.4.7",
+      "severity": "MEDIUM",
+      "advisory": "CVE-2026-126364",
+      "reason": "Auto-remediated by Security Maintenance: astro 7.3.3 had fixable advisories; pinned to the fixed 7.x line.",
+      "addedAt": "2026-11-28",
+      "removeWhen": "No dependency resolves below 7.4.7 without this override."
+    },
+    "libslirp": {
+      "safeFloor": "4.9.7-r0",
+      "severity": "MEDIUM",
+      "advisory": "CVE-2026-9539, CVE-2026-95507, CVE-2026-95508",
+      "reason": "Auto-remediated by Security Maintenance: libslirp 4.9.1-r0 had fixable advisories; pinned to the fixed 4.x line.",
+      "addedAt": "2026-11-28",
+      "removeWhen": "No dependency resolves below 4.9.7-r0 without this override."
     }
   },
   "intentional": {
